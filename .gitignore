@@ -1,5 +1,22 @@
+# Virtual env
 venv/
+# Python cache
 __pycache__/
+**/__pycache__/
+*.py[cod]
+# Logs and DB
 *.log
 *.db
+# System files
 .DS_Store
+# Secrets
+.env
+certs/
+backups/
+# IDE config
+.vscode/
+.idea/
+# Docker
+*.pem
+# 用户资源
+resources/user/
