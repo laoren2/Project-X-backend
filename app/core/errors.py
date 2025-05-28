@@ -1,0 +1,29 @@
+# 响应错误码
+
+class ErrorCode:
+    # 通用
+    SUCCESS = 0
+    PARAM_ERROR = 1001
+    VALIDATION_ERROR = 1002
+
+    # 用户相关
+    USER_NOT_FOUND = 2001
+    USER_ALREADY_EXISTS = 2002
+    USER_FOLLOW_SELF = 2003
+    USER_FOLLOW_REPEAT = 2004
+
+    # 身份验证
+    SMS_CODE_WRONG = 3001
+    TOKEN_INVALID = 3002
+    TOKEN_EXPIRED = 3003
+
+    # 业务逻辑
+    GAME_NOT_STARTED = 4001
+    SCORE_ALREADY_SUBMITTED = 4002
+
+    # 第三方服务
+    SMS_SERVICE_ERROR = 5001
+
+    # 系统
+    DATABASE_ERROR = 9001
+    UNKNOWN_ERROR = 9999

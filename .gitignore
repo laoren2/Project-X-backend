@@ -18,3 +18,5 @@ backups/
 .idea/
 # Docker
 *.pem
+# 用户资源
+resources/user/
