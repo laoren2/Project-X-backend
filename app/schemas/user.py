@@ -1,7 +1,13 @@
 from fastapi import Form
 from pydantic import BaseModel
 from typing import Optional
-from app.schemas.base import ORMBase, RelationshipStatus
+from app.schemas.base import ORMBase
+from enum import Enum
+
+
+class UserRole(str, Enum):
+    user = "user"
+    admin = "admin"
 
 class AuthContext(BaseModel):
     payload: dict
@@ -81,10 +87,16 @@ class UserUpdateForm:
         self.enable_auto_location = enable_auto_location
         self.is_display_identity = is_display_identity
 
+class RelationshipStatus(str, Enum):
+    friend = "friend"
+    following = "following"
+    follower = "follower"
+    none = "none"  # 当无关系时标记
 
 class LoginResponse(ORMBase):
     user: UserBaseInfo
     relation: UserRelationInfo
+    role: UserRole
     isRegister: bool = False
 
 class UserBaseInfoResponse(ORMBase):

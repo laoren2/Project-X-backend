@@ -1,19 +1,20 @@
-#import os
-#from dotenv import load_dotenv
-
-#load_dotenv()
-
-#class Settings:
-#    PROJECT_NAME: str = "SportsX 用户中心"
-#    DATABASE_URL: str = os.getenv("DATABASE_URL")
-#    REDIS_URL: str = os.getenv("REDIS_URL")
-#    SECRET_KEY: str = os.getenv("SECRET_KEY")
-#    ACCESS_TOKEN_EXPIRE_MINUTES: int = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES")  # 7天
-
-#settings = Settings()
-
 from pydantic_settings import BaseSettings
 from typing import Optional
+from fastapi.staticfiles import StaticFiles
+from starlette.responses import FileResponse
+from starlette.requests import Request
+import os
+
+class CustomStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope) -> FileResponse:
+        response: FileResponse = await super().get_response(path, scope)
+        
+        if path.endswith(".png"):
+            response.headers["Cache-Control"] = "public, max-age=86400"  # 1 day
+        else:
+            response.headers["Cache-Control"] = "public, max-age=3600"  # 1 hour
+        
+        return response
 
 
 class Settings(BaseSettings):
