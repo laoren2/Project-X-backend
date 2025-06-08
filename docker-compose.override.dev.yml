@@ -1,6 +1,6 @@
 services:
   backend:
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=/app/certs/192.168.1.4-key.pem --ssl-certfile=/app/certs/192.168.1.4.pem
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=/app/certs/192.168.1.2-key.pem --ssl-certfile=/app/certs/192.168.1.2.pem
     volumes:
       - ./app:/app/app
       - ./alembic:/app/alembic

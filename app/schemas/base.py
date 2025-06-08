@@ -33,9 +33,3 @@ class BizException(HTTPException):
             "data": None
         }
         super().__init__(status_code=status_code, detail=detail)
-
-class RelationshipStatus(str, Enum):
-    friend = "friend"
-    following = "following"
-    follower = "follower"
-    none = "none"  # 当无关系时标记

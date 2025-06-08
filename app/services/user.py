@@ -1,8 +1,6 @@
 from app.crud.user import get_user_by_phone, create_user, get_user_by_id, update_user, delete_user_by_id
 from app.core.security import create_access_token
-from app.schemas.user import UserUpdateForm, UserBaseInfo
-from app.db.session import get_db
-from fastapi import Depends
+from app.schemas.user import UserUpdateForm, UserBaseInfo, UserRole
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.base import BizException
 from app.core.errors import ErrorCode
@@ -15,7 +13,13 @@ async def login_or_register(phone_number: str, db: AsyncSession):
         isRegister = True
     userInfo = UserBaseInfo.model_validate(user)
     token = create_access_token({"user_id": user.user_id})
-    return token, userInfo, isRegister
+    return token, userInfo, isRegister, UserRole(user.role)
+
+async def get_user_role(user_id: str, db: AsyncSession):
+    user = await get_user_by_id(db, user_id)
+    if not user:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+    return UserRole(user.role)
 
 async def get_user_info(user_id: str, db: AsyncSession):
     user = await get_user_by_id(db, user_id)
@@ -26,7 +30,7 @@ async def get_user_info(user_id: str, db: AsyncSession):
 async def update_user_info(user_id: str, form: UserUpdateForm, avatar_url: str, background_url: str, db: AsyncSession):
     user = await get_user_by_id(db, user_id)
     if not user:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, detail="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
     update_data = form.__dict__.copy()
     update_data["avatar_image_url"] = avatar_url
     update_data["background_image_url"] = background_url
@@ -36,6 +40,6 @@ async def update_user_info(user_id: str, form: UserUpdateForm, avatar_url: str, 
 async def delete_user_info(user_id: str, db: AsyncSession):
     user = await get_user_by_id(db, user_id)
     if not user:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, detail="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
     await delete_user_by_id(db, user)
     return True

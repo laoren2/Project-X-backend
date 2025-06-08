@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import select, delete, and_, or_, desc, asc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import UserFollow, User
-from app.schemas.base import RelationshipStatus
+from app.schemas.user import RelationshipStatus
 from sqlalchemy.orm import selectinload
 import uuid
 
