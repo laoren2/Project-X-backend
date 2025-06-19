@@ -1,7 +1,10 @@
 from fastapi import APIRouter
-from app.api.internal import user, competition
+from app.api.internal import user
+from app.api.internal.competition import bike, running, competition
 
 
 router = APIRouter()
 router.include_router(user.router, prefix="/user", tags=["用户"])
 router.include_router(competition.router, prefix="/competition", tags="比赛")
+router.include_router(bike.router, prefix="/competition/bike", tags="自行车比赛")
+router.include_router(running.router, prefix="/competition/running", tags="跑步比赛")

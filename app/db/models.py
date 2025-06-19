@@ -54,8 +54,11 @@ class Region(Base):
     __tablename__ = "regions"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String, nullable=False, unique=True)
+    country_code = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    bike_events = relationship("BikeEvent", back_populates="region", cascade="all, delete", passive_deletes=True)
+    running_events = relationship("RunningEvent", back_populates="region", cascade="all, delete", passive_deletes=True)
 
 # 赛季表
 class Season(Base):
@@ -69,35 +72,37 @@ class Season(Base):
     image_url = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    bike_events = relationship("BikeEvent", back_populates="season", cascade="all, delete", passive_deletes=True)
+    running_events = relationship("RunningEvent", back_populates="season", cascade="all, delete", passive_deletes=True)
 
-# 赛事表
-class Event(Base):
-    __tablename__ = "events"
+# Bike赛事表
+class BikeEvent(Base):
+    __tablename__ = "bike_events"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     event_id = Column(String, unique=True, index=True, nullable=False)
     name = Column(String, nullable=False)
-    #region = Column(String, nullable=False)
     description = Column(String, nullable=True)
     start_date = Column(DateTime(timezone=True), nullable=False)
     end_date = Column(DateTime(timezone=True), nullable=False)
-    region_id = Column(UUID(as_uuid=True), ForeignKey("regions.id"), nullable=False)
-    season_id = Column(UUID(as_uuid=True), ForeignKey("seasons.id"), nullable=False)
+    region_id = Column(UUID(as_uuid=True), ForeignKey("regions.id", ondelete="CASCADE"), nullable=False)
+    season_id = Column(UUID(as_uuid=True), ForeignKey("seasons.id", ondelete="CASCADE"), nullable=False)
     image_url = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    region = relationship("Region")
-    season = relationship("Season")
+    region = relationship("Region", back_populates="bike_events")
+    season = relationship("Season", back_populates="bike_events")
+    tracks = relationship("BikeTrack", back_populates="event", cascade="all, delete", passive_deletes=True)
 
 
-# 赛道表
-class Track(Base):
-    __tablename__ = "tracks"
+# Bike赛道表
+class BikeTrack(Base):
+    __tablename__ = "bike_tracks"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     track_id = Column(String, unique=True, index=True, nullable=False)
     name = Column(String, nullable=False)
     start_date = Column(DateTime(timezone=True), nullable=False)
     end_date = Column(DateTime(timezone=True), nullable=False)
-    event_id = Column(UUID(as_uuid=True), ForeignKey("events.id"), nullable=False)
+    event_id = Column(UUID(as_uuid=True), ForeignKey("bike_events.id", ondelete="CASCADE"), nullable=False)
     from_lat = Column(Float, nullable=False)
     from_lng = Column(Float, nullable=False)
     to_lat = Column(Float, nullable=False)
@@ -111,16 +116,59 @@ class Track(Base):
     image_url = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    event = relationship("Event")
+    event = relationship("BikeEvent", back_populates="tracks")
 
 
-class RaceRecord(Base):
-    __tablename__ = "race_records"
+# Bike赛事表
+class RunningEvent(Base):
+    __tablename__ = "running_events"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    event_id = Column(String, unique=True, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    start_date = Column(DateTime(timezone=True), nullable=False)
+    end_date = Column(DateTime(timezone=True), nullable=False)
+    region_id = Column(UUID(as_uuid=True), ForeignKey("regions.id", ondelete="CASCADE"), nullable=False)
+    season_id = Column(UUID(as_uuid=True), ForeignKey("seasons.id", ondelete="CASCADE"), nullable=False)
+    image_url = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    region = relationship("Region", back_populates="running_events")
+    season = relationship("Season", back_populates="running_events")
+    tracks = relationship("RunningTrack", back_populates="event", cascade="all, delete", passive_deletes=True)
+
+
+# Bike赛道表
+class RunningTrack(Base):
+    __tablename__ = "running_tracks"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    track_id = Column(String, unique=True, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    start_date = Column(DateTime(timezone=True), nullable=False)
+    end_date = Column(DateTime(timezone=True), nullable=False)
+    event_id = Column(UUID(as_uuid=True), ForeignKey("running_events.id", ondelete="CASCADE"), nullable=False)
+    from_lat = Column(Float, nullable=False)
+    from_lng = Column(Float, nullable=False)
+    to_lat = Column(Float, nullable=False)
+    to_lng = Column(Float, nullable=False)
+
+    elevation_difference = Column(Integer, default=0)
+    sub_region_name = Column(String, nullable=False)
+    fee = Column(Integer, default=0)
+    prize_pool = Column(Integer, default=0)
+    distance = Column(Float, nullable=False)
+
+    image_url = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    event = relationship("RunningEvent", back_populates="tracks")
+
+
+class BikeRaceRecord(Base):
+    __tablename__ = "bike_race_records"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    event_id = Column(UUID(as_uuid=True), ForeignKey("events.id"), nullable=False)
-    track_id = Column(UUID(as_uuid=True), ForeignKey("tracks.id"), nullable=False)
-    season_id = Column(UUID(as_uuid=True), ForeignKey("seasons.id"), nullable=False)
+    track_id = Column(UUID(as_uuid=True), ForeignKey("bike_tracks.id"), nullable=False)
 
     status = Column(String, default="未完成")  # "未完成", "已完成"
     score = Column(Float, nullable=True)
@@ -135,6 +183,4 @@ class RaceRecord(Base):
 
     # ORM 关系
     user = relationship("User")
-    event = relationship("Event")
-    track = relationship("Track")
-    season = relationship("Season")
+    track = relationship("BikeTrack")
