@@ -2,7 +2,7 @@ from typing import Optional
 from datetime import datetime
 from sqlalchemy import select, delete, and_, or_, desc, asc, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.models import UserFollow, User
+from app.db.models.user import UserFollow, User
 from app.schemas.user import RelationshipStatus
 from sqlalchemy.orm import selectinload
 import uuid
@@ -38,7 +38,8 @@ async def count_friends(db: AsyncSession, user_db_id):
 async def create_follow(db: AsyncSession, follower_id: uuid.UUID, followed_id: uuid.UUID):
     follow = UserFollow(follower_id=follower_id, followed_id=followed_id)
     db.add(follow)
-    await db.commit()
+    await db.flush()
+    await db.refresh(follow)
     return follow
 
 async def remove_follow(db: AsyncSession, follower_id: uuid.UUID, followed_id: uuid.UUID):
@@ -50,7 +51,7 @@ async def remove_follow(db: AsyncSession, follower_id: uuid.UUID, followed_id: u
             )
         )
     )
-    await db.commit()
+    await db.flush()
 
 async def get_relationship_crud(db: AsyncSession, follower_id: uuid.UUID, followed_id: uuid.UUID) -> RelationshipStatus:
     # 是否 follower_id 关注了 followed_id
@@ -131,7 +132,7 @@ async def get_following_ids(
     query = query.order_by(asc(UserFollow.created_at), UserFollow.followed_id)
     result = await db.execute(query)
     follows = result.scalars().all()
-    users = [f.followed for f in follows]
+    users = [f.followed for f in follows if f.followed is not None]
 
     if search:
         users = [u for u in users if search.lower() in (u.nickname or "").lower()]
@@ -180,7 +181,7 @@ async def get_follower_ids(
     query = query.order_by(asc(UserFollow.created_at), UserFollow.follower_id)
     result = await db.execute(query)
     follows = result.scalars().all()
-    users = [f.follower for f in follows]
+    users = [f.follower for f in follows if f.follower is not None]
 
     if search:
         users = [u for u in users if search.lower() in (u.nickname or "").lower()]

@@ -8,7 +8,8 @@ pydantic
 pydantic_settings
 python-jose[cryptography]
 passlib[bcrypt]
-redis
+redis>=4.2.0
 python-dotenv
 email-validator
 python-multipart
+apscheduler

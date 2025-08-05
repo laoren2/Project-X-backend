@@ -10,7 +10,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.db.base import Base
-from app.db import models  # 确保 models 被导入才会生成表
+from app.db import models   # 确保 models 被导入才会生成表
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

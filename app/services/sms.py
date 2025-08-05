@@ -1,10 +1,9 @@
 import random
-import redis.asyncio as aioredis
 from app.core.config import settings
 from app.core.errors import ErrorCode
 from app.schemas.base import BizException
+from app.db.session import redis_client
 
-redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
 
 async def send_sms_code(phone_number: str):
     key = f"sms:{phone_number}"

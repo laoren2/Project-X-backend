@@ -8,7 +8,7 @@ __pycache__/
 .gitignore
 .vscode/
 .idea/
-alembic.ini
+# alembic.ini
 certs/
 tests/
 *.log

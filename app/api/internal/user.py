@@ -19,7 +19,7 @@ async def get_anyone_card(
     db: AsyncSession = Depends(get_db)
 ):
     user = await get_user_by_phone(db, phone_number)
-    if not user:
+    if user is None:
         return BaseResponse.error(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
     userInfo = UserBaseInfo.model_validate(user)
     return BaseResponse.success(token=auth.new_token, message="成功获取用户信息卡片", data=PersonInfoResponse(user_id=userInfo.user_id, avatar_image_url=userInfo.avatar_image_url, nickname=userInfo.nickname))
