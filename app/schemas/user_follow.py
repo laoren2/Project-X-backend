@@ -1,12 +1,9 @@
 from typing import Optional, List
 from app.schemas.base import ORMBase
+from app.schemas.common import PersonInfoResponse
 from enum import Enum
 
 
-class PersonInfoResponse(ORMBase):
-    user_id: str
-    avatar_image_url: str
-    nickname: str
 
 class RelationListResponse(ORMBase):
     users: List[PersonInfoResponse]

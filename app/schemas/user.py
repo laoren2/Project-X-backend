@@ -9,6 +9,15 @@ class UserRole(str, Enum):
     user = "user"
     admin = "admin"
 
+class Gender(str, Enum):
+    male = "male"
+    female = "female"
+
+class UserStatus(str, Enum):
+    normal = "normal"
+    deleted = "deleted"
+    banned = "banned"
+
 class AuthContext(BaseModel):
     payload: dict
     new_token: Optional[str] = None
@@ -16,7 +25,7 @@ class AuthContext(BaseModel):
 class UserBaseInfo(ORMBase):
     user_id: str
     nickname: str
-    phone_number: str
+    phone_number: Optional[str] = None
     avatar_image_url: str
     background_image_url: str
     introduction: Optional[str] = None

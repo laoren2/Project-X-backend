@@ -2,26 +2,14 @@ from fastapi import APIRouter, Depends, File, UploadFile, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.schemas.base import BaseResponse
-from app.schemas.competition import SeasonBaseInfo, RegionsResponse
+from app.schemas.competition.common import RegionsResponse
 from app.schemas.user import AuthContext
-from app.services.competition.common import query_current_season_service, query_regions_with_events
+from app.services.competition.common import query_regions_with_events
 from app.api.deps import get_current_user
 from typing import Optional
 
 
 router = APIRouter()
-
-# 查询赛季
-@router.get("/query_season", response_model=BaseResponse[SeasonBaseInfo], summary="查询赛季")
-async def query_season(
-    sport_type: str = Query(...),
-    db: AsyncSession = Depends(get_db)
-):
-    season = await query_current_season_service(
-        db=db,
-        sport_type=sport_type
-    )
-    return BaseResponse.success(data=season)
 
 
 # 查询有赛事的地区

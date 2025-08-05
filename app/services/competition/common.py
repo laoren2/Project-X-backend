@@ -1,71 +1,103 @@
 from app.crud.competition.common import (
-    create_season_crud,
-    get_season_by_name_and_sport_type,
-    get_season_by_season_id,
-    update_season_crud, 
-    get_region_by_name,
-    create_region_crud, get_season_now_by_sport,
-    get_regions_by_country_code
+    get_region_by_name, create_region_crud, get_regions_by_country_code
 )
+import app.crud.competition.bike as bike
+import app.crud.competition.running as running
 from app.core.errors import ErrorCode
 from app.schemas.base import BizException
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.schemas.competition import (
-    SeasonCreateForm,
-    RegionCreate, SeasonBaseInfo,
+from app.schemas.user import Gender
+from app.schemas.competition.common import (
+    SportType, RegionCreate
 )
-from app.db.models import Season, Region
+from app.db.models.competition import BikeSeason, Region, RunningSeason
 from typing import Optional, List
+from datetime import datetime, timezone
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.session import redis_client
+import logging
 import uuid
 
-
-async def create_season_service(db: AsyncSession, season_create: SeasonCreateForm, image_url: str) -> SeasonBaseInfo:
-    season = await get_season_by_name_and_sport_type(db, season_create.name, season_create.sport_type.value)
-    if season is not None:
-        raise BizException(code=ErrorCode.SEASON_ALREADY_EXIST, message="赛季已存在，不可重复创建")
-    season_id = f"season_{str(uuid.uuid4())[:8]}"
-    new_season = Season(
-        season_id=season_id,
-        name=season_create.name,
-        start_date=season_create.start_date,
-        end_date=season_create.end_date,
-        sport_type=season_create.sport_type,
-        image_url=image_url
-    )
-    res = await create_season_crud(db, new_season)
-    return SeasonBaseInfo(
-        season_id=res.season_id,
-        name=res.name,
-        start_date=res.start_date.isoformat(),
-        end_date=res.end_date.isoformat(),
-        image_url=res.image_url
-    )
+scheduler_logger = logging.getLogger("scheduler")
 
 
-async def update_season_image_url(db: AsyncSession, season_id: str, image_url: str):
-    existing_season = await get_season_by_season_id(db, season_id)
-    if existing_season is None:
-        raise BizException(code=ErrorCode.SEASON_NOT_FOUND, message="赛季不存在")
-    update_data = {
-        "image_url": image_url
-    }
-    await update_season_crud(db, existing_season, update_data)
+async def generate_all_leaderboard_snapshots_service(db: AsyncSession):
+    bike_track_ids = await get_bike_active_track_ids(db)
+    for track_id in bike_track_ids:
+        for gender in [Gender.male, Gender.female]:
+            try:
+                snapshot_key = await generate_bike_leaderboard_snapshot(track_id, gender)
+                scheduler_logger.info(f"✅ 已生成排行榜快照: {snapshot_key}")
+            except Exception as e:
+                scheduler_logger.error(f"❌ 生成排行榜快照失败: {track_id} - {gender.value}, 错误: {e}")
+    running_track_ids = await get_running_active_track_ids(db)
+    for track_id in running_track_ids:
+        for gender in [Gender.male, Gender.female]:
+            try:
+                snapshot_key = await generate_running_leaderboard_snapshot(track_id, gender)
+                scheduler_logger.info(f"✅ 已生成排行榜快照: {snapshot_key}")
+            except Exception as e:
+                scheduler_logger.error(f"❌ 生成排行榜快照失败: {track_id} - {gender.value}, 错误: {e}")
 
 
-async def query_current_season_service(db: AsyncSession, sport_type: str) -> SeasonBaseInfo:
-    seasons = await get_season_now_by_sport(db, sport_type)
-    if not seasons:
-        raise BizException(code=ErrorCode.SEASON_NOT_FOUND, message="当前没有进行中的赛季")
-    if len(seasons) > 1:
-        raise BizException(code=ErrorCode.SEASON_NOT_UNIQUE, message="当前时间存在多个进行中的赛季")
-    season: Season = seasons[0]
-    return SeasonBaseInfo(
-        season_id=season.season_id,
-        name=season.name,
-        start_date=season.start_date.isoformat(),
-        end_date=season.end_date.isoformat(),
-        image_url=season.image_url
-    )
+async def get_bike_active_track_ids(db: AsyncSession) -> List[str]:
+    bike_seasons = await bike.get_season_now(db)
+    if not bike_seasons:
+        scheduler_logger.info("✅ 当前没有进行中的bike赛季")
+        return []
+    if len(bike_seasons) > 1:
+        scheduler_logger.info("❌ 当前时间存在多个进行中的bike赛季")
+        return []
+    bike_season: BikeSeason = bike_seasons[0]
+    events = await bike.get_active_events_by_season_id(db, bike_season.id)
+    track_ids = []
+    for event in events:
+        for track in event.tracks:
+            if track.start_date < datetime.now(timezone.utc) and track.end_date > datetime.now(timezone.utc):
+                track_ids.append(track.track_id)
+    return track_ids
+
+
+async def get_running_active_track_ids(db: AsyncSession) -> List[str]:
+    running_seasons = await running.get_season_now(db)
+    if not running_seasons:
+        scheduler_logger.info("✅ 当前没有进行中的running赛季")
+        return []
+    if len(running_seasons) > 1:
+        scheduler_logger.info("❌ 当前时间存在多个进行中的running赛季")
+        return []
+    running_season: RunningSeason = running_seasons[0]
+    events = await running.get_active_events_by_season_id(db, running_season.id)
+    track_ids = []
+    for event in events:
+        for track in event.tracks:
+            if track.start_date < datetime.now(timezone.utc) and track.end_date > datetime.now(timezone.utc):
+                track_ids.append(track.track_id)
+    return track_ids
+
+
+# 生成排行榜快照
+async def generate_bike_leaderboard_snapshot(track_id: str, gender: Gender) -> str:
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime("%Y%m%d%H%M")
+    src_key = f"leaderboard:bike:{track_id}:{gender.value}"
+    snapshot_key = f"{src_key}:snapshot:{timestamp}"
+    # 复制当前排行榜快照
+    await redis_client.zunionstore(snapshot_key, [src_key])
+    # 设置快照自动过期时间为 5 分钟
+    await redis_client.expire(snapshot_key, 300)
+    return snapshot_key
+
+
+async def generate_running_leaderboard_snapshot(track_id: str, gender: Gender) -> str:
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime("%Y%m%d%H%M")
+    src_key = f"leaderboard:running:{track_id}:{gender.value}"
+    snapshot_key = f"{src_key}:snapshot:{timestamp}"
+    # 复制当前排行榜快照
+    await redis_client.zunionstore(snapshot_key, [src_key])
+    # 设置快照自动过期时间为 5 分钟
+    await redis_client.expire(snapshot_key, 300)
+    return snapshot_key
 
 
 async def create_region_service(db: AsyncSession, region_create: RegionCreate):
@@ -76,6 +108,7 @@ async def create_region_service(db: AsyncSession, region_create: RegionCreate):
         name=region_create.name
     )
     await create_region_crud(db, new_region)
+    await db.commit()
 
 
 async def query_regions_with_events(db: AsyncSession, sport_type: str, country_code: str) -> List[str]:
@@ -83,11 +116,16 @@ async def query_regions_with_events(db: AsyncSession, sport_type: str, country_c
     if not regions:
         raise BizException(code=ErrorCode.REGION_NOT_FOUND, message="该国家地区暂无赛事")
     result = []
+    now = datetime.now(timezone.utc)
     for region in regions:
-        if sport_type == "bike" and region.bike_events:
-            if len(region.bike_events) > 0:
-                result.append(region.name)
-        elif sport_type == "running" and region.running_events:
-            if len(region.running_events) > 0:
-                result.append(region.name)
+        if sport_type == "bike":
+            for event in region.bike_events:
+                if event.start_date <= now <= event.end_date:
+                    result.append(region.name)
+                    break
+        elif sport_type == "running":
+            for event in region.running_events:
+                if event.start_date <= now <= event.end_date:
+                    result.append(region.name)
+                    break
     return result

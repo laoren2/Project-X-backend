@@ -1,10 +1,10 @@
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.models import User
+from app.db.models.user import User, UserBanHistory
 import uuid
 import time
 import random
-from typing import Optional
+from typing import Optional, List
 
 async def get_user_by_phone(db: AsyncSession, phone_number: str):
     result = await db.execute(select(User).where(User.phone_number == phone_number))
@@ -14,9 +14,17 @@ async def get_user_by_id(db: AsyncSession, user_id: str) -> Optional[User]:
     result = await db.execute(select(User).where(User.user_id == user_id))
     return result.scalar_one_or_none()
 
-async def delete_user_by_id(db: AsyncSession, user: User):
-    await db.delete(user)
-    await db.commit()
+async def get_users_by_user_ids(db: AsyncSession, user_ids: List[str]) -> List[User]:
+    if not user_ids:
+        return []
+    result = await db.execute(select(User).where(User.user_id.in_(user_ids)))
+    return result.scalars().all()
+
+async def get_users_by_ids(db: AsyncSession, ids: List[uuid.UUID]) -> List[User]:
+    if not ids:
+        return []
+    result = await db.execute(select(User).where(User.id.in_(ids)))
+    return result.scalars().all()
 
 async def generate_unique_user_id(db: AsyncSession) -> str:
     while True:
@@ -35,7 +43,7 @@ async def create_user(db: AsyncSession, phone_number: str):
         background_image_url="/resources/placeholder/background.png"
     )
     db.add(user)
-    await db.commit()
+    await db.flush()
     await db.refresh(user)
     return user
 
@@ -43,6 +51,12 @@ async def update_user(db: AsyncSession, user: User, data: dict):
     for key, value in data.items():
         setattr(user, key, value)
     db.add(user)
-    await db.commit()
+    await db.flush()
     await db.refresh(user)
     return user
+
+async def get_banned_history_by_user_id(db: AsyncSession, user_id: uuid.UUID):
+    result = await db.execute(
+        select(UserBanHistory).where(UserBanHistory.user_id == user_id)
+    )
+    return result.scalar_one_or_none()

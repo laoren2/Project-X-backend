@@ -48,7 +48,7 @@ async def get_me_role(
 
 @router.get("/anyone", response_model=BaseResponse[schemas_user.UserAnyResponse], summary="获取任意用户信息")
 async def get_anyone(
-    user_id: str,
+    user_id: str = Query(...),
     my_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
@@ -82,7 +82,7 @@ async def update_me(
         avatar_path = user_folder / f"avatar_{int(datetime.now().timestamp())}.jpg"
         contents = await avatar_image.read()
         if len(contents) > 1 * 1024 * 1024:  # 超过 1MB
-            return BaseResponse.error(status_code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, detail="上传图片体积超过限制")
+            return BaseResponse.error(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="上传图片体积超过限制")
         with avatar_path.open("wb") as f:
             f.write(contents)
         avatar_url = f"/resources/user/{user_id}/{avatar_path.name}"
@@ -93,7 +93,7 @@ async def update_me(
         bg_path = user_folder / f"background_{int(datetime.now().timestamp())}.jpg"
         contents = await background_image.read()
         if len(contents) > 1 * 1024 * 1024:  # 超过 1MB
-            return BaseResponse.error(status_code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, detail="上传图片体积超过限制")
+            return BaseResponse.error(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="上传图片体积超过限制")
         with bg_path.open("wb") as f:
             f.write(contents)
         background_url = f"/resources/user/{user_id}/{bg_path.name}"
@@ -101,11 +101,10 @@ async def update_me(
     user = await update_user_info(user_id, form, avatar_url, background_url, db)
     return BaseResponse.success(token=auth.new_token, message="成功修改我的信息", data=schemas_user.UserBaseInfoResponse(user=user))
 
-@router.post("/delete", response_model=BaseResponse[None], summary="注销账号（删除用户数据）")
+@router.post("/delete", response_model=BaseResponse[None], summary="注销账号")
 async def delete_account(
     auth: schemas_user.AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    user_id = auth.payload["user_id"]
-    await delete_user_info(user_id, db)
-    return BaseResponse.success(message="账号已注销")
+    await delete_user_info(auth.payload["user_id"], db)
+    return BaseResponse.success(message="账号已成功注销")
