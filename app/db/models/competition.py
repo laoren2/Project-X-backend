@@ -4,6 +4,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from app.schemas.competition.common import RecordStatus, TeamStatus
 from app.db.base import Base
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import JSONB
 
 
 
@@ -141,11 +142,12 @@ class BikeRaceRecord(Base):
     user_id = Column(UUID(as_uuid=True), nullable=False)
     track_id = Column(UUID(as_uuid=True), nullable=False)
     team_id = Column(UUID(as_uuid=True), nullable=True)
+    path_id = Column(UUID(as_uuid=True), nullable=True)
 
     status = Column(Enum(RecordStatus), default=RecordStatus.notStarted, nullable=False)
     start_time = Column(DateTime(timezone=True), nullable=True)
     end_time = Column(DateTime(timezone=True), nullable=True)
-    duration_seconds = Column(Float, nullable=True)
+    duration_seconds = Column(Float, nullable=True)         # 有效成绩
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -153,9 +155,11 @@ class BikeRaceRecord(Base):
     user = relationship("User", primaryjoin="foreign(BikeRaceRecord.user_id)==User.id")
     track = relationship("BikeTrack", primaryjoin="foreign(BikeRaceRecord.track_id)==BikeTrack.id")
     team = relationship("BikeTeam", primaryjoin="foreign(BikeRaceRecord.team_id)==BikeTeam.id")
+    path = relationship("BikeRacePath", primaryjoin="foreign(BikeRaceRecord.path_id)==BikeRacePath.id")
+    card_bonus = relationship("CardBonusInBikeRecord", primaryjoin="BikeRaceRecord.id==foreign(CardBonusInBikeRecord.record_id)")
 
 
-class BikeRaceRecordHistory(Base):
+'''class BikeRaceRecordHistory(Base):
     __tablename__ = "bike_race_records_history"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     record_id = Column(String, unique=True, index=True, nullable=False)
@@ -163,6 +167,7 @@ class BikeRaceRecordHistory(Base):
     user_id = Column(UUID(as_uuid=True), nullable=False)
     track_id = Column(UUID(as_uuid=True), nullable=False)
     team_id = Column(UUID(as_uuid=True), nullable=True)
+    path_id = Column(UUID(as_uuid=True), nullable=True)
 
     start_time = Column(DateTime(timezone=True), nullable=False)
     end_time = Column(DateTime(timezone=True), nullable=False)
@@ -172,7 +177,9 @@ class BikeRaceRecordHistory(Base):
 
     user = relationship("User", primaryjoin="foreign(BikeRaceRecordHistory.user_id)==User.id")
     track = relationship("BikeTrack", primaryjoin="foreign(BikeRaceRecordHistory.track_id)==BikeTrack.id")
-    members = relationship("BikeTeamMemberHistory", primaryjoin="foreign(BikeRaceRecordHistory.team_id)==BikeTeamMemberHistory.team_id")
+    #members = relationship("BikeTeamMemberHistory", primaryjoin="foreign(BikeRaceRecordHistory.team_id)==BikeTeamMemberHistory.team_id")
+    path = relationship("BikeRacePathHistory", primaryjoin="foreign(BikeRaceRecordHistory.path_id)==BikeRacePathHistory.id")
+    card_bonus = relationship("CardBonusInRecordHistory", primaryjoin="BikeRaceRecordHistory.id==foreign(CardBonusInRecordHistory.record_id)")'''
 
 
 # 需要定期迁移,不要外部依赖
@@ -184,6 +191,7 @@ class RunningRaceRecord(Base):
     user_id = Column(UUID(as_uuid=True), nullable=False)
     track_id = Column(UUID(as_uuid=True), nullable=False)
     team_id = Column(UUID(as_uuid=True), nullable=True)
+    path_id = Column(UUID(as_uuid=True), nullable=True)
 
     status = Column(Enum(RecordStatus), default=RecordStatus.notStarted, nullable=False)
     start_time = Column(DateTime(timezone=True), nullable=True)
@@ -196,9 +204,11 @@ class RunningRaceRecord(Base):
     user = relationship("User", primaryjoin="foreign(RunningRaceRecord.user_id)==User.id")
     track = relationship("RunningTrack", primaryjoin="foreign(RunningRaceRecord.track_id)==RunningTrack.id")
     team = relationship("RunningTeam", primaryjoin="foreign(RunningRaceRecord.team_id)==RunningTeam.id")
+    path = relationship("RunningRacePath", primaryjoin="foreign(RunningRaceRecord.path_id)==RunningRacePath.id")
+    card_bonus = relationship("CardBonusInRunningRecord", primaryjoin="RunningRaceRecord.id==foreign(CardBonusInRunningRecord.record_id)")
 
 
-class RunningRaceRecordHistory(Base):
+'''class RunningRaceRecordHistory(Base):
     __tablename__ = "running_race_records_history"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     record_id = Column(String, unique=True, index=True, nullable=False)
@@ -206,6 +216,7 @@ class RunningRaceRecordHistory(Base):
     user_id = Column(UUID(as_uuid=True), nullable=False)
     track_id = Column(UUID(as_uuid=True), nullable=False)
     team_id = Column(UUID(as_uuid=True), nullable=True)
+    path_id = Column(UUID(as_uuid=True), nullable=True)
 
     start_time = Column(DateTime(timezone=True), nullable=False)
     end_time = Column(DateTime(timezone=True), nullable=False)
@@ -215,7 +226,9 @@ class RunningRaceRecordHistory(Base):
 
     user = relationship("User", primaryjoin="foreign(RunningRaceRecordHistory.user_id)==User.id")
     track = relationship("RunningTrack", primaryjoin="foreign(RunningRaceRecordHistory.track_id)==RunningTrack.id")
-    members = relationship("RunningTeamMemberHistory", primaryjoin="foreign(RunningRaceRecordHistory.team_id)==RunningTeamMemberHistory.team_id")
+    #members = relationship("RunningTeamMemberHistory", primaryjoin="foreign(RunningRaceRecordHistory.team_id)==RunningTeamMemberHistory.team_id")
+    path = relationship("RunningRacePathHistory", primaryjoin="foreign(RunningRaceRecordHistory.path_id)==RunningRacePathHistory.id")
+    card_bonus = relationship("CardBonusInRecordHistory", primaryjoin="RunningRaceRecordHistory.id==foreign(CardBonusInRecordHistory.record_id)")'''
 
 
 # 需要定期迁移,不要外部依赖
@@ -257,7 +270,7 @@ class BikeTeamMember(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 # 需要定期迁移,不要外部依赖
-class BikeTeamMemberHistory(Base):
+'''class BikeTeamMemberHistory(Base):
     __tablename__ = "bike_team_members_history"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id = Column(UUID(as_uuid=True), nullable=False)
@@ -265,7 +278,7 @@ class BikeTeamMemberHistory(Base):
 
     is_leader = Column(Boolean, nullable=False)
 
-    created_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)'''
 
 
 class BikeTeamAppliedMember(Base):
@@ -319,7 +332,7 @@ class RunningTeamMember(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-class RunningTeamMemberHistory(Base):
+'''class RunningTeamMemberHistory(Base):
     __tablename__ = "running_team_members_history"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id = Column(UUID(as_uuid=True), nullable=False)
@@ -327,7 +340,7 @@ class RunningTeamMemberHistory(Base):
 
     is_leader = Column(Boolean, nullable=False)
 
-    created_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)'''
 
 
 class RunningTeamAppliedMember(Base):
@@ -343,3 +356,88 @@ class RunningTeamAppliedMember(Base):
     user = relationship("User", primaryjoin="foreign(RunningTeamAppliedMember.user_id)==User.id")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# 自行车比赛路径表
+class BikeRacePath(Base):
+    __tablename__ = "bike_race_paths"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    path_id = Column(String, unique=True, index=True, nullable=False)
+    record_id = Column(UUID(as_uuid=True), nullable=False)
+
+    # 路径点数组，例如 [{"lat": xx, "lon": xx, "timestamp": xx}, ...]
+    path = Column(JSONB, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+'''class BikeRacePathHistory(Base):
+    __tablename__ = "bike_race_path_history"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    path_id = Column(String, unique=True, index=True, nullable=False)
+    record_id = Column(UUID(as_uuid=True), nullable=False)
+
+    # 路径点数组，例如 [{"lat": xx, "lon": xx, "timestamp": xx}, ...]
+    path = Column(JSONB, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)'''
+
+
+class RunningRacePath(Base):
+    __tablename__ = "running_race_paths"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    path_id = Column(String, unique=True, index=True, nullable=False)
+    record_id = Column(UUID(as_uuid=True), nullable=False)
+
+    # 路径点数组，例如 [{"lat": xx, "lon": xx, "timestamp": xx}, ...]
+    path = Column(JSONB, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# 跑步比赛路径表
+'''class RunningRacePathHistory(Base):
+    __tablename__ = "running_race_paths_history"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    path_id = Column(String, unique=True, index=True, nullable=False)
+    record_id = Column(UUID(as_uuid=True), nullable=False)
+
+    path = Column(JSONB, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)'''
+
+
+class CardBonusInBikeRecord(Base):
+    __tablename__ = "card_bonus_in_bike_records"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    record_id = Column(UUID(as_uuid=True), nullable=False)
+    card_id = Column(UUID(as_uuid=True), nullable=False)
+    bonus_time = Column(Float, default=0, nullable=False)
+
+    card = relationship("UserEquipmentCard", primaryjoin="foreign(CardBonusInBikeRecord.card_id)==UserEquipmentCard.id")
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class CardBonusInRunningRecord(Base):
+    __tablename__ = "card_bonus_in_running_records"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    record_id = Column(UUID(as_uuid=True), nullable=False)
+    card_id = Column(UUID(as_uuid=True), nullable=False)
+    bonus_time = Column(Float, default=0, nullable=False)
+
+    card = relationship("UserEquipmentCard", primaryjoin="foreign(CardBonusInRunningRecord.card_id)==UserEquipmentCard.id")
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+'''class CardBonusInRecordHistory(Base):
+    __tablename__ = "card_bonus_in_records_history"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    record_id = Column(UUID(as_uuid=True), nullable=False)
+    card_id = Column(UUID(as_uuid=True), nullable=False)
+    bonus_time = Column(Integer, default=0, nullable=False)
+
+    card = relationship("UserEquipmentCard", primaryjoin="foreign(CardBonusInRecordHistory.card_id)==UserEquipmentCard.id")
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)'''

@@ -11,7 +11,7 @@ from app.schemas.competition.running import (
     RunningAppliedTeamResponse, RunningTeamDetailResponse, RunningTeamManageResponse,
     RunningTeamCreateResponse, RunningTeamUpdateInfo, RunningTeamUpdateResponse,
     RunningTeamStatusUpdateInfo, RunningTeamMembersResponse, RunningTeamAppliedRequest,
-    RunningTeamExpiredResponse
+    RunningTeamExpiredResponse, RunningRecordDetailInfo
 )
 from app.schemas.asset import CPAssetResponse
 from app.schemas.user import AuthContext, Gender
@@ -27,7 +27,7 @@ from app.services.competition.running import (
     quit_team_service, remove_team_member_service, get_public_teams_service,
     applied_join_team_service, reject_applied_request_service, approve_applied_request_service,
     cancel_applied_join_team_service, start_team_competition_service, finish_team_competition_service,
-    get_team_expired_date_service, enter_team_competition_link_service
+    get_team_expired_date_service, enter_team_competition_link_service, get_record_detail_service
 )
 from app.api.deps import get_current_user
 from typing import Optional
@@ -401,3 +401,12 @@ async def cancel_applied_join_team(
 ):
     await cancel_applied_join_team_service(db, auth.payload["user_id"], team_id)
     return BaseResponse.success(token=auth.new_token, message="取消成功")
+
+@router.get("/query_record_detail",response_model=BaseResponse[RunningRecordDetailInfo],summary="查询比赛记录详情")
+async def query_record_detail(
+    record_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    detail = await get_record_detail_service(db, record_id)
+    return BaseResponse.success(token=auth.new_token, message="查询成功", data=detail)

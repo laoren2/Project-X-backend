@@ -2,8 +2,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func, and_
 from app.db.models.competition import (
     Region, RunningEvent, RunningSeason, 
-    RunningTrack, RunningRaceRecord, RunningTeam, RunningTeamMember, RunningTeamAppliedMember
+    RunningTrack, RunningRaceRecord, RunningTeam, RunningTeamMember, RunningTeamAppliedMember,
+    CardBonusInRunningRecord
 )
+from app.db.models.asset import UserEquipmentCard
 from app.schemas.competition.common import RecordStatus, TeamStatus
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
@@ -246,10 +248,24 @@ async def get_record_by_record_id(db: AsyncSession, record_id: str) -> RunningRa
         .options(
             selectinload(RunningRaceRecord.track),
             selectinload(RunningRaceRecord.team)
-                .selectinload(RunningTeam.members)
+                .selectinload(RunningTeam.members),
+            selectinload(RunningRaceRecord.path),
+            selectinload(RunningRaceRecord.card_bonus)
+                .selectinload(CardBonusInRunningRecord.card)
+                .selectinload(UserEquipmentCard.equipment_def)
         )
     )
     return record.scalar_one_or_none()
+
+async def get_records_by_team_id(db: AsyncSession, team_id: uuid.UUID) -> List[RunningRaceRecord]:
+    result = await db.execute(
+        select(RunningRaceRecord)
+        .where(RunningRaceRecord.team_id == team_id)
+        .options(
+            selectinload(RunningRaceRecord.user)
+        )
+    )
+    return result.scalars().all()
 
 async def get_records_by_team_id_for_update(db: AsyncSession, team_id: uuid.UUID) -> List[RunningRaceRecord]:
     result = await db.execute(

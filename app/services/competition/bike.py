@@ -11,19 +11,19 @@ from app.crud.competition.bike import (
     get_created_teams_by_user_id, get_applied_teams_by_user_id, get_joined_teams_by_user_id,
     get_team_by_team_id, create_team_member_crud, update_team_crud, delete_records_by_team_id,
     get_team_by_id_for_update, get_team_by_team_id_for_update, get_record_by_team_id_and_user_id,
-    get_public_teams_by_track_id, get_records_by_team_id_for_update
+    get_public_teams_by_track_id, get_records_by_team_id_for_update, get_records_by_team_id
 )
 from app.crud.asset_manage import (
     get_registration_card_def, consume_cpasset,
-    reward_cpasset, get_team_card_def
+    reward_cpasset, get_team_card_def, get_equip_card_by_card_id
 )
 from app.crud.user import get_user_by_id, get_users_by_ids, get_users_by_user_ids
 from app.core.errors import ErrorCode
 from app.schemas.user import Gender
 from app.schemas.base import BizException
-from app.schemas.common import PersonInfoResponse
+from app.schemas.common import PersonInfoResponse, EquipCardBaseInfo, SportType
 from app.schemas.asset import CPAssetResponse
-from app.schemas.competition.common import SportType, TeamRelationship, RecordStatus, TeamStatus
+from app.schemas.competition.common import TeamRelationship, RecordStatus, TeamStatus, CardBonusInfo, PathPoint, MemberScoreInfo
 from app.schemas.competition.bike import (
     BikeEventCreateForm, BikeEventBaseInfo, BikeEventUpdateForm, BikeEventBaseInfoInternal,
     BikeTrackBaseInfo, BikeTrackCreateForm,
@@ -32,17 +32,22 @@ from app.schemas.competition.bike import (
     BikeSeasonBaseInfo, BikeSeasonCreateForm, BikeRecordInfo, BikeSingleRegisterResponse, BikeRankInfo,
     BikeTeamCreateInfo, BikeTeamCreateResponse, BikeAppliedTeamInfo, BikeAppliedTeamResponse,
     BikeTeamInfo, BikeTeamResponse, BikeTeamDetailResponse, BikeTeamManageResponse, BikeTeamMemberInfo,
-    BikeTeamAppliedMemberInfo, BikeTeamUpdateResponse, BikeTeamUpdateInfo,
+    BikeTeamAppliedMemberInfo, BikeTeamUpdateResponse, BikeTeamUpdateInfo, BikeRecordDetailInfo,
     BikeTeamStatusUpdateInfo, BikeTeamMembersResponse, BikeTeamAppliedRequest, BikeTeamExpiredResponse
 )
-from app.db.models.competition import BikeEvent, BikeTrack, BikeRaceRecord, BikeSeason, BikeTeam, BikeTeamMember, BikeTeamAppliedMember
+from app.db.models.competition import (
+    BikeEvent, BikeTrack, BikeRaceRecord, BikeSeason, BikeTeam, BikeTeamMember, BikeTeamAppliedMember,
+    CardBonusInBikeRecord, BikeRacePath
+)
 from app.db.session import redis_client
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 import uuid
+import logging
 
 
+leaderboard_logger = logging.getLogger("leaderboard")
 
 async def create_season_service(db: AsyncSession, season_create: BikeSeasonCreateForm, image_url: str) -> BikeSeasonBaseInfo:
     season = await get_season_by_name(db, season_create.name)
@@ -605,42 +610,76 @@ async def start_team_competition_service(db: AsyncSession, user_id: str, info: B
 
 
 async def finish_single_competition_service(db: AsyncSession, info: BikeFinishInfo, user_id: str):
-    user = await get_user_by_id(db, user_id)
-    if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
-    if user.gender is not None:
-        gender = user.gender
-    else:
-        gender = Gender.male
-    record = await get_record_by_record_id(db, info.record_id)
-    if record is None:
-        raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
-    if record.track is None:
-        raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
-    update_data = {
-        "status": RecordStatus.completed,
-        "end_time": info.end_time,
-        "duration_seconds": info.duration_seconds
-    }
-    await update_record_crud(db, record, update_data)
-    await db.commit()
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        if user.gender is not None:
+            gender = user.gender
+        else:
+            gender = Gender.male
+        record = await get_record_by_record_id(db, info.record_id)
+        if record is None:
+            raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+        if record.track is None:
+            raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+        if record.status != RecordStatus.recording or record.start_time is None or record.start_time > info.end_time:
+            raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛状态错误")
+        final_time = (info.end_time - record.start_time).total_seconds()
+        bonus_time = 0
+        for item in info.bonus_in_cards:
+            bonus_time += item.bonus_time
+            card = await get_equip_card_by_card_id(db, item.card_id)
+            if card is not None:
+                db.add(CardBonusInBikeRecord(
+                    record_id=record.id,
+                    card_id=card.id,
+                    bonus_time=item.bonus_time
+                ))
+        # 奖励时间上限为20%
+        if bonus_time / final_time > 0.2:
+            final_time = final_time * 0.8
+        else:
+            final_time -= bonus_time
+        path_data = [p.model_dump() for p in info.path]
+        path = BikeRacePath(
+            path_id=f"path_{uuid.uuid4()}",
+            record_id=record.id,
+            path=path_data
+        )
+        db.add(path)
+        await db.flush()  # 先flush，让对象持久化
+        await db.refresh(path)  # 再refresh，获取数据库生成的值
+        update_data = {
+            "path_id": path.id,
+            "status": RecordStatus.completed,
+            "end_time": info.end_time,
+            "duration_seconds": final_time
+        }
+        await update_record_crud(db, record, update_data)
+
     # 更新排行榜
-    key = f"leaderboard:bike:{record.track.track_id}:{gender.value}"
-    # 1. 查找旧成绩
-    best_score = None
-    best_member = None
-    members = await redis_client.zrange(key, 0, -1, withscores=True)
-    for m, score in members:
-        if m.startswith(f"{user_id}:"):
-            best_score = score
-            best_member = m
-            break  # 只会有一条
-    # 2. 比较成绩
-    if best_score is None or info.duration_seconds < best_score:
-        if best_member:
-            await redis_client.zrem(key, best_member)
-        member = f"{user_id}:{info.record_id}"
-        await redis_client.zadd(key, {member: info.duration_seconds})
+    if final_time is not None:
+        key = f"leaderboard:bike:{record.track.track_id}:{gender.value}"
+        # 1. 查找旧成绩
+        best_score = None
+        best_member = None
+        members = await redis_client.zrange(key, 0, -1, withscores=True)
+        for m, score in members:
+            if m.startswith(f"{user_id}:"):
+                best_score = score
+                best_member = m
+                break  # 只会有一条
+        # 2. 比较成绩
+        if best_score is None or final_time < best_score:
+            if best_member:
+                await redis_client.zrem(key, best_member)
+            member = f"{user_id}:{info.record_id}"
+            try:
+                await redis_client.zadd(key, {member: final_time})
+            except Exception as e:
+                # todo: 记录错误日志，后续由定时任务补偿
+                leaderboard_logger.error(f"Failed to update leaderboard {key} for record {info.record_id}: {e}")
 
 
 async def finish_team_competition_service(db: AsyncSession, info: BikeFinishInfo, user_id: str):
@@ -657,10 +696,38 @@ async def finish_team_competition_service(db: AsyncSession, info: BikeFinishInfo
             raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
         if record.track is None:
             raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+        if record.status != RecordStatus.recording or record.start_time is None or record.start_time > info.end_time:
+            raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛状态错误")
+        final_time = (info.end_time - record.start_time).total_seconds()
+        bonus_time = 0
+        for item in info.bonus_in_cards:
+            bonus_time += item.bonus_time
+            card = await get_equip_card_by_card_id(db, item.card_id)
+            if card is not None:
+                db.add(CardBonusInBikeRecord(
+                    record_id=record.id,
+                    card_id=card.id,
+                    bonus_time=item.bonus_time
+                ))
+        # 奖励时间上限为20%
+        if bonus_time / final_time > 0.2:
+            final_time = final_time * 0.8
+        else:
+            final_time -= bonus_time
+        path_data = [p.model_dump() for p in info.path]
+        path = BikeRacePath(
+            path_id=f"path_{uuid.uuid4()}",
+            record_id=record.id,
+            path=path_data
+        )
+        db.add(path)
+        await db.flush()
+        await db.refresh(path)
         update_data = {
+            "path_id": path.id,
             "status": RecordStatus.completed,
             "end_time": info.end_time,
-            "duration_seconds": info.duration_seconds
+            "duration_seconds": final_time
         }
         await update_record_crud(db, record, update_data)
 
@@ -679,7 +746,8 @@ async def finish_team_competition_service(db: AsyncSession, info: BikeFinishInfo
         if all_completed:
             team.status = TeamStatus.completed
 
-        # 更新排行榜
+    # 更新排行榜
+    if final_time is not None:
         key = f"leaderboard:bike:{record.track.track_id}:{gender.value}"
         # 1. 查找旧成绩
         best_score = None
@@ -691,11 +759,15 @@ async def finish_team_competition_service(db: AsyncSession, info: BikeFinishInfo
                 best_member = m
                 break  # 只会有一条
         # 2. 比较成绩
-        if best_score is None or info.duration_seconds < best_score:
+        if best_score is None or final_time < best_score:
             if best_member:
                 await redis_client.zrem(key, best_member)
             member = f"{user_id}:{info.record_id}"
-            await redis_client.zadd(key, {member: info.duration_seconds})
+            try:
+                await redis_client.zadd(key, {member: final_time})
+            except Exception as e:
+                # todo: 记录错误日志，后续由定时任务补偿
+                leaderboard_logger.error(f"Failed to update leaderboard {key} for record {info.record_id}: {e}")
 
 
 async def get_team_expired_date_service(db: AsyncSession, record_id: str) -> BikeTeamExpiredResponse:
@@ -1446,4 +1518,75 @@ async def cancel_applied_join_team_service(db: AsyncSession, user_id: str, team_
         if member is None:
             raise BizException(code=ErrorCode.TEAM_ERROR, message="您不在申请列表中")
         await db.delete(member)
-        
+
+
+async def get_record_detail_service(db: AsyncSession, record_id: str) -> BikeRecordDetailInfo:
+    record = await get_record_by_record_id(db, record_id)
+    if record is None:
+        raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+    
+    # 构建MemberScoreInfo列表
+    team_member_scores_list = []
+    if record.team_id:
+        member_records = await get_records_by_team_id(db, record.team_id)
+        for member_record in member_records:
+            team_member_scores_list.append(MemberScoreInfo(
+                user_info=PersonInfoResponse(user_id=member_record.user.user_id, avatar_image_url=member_record.user.avatar_image_url, nickname=member_record.user.nickname),
+                status=member_record.status, final_time=member_record.duration_seconds))
+    
+    # 构建CardBonusInfo列表
+    card_bonus_list = []
+    if record.card_bonus:
+        for card_bonus in record.card_bonus:
+            if card_bonus.card and card_bonus.card.equipment_def:
+                card_def = card_bonus.card.equipment_def
+                card_info = EquipCardBaseInfo(
+                    card_id=card_bonus.card.card_id,
+                    name=card_def.name,
+                    sport_type=card_def.sport_type,
+                    level=card_bonus.card.level,
+                    levelSkill1=card_bonus.card.skill1_level,
+                    levelSkill2=card_bonus.card.skill2_level,
+                    levelSkill3=card_bonus.card.skill3_level,
+                    image_url=card_def.image_url,
+                    lucky=card_bonus.card.lucky_value,
+                    rarity=card_def.rarity,
+                    description=card_def.description,
+                    description_skill1=card_def.skill1_description,
+                    description_skill2=card_def.skill2_description,
+                    description_skill3=card_def.skill3_description,
+                    version=card_def.version,
+                    type_name=card_def.type_name,
+                    tags=card_def.tags,
+                    effect_def=card_bonus.card.effect_config
+                )
+                card_bonus_list.append(
+                    CardBonusInfo(
+                        card=card_info,
+                        bonus_time=float(card_bonus.bonus_time)
+                    )
+                )
+    
+    # 构建路径点列表
+    path_points = []
+    if record.path and record.path.path:
+        try:
+            path_points = [PathPoint.model_validate(point_data) for point_data in record.path.path]
+        except Exception:
+            path_points = []
+    
+    # 计算时间
+    original_time = 0.0
+    final_time = 0.0
+    if record.start_time and record.end_time:
+        original_time = (record.end_time - record.start_time).total_seconds()
+    if record.duration_seconds is not None:
+        final_time = float(record.duration_seconds)
+    
+    return BikeRecordDetailInfo(
+        original_time=original_time,
+        final_time=final_time,
+        path=path_points,
+        card_bonus=card_bonus_list,
+        team_member_scores=team_member_scores_list
+    )

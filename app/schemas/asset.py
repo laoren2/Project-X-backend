@@ -1,8 +1,9 @@
-from typing import Optional, List
+from typing import Optional, List, Any
 from app.schemas.base import ORMBase
-from app.schemas.common import CPAssetBaseInfo
+from app.schemas.common import CPAssetBaseInfo, EquipCardBaseInfo, SportType
 from enum import Enum
 from fastapi import Form
+from pydantic import BaseModel
 
 
 class CCAssetType(str, Enum):
@@ -38,10 +39,8 @@ class AssetOperation(str, Enum):
     REWARD = "reward"       # 奖励
     WITHDRAW = "withdraw"   # 提现
     REFUND = "refund"       # 退回
-
-class EquipmentCardType(str, Enum):
-    WATER = "water"
-    FIRE = "fire"
+    DESTROY = "destroy"     # 销毁
+    UPGRADE = "upgrade"     # 升级
 
 class CCAssetsResponse(ORMBase):
     coin_amount: int
@@ -109,6 +108,11 @@ class CC_CP_PurchaseResultResponse(ORMBase):
     cpasset_id: str
     new_cpamount: int
 
+class CC_ECARD_PurchaseResultResponse(BaseModel):
+    ccasset_type: CCAssetType
+    new_ccamount: int
+    card: EquipCardBaseInfo
+
 class CPAssetDefCreateForm(ORMBase):
     prop_type: str
     name: str
@@ -134,3 +138,98 @@ class CCAssetRewardRequest(ORMBase):
     user_id: str
     ccasset_type: CCAssetType
     amount: int
+
+class EquipCardDefCreateForm(ORMBase):
+    name: str
+    sport_type: SportType
+    rarity: str
+    description: str
+    skill1_description: str | None
+    skill2_description: str | None
+    skill3_description: str | None
+    version: str
+    type_name: str
+    tags: str           # 后续手动json.loads
+    effect_config: str  # 后续手动json.loads
+
+    @classmethod
+    def as_form(
+        cls,
+        name: str = Form(...),
+        sport_type: SportType = Form(...),
+        rarity: str = Form(...),
+        description: str = Form(...),
+        skill1_description: str | None = Form(None),
+        skill2_description: str | None = Form(None),
+        skill3_description: str | None = Form(None),
+        version: str = Form(...),
+        type_name: str = Form(...),
+        tags: str = Form("[]"),
+        effect_config: str = Form(...)
+    ):
+        return cls(
+            name=name,
+            sport_type=sport_type,
+            rarity=rarity,
+            description=description,
+            skill1_description=skill1_description,
+            skill2_description=skill2_description,
+            skill3_description=skill3_description,
+            version=version,
+            type_name=type_name,
+            tags=tags,
+            effect_config=effect_config
+        )
+
+class EquipCardDefInfo(ORMBase):
+    def_id: str
+    name: str
+    image_url: str
+    sport_type: SportType
+    rarity: str
+    description: str
+    skill1_description: str | None
+    skill2_description: str | None
+    skill3_description: str | None
+    version: str
+    type_name: str
+    tags: List[str]
+    effect_config: dict[str, Any]
+
+class EquipCardDefResponse(BaseModel):
+    defs: List[EquipCardDefInfo]
+
+class EquipCardShopInfoCreateRequest(ORMBase):
+    card_def_id: str
+    ccasset_type: CCAssetType
+    price: int
+    is_on_shelves: bool
+
+class EquipCardShopInfo(BaseModel):
+    def_id: str
+    name: str
+    image_url: str
+    sport_type: SportType
+    rarity: str
+    description: str
+    skill1_description: str | None
+    skill2_description: str | None
+    skill3_description: str | None
+    version: str
+    effect_config: dict[str, Any]
+
+    ccasset_type: CCAssetType
+    price: int
+
+class EquipCardShopResponse(BaseModel):
+    cards: List[EquipCardShopInfo]
+
+class EquipCardShopInternalInfo(EquipCardShopInfo):
+    is_on_shelves: bool
+
+class EquipCardShopInternalResponse(BaseModel):
+    cards: List[EquipCardShopInternalInfo]
+
+class EquipCardsResponse(BaseModel):
+    cards: List[EquipCardBaseInfo]
+

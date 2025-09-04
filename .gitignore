@@ -7,12 +7,15 @@ __pycache__/
 # Logs and DB
 *.log
 *.db
+*.dump
 # System files
 .DS_Store
 # Secrets
 .env
 certs/
+# backup data
 backups/
+redis_data/
 # IDE config
 .vscode/
 .idea/

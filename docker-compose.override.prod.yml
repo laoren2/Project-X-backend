@@ -3,7 +3,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 
   backup:
-    image: postgres:15
+    image: postgres:15.13
     depends_on:
       - db
     volumes:
@@ -16,3 +16,8 @@ services:
                sleep 86400;
              done'
 
+  redis:
+    volumes:
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+      - ./redis_data:/data
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]

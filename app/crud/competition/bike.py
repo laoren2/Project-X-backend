@@ -2,8 +2,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func, and_
 from app.db.models.competition import (
     Region, BikeEvent, BikeSeason, 
-    BikeTrack, BikeRaceRecord, BikeTeam, BikeTeamMember, BikeTeamAppliedMember
+    BikeTrack, BikeRaceRecord, BikeTeam, BikeTeamMember, BikeTeamAppliedMember,
+    CardBonusInBikeRecord
 )
+from app.db.models.asset import EquipmentCardDef, UserEquipmentCard
 from app.schemas.competition.common import RecordStatus, TeamStatus
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
@@ -247,10 +249,24 @@ async def get_record_by_record_id(db: AsyncSession, record_id: str) -> BikeRaceR
         .options(
             selectinload(BikeRaceRecord.track),
             selectinload(BikeRaceRecord.team)
-                .selectinload(BikeTeam.members)
+                .selectinload(BikeTeam.members),
+            selectinload(BikeRaceRecord.path),
+            selectinload(BikeRaceRecord.card_bonus)
+                .selectinload(CardBonusInBikeRecord.card)
+                .selectinload(UserEquipmentCard.equipment_def)
         )
     )
     return record.scalar_one_or_none()
+
+async def get_records_by_team_id(db: AsyncSession, team_id: uuid.UUID) -> List[BikeRaceRecord]:
+    result = await db.execute(
+        select(BikeRaceRecord)
+        .where(BikeRaceRecord.team_id == team_id)
+        .options(
+            selectinload(BikeRaceRecord.user)
+        )
+    )
+    return result.scalars().all()
 
 async def get_records_by_team_id_for_update(db: AsyncSession, team_id: uuid.UUID) -> List[BikeRaceRecord]:
     result = await db.execute(

@@ -1,16 +1,18 @@
 from sqlalchemy import select
 from app.db.models.asset import (
     CCUserAsset, CCAssetTransaction, CPUserAsset, 
-    CPAssetTransaction, CPAssetDef, CPRegistrationCardDef, CPAssetPrice, CPTeamCardDef
+    CPAssetTransaction, CPAssetDef, CPRegistrationCardDef, CPAssetPrice, CPTeamCardDef,
+    EquipmentCardDef, EquipCardPrice, UserEquipmentCard, EquipCardTransaction
 )
 from app.schemas.asset import CCAssetType, AssetOperation, CPAssetType
-from app.schemas.competition.common import SportType
+from app.schemas.common import SportType
 from app.schemas.base import BizException
 from app.core.errors import ErrorCode
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 import uuid
+import random
 
 
 
@@ -58,9 +60,12 @@ async def reward_cpasset(db: AsyncSession, user_id: uuid.UUID, asset_id: uuid.UU
     )
     return new_balance
 
-async def get_cpasset_price(db: AsyncSession, asset_id: uuid.UUID) -> CPAssetPrice | None:
+async def get_cpasset_price_on_shelves(db: AsyncSession, asset_id: uuid.UUID) -> CPAssetPrice | None:
     result = await db.execute(
-        select(CPAssetPrice).where(CPAssetPrice.prop_def_id == asset_id)
+        select(CPAssetPrice).where(
+            CPAssetPrice.prop_def_id == asset_id,
+            CPAssetPrice.is_on_shelves == True
+        )
     )
     return result.scalar_one_or_none()
 
@@ -113,9 +118,6 @@ async def create_ccasset_transaction(
         description=description
     )
     db.add(transaction)
-    await db.flush()
-    await db.refresh(transaction)
-    return transaction
 
 async def get_cpasset_def_by_asset_id(db: AsyncSession, asset_id: str) -> CPAssetDef | None:
     result = await db.execute(
@@ -169,7 +171,7 @@ async def get_team_card_def(db: AsyncSession, sport_type: SportType) -> CPTeamCa
         raise BizException(code=ErrorCode.ASSET_DEF_ERROR, message="资产定义不存在")
     return team_card_def
 
-async def get_cpasset_on_shelves(db: AsyncSession) -> List[CPAssetPrice]:
+async def get_cpassets_on_shelves_crud(db: AsyncSession) -> List[CPAssetPrice]:
     result = await db.execute(
         select(CPAssetPrice)
         .options(selectinload(CPAssetPrice.prop_def))
@@ -256,9 +258,6 @@ async def create_cpasset_transaction(
         description=description
     )
     db.add(transaction)
-    await db.flush()
-    await db.refresh(transaction)
-    return transaction
 
 async def insert_cp_asset_def_and_child(db: AsyncSession, parent_data: dict, subclass, extra_fields: dict):
     # 合并所有字段
@@ -267,3 +266,128 @@ async def insert_cp_asset_def_and_child(db: AsyncSession, parent_data: dict, sub
     db.add(child_instance)
     await db.flush()
     
+
+async def query_equip_card_def_crud(
+    db: AsyncSession,
+    name: Optional[str],
+    sport_type: Optional[SportType],
+    page: int,
+    size: int
+) -> List[EquipmentCardDef]:
+    query = select(EquipmentCardDef)
+    if name:
+        query = query.where(EquipmentCardDef.name.ilike(f"%{name}%"))
+    if sport_type:
+        try:
+            query = query.where(EquipmentCardDef.sport_type == sport_type)
+        except ValueError:
+            query = query.where(False)  # 不合法类型直接查空
+
+    query = query.order_by(EquipmentCardDef.id.desc()).offset((page - 1) * size).limit(size)
+    result = await db.execute(query)
+    items = result.scalars().all()
+    return items
+
+async def query_equip_cards_in_shop_crud(
+    db: AsyncSession,
+    name: Optional[str],
+    card_id: Optional[str],
+    is_on_shelves: Optional[str],
+    page: int,
+    size: int
+) -> List[EquipCardPrice]:
+    query = select(EquipCardPrice).options(
+        selectinload(EquipCardPrice.card_def)
+    ).join(EquipCardPrice.card_def)
+
+    if name:
+        query = query.where(EquipmentCardDef.name.ilike(f"%{name}%"))
+    if card_id:
+        query = query.where(EquipmentCardDef.def_id.ilike(f"%{card_id}%"))
+    if is_on_shelves is not None:
+        query = query.where(EquipCardPrice.is_on_shelves == is_on_shelves)
+    query = query.order_by(EquipCardPrice.id.desc()).offset((page - 1) * size).limit(size)
+    result = await db.execute(query)
+    return result.scalars().all()
+
+async def get_equip_card_def_by_card_id(db: AsyncSession, card_id: str) -> EquipmentCardDef | None:
+    result = await db.execute(
+        select(EquipmentCardDef).where(
+            EquipmentCardDef.def_id == card_id
+        )
+    )
+    return result.scalar_one_or_none()
+
+async def get_equip_card_by_card_id(db: AsyncSession, card_id: str) -> UserEquipmentCard | None:
+    result = await db.execute(
+        select(UserEquipmentCard).where(
+            UserEquipmentCard.card_id == card_id
+        )
+    )
+    return result.scalar_one_or_none()
+
+async def get_equip_cards_on_shelves_crud(db: AsyncSession) -> List[EquipCardPrice]:
+    result = await db.execute(
+        select(EquipCardPrice)
+        .options(selectinload(EquipCardPrice.card_def))
+        .where(EquipCardPrice.is_on_shelves == True)
+    )
+    return result.scalars().all()
+
+async def get_user_equip_cards_all(db: AsyncSession, user_id: uuid.UUID) -> List[UserEquipmentCard]:
+    result = await db.execute(
+        select(UserEquipmentCard)
+        .options(selectinload(UserEquipmentCard.equipment_def))
+        .where(UserEquipmentCard.user_id == user_id)
+    )
+    return result.scalars().all()
+
+async def get_equip_card_price_on_shelves(db: AsyncSession, card_id: uuid.UUID) -> EquipCardPrice | None:
+    result = await db.execute(
+        select(EquipCardPrice).where(
+            EquipCardPrice.def_id == card_id,
+            EquipCardPrice.is_on_shelves == True
+        )
+    )
+    return result.scalar_one_or_none()
+
+def generate_lucky_value(mu: float = 55, sigma: float = 15) -> float:
+    """生成符合正态分布的幸运值 (0 ~ 100)"""
+    while True:
+        value = random.gauss(mu, sigma)
+        # 舍弃落在范围外的值，重新采样
+        if 0 < value < 100:
+            return value
+
+async def create_user_equip_card(db: AsyncSession, user_id: uuid.UUID, card_def: EquipmentCardDef) -> UserEquipmentCard:
+    card_id = f"equipcard_{uuid.uuid4()}"
+    lucky_value = generate_lucky_value()
+    card = UserEquipmentCard(
+        card_id=card_id,
+        user_id=user_id,
+        equipment_def_id=card_def.id,
+        level=0,
+        lucky_value=lucky_value,
+        effect_config=card_def.effect_config
+    )
+    db.add(card)
+    await db.flush()
+    await db.refresh(card)
+    return card
+
+async def create_equip_card_transaction(
+    db: AsyncSession, 
+    user_id: uuid.UUID, 
+    card_id: uuid.UUID, 
+    operation: AssetOperation,
+    balance_after: int, 
+    description: str = None
+):
+    transaction = EquipCardTransaction(
+        user_id=user_id,
+        card_id=card_id,
+        operation=operation,
+        balance_after=balance_after,
+        description=description
+    )
+    db.add(transaction)
