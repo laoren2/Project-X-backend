@@ -1,22 +1,28 @@
 from app.crud.asset_manage import (
-    get_or_create_user_ccasset, get_cpasset_price,
+    get_or_create_user_ccasset, get_cpasset_price_on_shelves,
     update_user_ccasset_balance, create_ccasset_transaction, 
     get_or_create_user_cpasset, update_user_cpasset_balance, create_cpasset_transaction,
-    get_user_cpasset_all, get_cpasset_def_by_asset_id, get_cpasset_on_shelves,
+    get_user_cpasset_all, get_cpasset_def_by_asset_id, get_cpassets_on_shelves_crud,
     insert_cp_asset_def_and_child, query_cpasset_def_crud, query_cpassets_in_shop_crud,
     add_cpasset_to_shop_crud, consume_ccasset, consume_cpasset,
-    reward_ccasset, reward_cpasset
+    reward_ccasset, reward_cpasset, query_equip_card_def_crud, get_user_equip_cards_all,
+    query_equip_cards_in_shop_crud, get_equip_card_def_by_card_id, get_equip_cards_on_shelves_crud,
+    get_equip_card_price_on_shelves, create_user_equip_card, create_equip_card_transaction
 )
 from app.crud.user import get_user_by_id
-from app.db.models.asset import CPRegistrationCardDef, CPTeamCardDef, CPAssetDef, CPAssetPrice
+from app.db.models.asset import CPRegistrationCardDef, CPTeamCardDef, CPAssetDef, CPAssetPrice, EquipmentCardDef, EquipCardPrice
 from app.core.errors import ErrorCode
 from app.schemas.base import BizException
 from app.schemas.asset import (
     CCAssetsResponse, CCAssetType, AssetOperation, CPAssetType, CPAssetsResponse, 
     CPAssetBaseInfo, CC_CP_PurchaseResultResponse, CC_CC_PurchaseResultResponse, CPAssetsShopResponse, CPAssetShopInfo,
     CPAssetDefCreateForm, CPAssetDefInfo, CPAssetDefResponse, CPAssetShopInfoCreateRequest, 
-    CPAssetsShopInternalResponse, CPAssetShopInternalInfo, CCAssetRewardRequest
+    CPAssetsShopInternalResponse, CPAssetShopInternalInfo, CCAssetRewardRequest,
+    EquipCardDefCreateForm, EquipCardDefInfo, EquipCardDefResponse, EquipCardShopInternalResponse,
+    EquipCardShopInfoCreateRequest, EquipCardShopInternalInfo, EquipCardShopResponse,
+    EquipCardShopInfo, EquipCardsResponse, CC_ECARD_PurchaseResultResponse
 )
+from app.schemas.common import EquipCardBaseInfo, SportType
 from app.core.tools import auto_cast_fields
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -59,7 +65,7 @@ async def buy_cpassets_use_ccasset(
         if cpasset_def is None:
             raise BizException(code=ErrorCode.ASSET_DEF_ERROR, message="找不到资产定义")
         # 查询当前cpasset对应的ccasset类型和价格
-        cpasset_price = await get_cpasset_price(db, cpasset_def.id)
+        cpasset_price = await get_cpasset_price_on_shelves(db, cpasset_def.id)
         if cpasset_price is None:
             raise BizException(code=ErrorCode.PRODUCT_REMOVED_FROM_SHELVES, message="商品已下架")
         ccasset_type = cpasset_price.ccasset_type
@@ -70,7 +76,7 @@ async def buy_cpassets_use_ccasset(
         new_cpasset_balance = cpasset.balance + cpamount
         await update_user_cpasset_balance(db, cpasset, new_cpasset_balance)
         await create_cpasset_transaction(
-            db, user.id, cpasset_def.id, AssetOperation.CONSUME, cpamount, new_cpasset_balance, description=f"purchase from {ccamount * cpamount} {ccasset_type.display_name()}"
+            db, user.id, cpasset_def.id, AssetOperation.CONSUME, cpamount, new_cpasset_balance, description=f"消费 {ccamount * cpamount} {ccasset_type.display_name()} 购买"
         )
         return CC_CP_PurchaseResultResponse(
             ccasset_type=ccasset_type,
@@ -139,7 +145,7 @@ async def get_user_cpassets(db: AsyncSession, user_id: str) -> CPAssetsResponse:
 
 # 查询商店的通用道具资产信息
 async def get_cpassets_on_shelves(db: AsyncSession) -> CPAssetsShopResponse:
-    cpassets = await get_cpasset_on_shelves(db)
+    cpassets = await get_cpassets_on_shelves_crud(db)
     assets = []
     for asset in cpassets:
         prop_def = asset.prop_def
@@ -220,7 +226,10 @@ async def create_cpasset_def_service(
     url: str
 ):
     async with db.begin():
-        extra_fields_dict = json.loads(form.extra_fields)
+        try:
+            extra_fields_dict = json.loads(form.extra_fields)
+        except json.JSONDecodeError:
+            raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"JSON格式错误")
         parent_data = {
             "asset_id": asset_id,
             "prop_type": form.prop_type,
@@ -269,3 +278,202 @@ async def reward_ccasset_to_user_service(db: AsyncSession, request: CCAssetRewar
         new_balance = await reward_ccasset(db, request.ccasset_type, request.amount, user.id, "系统奖励")
         return new_balance
 
+
+# 查询卡牌定义
+async def query_equip_card_def_service(
+    db: AsyncSession, 
+    name: Optional[str], 
+    sport_type: Optional[SportType], 
+    page: int, 
+    size: int
+) -> EquipCardDefResponse:
+    items = await query_equip_card_def_crud(db, name, sport_type, page, size)
+    defs = [EquipCardDefInfo.model_validate(item) for item in items]
+    return EquipCardDefResponse(defs=defs)
+
+
+async def create_equip_card_def_service(
+    db: AsyncSession, 
+    form: EquipCardDefCreateForm, 
+    def_id: str, 
+    url: str
+):
+    try:
+        tags_data = json.loads(form.tags)
+        effect_data = json.loads(form.effect_config)
+    except json.JSONDecodeError:
+        raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"JSON格式错误")
+    card = EquipmentCardDef(
+        def_id=def_id,
+        name=form.name,
+        sport_type=form.sport_type,
+        rarity=form.rarity,
+        description=form.description,
+        skill1_description=form.skill1_description,
+        skill2_description=form.skill2_description,
+        skill3_description=form.skill3_description,
+        image_url=url,
+        version=form.version,
+        type_name=form.type_name,
+        tags=tags_data,
+        effect_config=effect_data,
+    )
+    db.add(card)
+    await db.commit()
+
+
+async def get_equip_cards_in_shop(
+    db: AsyncSession,
+    name: Optional[str],
+    card_id: Optional[str],
+    is_on_shelves: Optional[str],
+    page: int,
+    size: int
+) -> EquipCardShopInternalResponse:
+    quip_cards = await query_equip_cards_in_shop_crud(db, name, card_id, is_on_shelves, page, size)
+    cards = []
+    for card in quip_cards:
+        card_def = card.card_def
+        if card_def is not None:
+            cards.append(
+                EquipCardShopInternalInfo(
+                    def_id=card_def.def_id,
+                    name=card_def.name,
+                    image_url=card_def.image_url,
+                    sport_type=card_def.sport_type,
+                    rarity=card_def.rarity,
+                    description=card_def.description,
+                    skill1_description=card_def.skill1_description,
+                    skill2_description=card_def.skill2_description,
+                    skill3_description=card_def.skill3_description,
+                    version=card_def.version,
+                    effect_config=card_def.effect_config,
+                    ccasset_type=card.ccasset_type,
+                    price=card.price,
+                    is_on_shelves=card.is_on_shelves
+                )
+            )
+    return EquipCardShopInternalResponse(cards=cards)
+
+async def add_equip_card_to_shop_service(db: AsyncSession, request: EquipCardShopInfoCreateRequest):
+    equip_card_def = await get_equip_card_def_by_card_id(db, request.card_def_id)
+    if equip_card_def is None:
+        raise BizException(code=ErrorCode.ASSET_DEF_ERROR, message="找不到资产定义")
+    equip_card_price = EquipCardPrice(
+        def_id = equip_card_def.id,
+        ccasset_type = request.ccasset_type,
+        price = request.price,
+        is_on_shelves = request.is_on_shelves
+    )
+    db.add(equip_card_price)
+    await db.commit()
+
+# 查询商店的卡牌信息
+async def get_equip_cards_on_shelves(db: AsyncSession) -> EquipCardShopResponse:
+    card_prices = await get_equip_cards_on_shelves_crud(db)
+    cards = []
+    for price in card_prices:
+        card_def = price.card_def
+        if card_def is not None:
+            cards.append(
+                EquipCardShopInfo(
+                    def_id=card_def.def_id,
+                    name=card_def.name,
+                    image_url=card_def.image_url,
+                    sport_type=card_def.sport_type,
+                    rarity=card_def.rarity,
+                    description=card_def.description,
+                    skill1_description=card_def.skill1_description,
+                    skill2_description=card_def.skill2_description,
+                    skill3_description=card_def.skill3_description,
+                    version=card_def.version,
+                    effect_config=card_def.effect_config,
+                    ccasset_type=price.ccasset_type,
+                    price=price.price
+                )
+            )
+    return EquipCardShopResponse(cards=cards)
+
+# 查询用户持有卡牌
+async def get_user_equip_cards(db: AsyncSession, user_id: str) -> EquipCardsResponse:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+    user_cards = await get_user_equip_cards_all(db, user.id)
+    cards = []
+    for card in user_cards:
+        card_def = card.equipment_def
+        if card_def is not None:
+            cards.append(
+                EquipCardBaseInfo(
+                    card_id=card.card_id,
+                    name=card_def.name,
+                    sport_type=card_def.sport_type,
+                    level=card.level,
+                    levelSkill1=card.skill1_level,
+                    levelSkill2=card.skill2_level,
+                    levelSkill3=card.skill3_level,
+                    image_url=card_def.image_url,
+                    lucky=card.lucky_value,
+                    rarity=card_def.rarity,
+                    description=card_def.description,
+                    description_skill1=card_def.skill1_description,
+                    description_skill2=card_def.skill2_description,
+                    description_skill3=card_def.skill3_description,
+                    version=card_def.version,
+                    type_name=card_def.type_name,
+                    tags=card_def.tags,
+                    effect_def=card.effect_config
+                )
+            )
+    return EquipCardsResponse(cards=cards)
+
+async def buy_equip_card_use_ccasset(
+    db: AsyncSession,
+    user_id: str,
+    card_def_id: str
+) -> CC_ECARD_PurchaseResultResponse:
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        card_def = await get_equip_card_def_by_card_id(db, card_def_id)
+        if card_def is None:
+            raise BizException(code=ErrorCode.ASSET_DEF_ERROR, message="找不到资产定义")
+        # 查询当前cpasset对应的ccasset类型和价格
+        equip_card_price = await get_equip_card_price_on_shelves(db, card_def.id)
+        if equip_card_price is None:
+            raise BizException(code=ErrorCode.PRODUCT_REMOVED_FROM_SHELVES, message="商品已下架")
+        ccasset_type = equip_card_price.ccasset_type
+        ccamount = equip_card_price.price
+    
+        equip_card = await create_user_equip_card(db, user.id, card_def)
+        new_ccasset_balance = await consume_ccasset(db, ccasset_type, ccamount, user.id, f"购买 {card_def.name}")
+        await create_equip_card_transaction(
+            db, user.id, equip_card.id, AssetOperation.CONSUME, 1, description=f"消费 {ccamount} {ccasset_type.display_name()} 购买"
+        )
+        card_info = EquipCardBaseInfo(
+            card_id=equip_card.card_id,
+            name=card_def.name,
+            sport_type=card_def.sport_type,
+            level=equip_card.level,
+            levelSkill1=equip_card.skill1_level,
+            levelSkill2=equip_card.skill2_level,
+            levelSkill3=equip_card.skill3_level,
+            image_url=card_def.image_url,
+            lucky=equip_card.lucky_value,
+            rarity=card_def.rarity,
+            description=card_def.description,
+            description_skill1=card_def.skill1_description,
+            description_skill2=card_def.skill2_description,
+            description_skill3=card_def.skill3_description,
+            version=card_def.version,
+            type_name=card_def.type_name,
+            tags=card_def.tags,
+            effect_def=equip_card.effect_config
+        )
+        return CC_ECARD_PurchaseResultResponse(
+            ccasset_type=ccasset_type,
+            new_ccamount=new_ccasset_balance,
+            card=card_info
+        )

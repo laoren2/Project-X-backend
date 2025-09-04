@@ -1,13 +1,14 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, func, UniqueConstraint, Integer, Float, Enum, JSON
+from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, func, UniqueConstraint, Integer, Float, Enum
 from sqlalchemy.dialects.postgresql import UUID
-from app.schemas.asset import CCAssetType, CPAssetType, AssetOperation, EquipmentCardType
-from app.schemas.competition.common import SportType
+from app.schemas.asset import CCAssetType, CPAssetType, AssetOperation
+from app.schemas.common import SportType
 from app.db.base import Base
 from sqlalchemy.orm import relationship
 import hashlib
 import json
 from sqlalchemy import event
+from sqlalchemy.dialects.postgresql import JSONB
 
 
 
@@ -25,6 +26,22 @@ class CPAssetPrice(Base):
     
     __table_args__ = (
         UniqueConstraint("prop_def_id", name="uix_cpasset_price_prop_def_id"),
+    )
+
+# equipcards的实时售价
+class EquipCardPrice(Base):
+    __tablename__ = "equip_card_price"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    def_id = Column(UUID(as_uuid=True), nullable=False)
+    ccasset_type = Column(Enum(CCAssetType), nullable=False)
+    price = Column(Integer, nullable=False)
+    is_on_shelves = Column(Boolean, default=False, nullable=False)
+
+    card_def = relationship("EquipmentCardDef", primaryjoin="foreign(EquipCardPrice.def_id)==EquipmentCardDef.id")
+    
+    __table_args__ = (
+        UniqueConstraint("def_id", name="uix_equip_card_price_def_id"),
     )
 
 # 用户通用货币资产表 cc(common currency)
@@ -135,19 +152,27 @@ class CPAssetTransaction(Base):
 class EquipmentCardDef(Base):
     __tablename__ = "equipment_card_defs"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    equip_id = Column(String, unique=True, index=True, nullable=False)
+    def_id = Column(String, unique=True, index=True, nullable=False)
     validation_token = Column(String, nullable=False)
 
-    type = Column(Enum(EquipmentCardType), nullable=False)
+    name = Column(String, nullable=False)
+    sport_type = Column(Enum(SportType), nullable=False)
     rarity = Column(String, nullable=False)
     description = Column(String, nullable=False)
+    skill1_description = Column(String, nullable=True)
+    skill2_description = Column(String, nullable=True)
+    skill3_description = Column(String, nullable=True)
     image_url = Column(String, nullable=False)
-    basic_config = Column(JSON, nullable=True)  # 包含基本使用方法/收益等配置
+    version = Column(String, nullable=False)
+
+    type_name = Column(String, nullable=False)           # 唯一的标识一个effect
+    tags = Column(JSONB, nullable=False, default=list)   # 过滤标签，string数组
+    effect_config = Column(JSONB, nullable=False)        # 包含基本使用方法/收益等配置
 
 @event.listens_for(EquipmentCardDef, "before_insert")
 def generate_validation_token(mapper, connection, target):
-    if target.basic_config is not None:
-        serialized = json.dumps(target.basic_config, sort_keys=True)
+    if target.effect_config is not None:
+        serialized = json.dumps(target.effect_config, sort_keys=True)
         target.validation_token = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
     else:
         target.validation_token = ""
@@ -155,8 +180,8 @@ def generate_validation_token(mapper, connection, target):
 # 在更新时同步更新 validation_token，逻辑与 before_insert 保持一致
 @event.listens_for(EquipmentCardDef, "before_update")
 def update_validation_token(mapper, connection, target):
-    if target.basic_config is not None:
-        serialized = json.dumps(target.basic_config, sort_keys=True)
+    if target.effect_config is not None:
+        serialized = json.dumps(target.effect_config, sort_keys=True)
         target.validation_token = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
     else:
         target.validation_token = ""
@@ -166,16 +191,34 @@ class UserEquipmentCard(Base):
     __tablename__ = "user_equipment_cards"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    card_id = Column(String, unique=True, index=True, nullable=False)
     user_id = Column(UUID(as_uuid=True), nullable=False)
     equipment_def_id = Column(UUID(as_uuid=True), nullable=False)
 
     # 每个实例独有的动态属性
-    level = Column(Integer, default=1, nullable=False)
-    lucky_value = Column(Float, default=50, nullable=False)
-    income_multiple = Column(Float, default=1, nullable=False)
+    level = Column(Integer, default=0, nullable=False)
+    skill1_level = Column(Integer, nullable=True)
+    skill2_level = Column(Integer, nullable=True)
+    skill3_level = Column(Integer, nullable=True)
+    lucky_value = Column(Float, nullable=False)
+    effect_config = Column(JSONB, nullable=False)
     
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
 
     user = relationship("User", primaryjoin="foreign(UserEquipmentCard.user_id)==User.id")
     equipment_def = relationship("EquipmentCardDef", primaryjoin="foreign(UserEquipmentCard.equipment_def_id)==EquipmentCardDef.id")
 
+# 用户卡牌变动记录
+class EquipCardTransaction(Base):
+    __tablename__ = "equip_card_transactions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    card_id = Column(UUID(as_uuid=True), nullable=False)
+    operation = Column(Enum(AssetOperation), nullable=False)
+    balance_after = Column(Integer, nullable=False)
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    user = relationship("User", primaryjoin="foreign(EquipCardTransaction.user_id)==User.id")
+    card = relationship("UserEquipmentCard", primaryjoin="foreign(EquipCardTransaction.card_id)==UserEquipmentCard.id")

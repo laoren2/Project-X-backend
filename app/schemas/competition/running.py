@@ -1,10 +1,11 @@
 from fastapi import Form
 from app.schemas.base import ORMBase
 from app.schemas.common import PersonInfoResponse, CPAssetBaseInfo
-from app.schemas.competition.common import TeamStatus, RecordStatus
+from app.schemas.competition.common import TeamStatus, RecordStatus, CardBonusItem, CardBonusInfo, PathPoint, MemberScoreInfo
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
+from pydantic import BaseModel
 
 
 class RunningSeasonCreateForm:
@@ -248,10 +249,11 @@ class RunningBeginInfo(ORMBase):
     record_id: str
     start_time: datetime
 
-class RunningFinishInfo(ORMBase):
+class RunningFinishInfo(BaseModel):
     record_id: str
     end_time: datetime
-    duration_seconds: float
+    bonus_in_cards: List[CardBonusItem]
+    path: List[PathPoint]
 
 class RunningRecordInfo(ORMBase):
     record_id: str
@@ -415,3 +417,10 @@ class RunningTeamExpiredResponse(ORMBase):
 class RunningTeamAppliedRequest(ORMBase):
     team_id: str
     introduction: Optional[str] = None
+
+class RunningRecordDetailInfo(BaseModel):
+    original_time: float
+    final_time: float
+    path: List[PathPoint]
+    card_bonus: List[CardBonusInfo]
+    team_member_scores: List[MemberScoreInfo]

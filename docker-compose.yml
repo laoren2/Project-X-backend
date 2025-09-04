@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   db:
-    image: postgres:15
+    image: postgres:15.13
     #restart: always
     env_file:
       - .env
@@ -16,10 +16,12 @@ services:
       retries: 5
 
   redis:
-    image: redis:7
+    image: redis:7.4.5
     #restart: always
     ports:
       - "6379:6379"
+    volumes:
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -45,3 +47,4 @@ services:
 
 volumes:
   pgdata:
+  redisdata:

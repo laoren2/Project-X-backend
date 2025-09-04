@@ -6,9 +6,8 @@ import app.crud.competition.running as running
 from app.core.errors import ErrorCode
 from app.schemas.base import BizException
 from app.schemas.user import Gender
-from app.schemas.competition.common import (
-    SportType, RegionCreate
-)
+from app.schemas.competition.common import RegionCreate
+from app.schemas.common import SportType
 from app.db.models.competition import BikeSeason, Region, RunningSeason
 from typing import Optional, List
 from datetime import datetime, timezone
