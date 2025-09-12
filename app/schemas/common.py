@@ -21,6 +21,7 @@ class CPAssetBaseInfo(ORMBase):
 
 class EquipCardBaseInfo(ORMBase):
     card_id: str
+    def_id: str
     name: str
     sport_type: SportType
     level: int                      # 1-10级
@@ -34,6 +35,10 @@ class EquipCardBaseInfo(ORMBase):
     description_skill1: str | None
     description_skill2: str | None
     description_skill3: str | None
+    multiplier: float
+    multiplier_skill1: float | None
+    multiplier_skill2: float | None
+    multiplier_skill3: float | None
     version: str
     
     type_name: str

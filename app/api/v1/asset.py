@@ -6,13 +6,20 @@ from app.db.session import get_db
 from app.api.deps import get_current_user
 from app.services.asset_manage import (
     get_user_ccassets, get_user_cpassets, buy_cpassets_use_ccasset, get_cpassets_on_shelves,
-    get_user_cpasset, get_equip_cards_on_shelves, get_user_equip_cards, buy_equip_card_use_ccasset
+    get_user_cpasset, get_equip_cards_on_shelves, get_user_equip_cards, buy_equip_card_use_ccasset,
+    upgrade_equip_card_mat_service, upgrade_equip_card_fusion_service, get_equip_card_upgrade_price_service,
+    upgrade_equip_card_skill1_service, get_equip_card_skill1_upgrade_price_service, get_equip_card_skill2_upgrade_price_service,
+    get_equip_card_skill3_upgrade_price_service, upgrade_equip_card_skill2_service, upgrade_equip_card_skill3_service,
+    destroy_equip_card_service
 )
 from app.schemas.asset import (
     CCAssetsResponse, CPAssetsResponse, CPAssetBuyRequest, 
     CC_CP_PurchaseResultResponse, CPAssetsShopResponse, CPAssetBaseInfo,
-    EquipCardShopResponse, EquipCardsResponse, CC_ECARD_PurchaseResultResponse
+    EquipCardShopResponse, EquipCardsResponse, CC_ECARD_PurchaseResultResponse,
+    EquipCardUpgradeResponse, EquipCardUpgradePriceInfo, EquipCardSkillUpgradeResponse,
+    CCAssetBaseInfo
 )
+from app.schemas.common import EquipCardBaseInfo
 from app.schemas.base import BaseResponse
 from app.schemas.user import AuthContext
 import uuid
@@ -96,3 +103,102 @@ async def buy_equip_card(
 ):
     result = await buy_equip_card_use_ccasset(db, auth.payload["user_id"], card_def_id)
     return BaseResponse.success(token=auth.new_token, data=result, message="购买成功")
+
+# 销毁卡牌
+@router.post("/destroy_equip_card",response_model=BaseResponse[EquipCardUpgradePriceInfo],summary="销毁卡牌")
+async def destroy_equip_card(
+    card_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await destroy_equip_card_service(db, auth.payload["user_id"], card_id)
+    return BaseResponse.success(token=auth.new_token, data=result, message="销毁成功")
+
+# 查询升级材料价格
+@router.get("/query_equip_card_upgrade_price",response_model=BaseResponse[EquipCardUpgradePriceInfo], summary="查询升级卡牌的材料价格")
+async def query_equip_card_upgrade_price(
+    card_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    assets = await get_equip_card_upgrade_price_service(db, card_id)
+    return BaseResponse.success(token=auth.new_token, data=assets)
+
+
+# 查询技能升级材料价格
+@router.get("/query_equip_card_skill1_upgrade_price",response_model=BaseResponse[CCAssetBaseInfo], summary="查询升级卡牌技能1的材料价格")
+async def query_equip_card_skill1_upgrade_price(
+    card_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    price = await get_equip_card_skill1_upgrade_price_service(db, card_id)
+    return BaseResponse.success(token=auth.new_token, data=price)
+
+@router.get("/query_equip_card_skill2_upgrade_price",response_model=BaseResponse[CCAssetBaseInfo], summary="查询升级卡牌技能2的材料价格")
+async def query_equip_card_skill2_upgrade_price(
+    card_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    price = await get_equip_card_skill2_upgrade_price_service(db, card_id)
+    return BaseResponse.success(token=auth.new_token, data=price)
+
+@router.get("/query_equip_card_skill3_upgrade_price",response_model=BaseResponse[CCAssetBaseInfo], summary="查询升级卡牌技能3的材料价格")
+async def query_equip_card_skill3_upgrade_price(
+    card_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    price = await get_equip_card_skill3_upgrade_price_service(db, card_id)
+    return BaseResponse.success(token=auth.new_token, data=price)
+
+
+# 升级卡牌（材料）
+@router.post("/upgrade_equip_card_mat",response_model=BaseResponse[EquipCardUpgradeResponse],summary="材料升级卡牌")
+async def upgrade_equip_card_mat(
+    card_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await upgrade_equip_card_mat_service(db, auth.payload["user_id"], card_id)
+    return BaseResponse.success(token=auth.new_token, data=result, message="升级成功")
+
+# 升级卡牌（融合）
+@router.post("/upgrade_equip_card_fusion",response_model=BaseResponse[EquipCardBaseInfo],summary="融合升级卡牌")
+async def upgrade_equip_card_fusion(
+    card_id: str = Query(...),
+    fusion_card_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await upgrade_equip_card_fusion_service(db, card_id, fusion_card_id)
+    return BaseResponse.success(token=auth.new_token, data=result, message="升级成功")
+
+# 升级卡牌技能
+@router.post("/upgrade_equip_card_skill1",response_model=BaseResponse[EquipCardSkillUpgradeResponse],summary="升级卡牌技能1")
+async def upgrade_equip_card_skill1(
+    card_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await upgrade_equip_card_skill1_service(db, auth.payload["user_id"], card_id)
+    return BaseResponse.success(token=auth.new_token, data=result, message="升级成功")
+
+@router.post("/upgrade_equip_card_skill2",response_model=BaseResponse[EquipCardSkillUpgradeResponse],summary="升级卡牌技能2")
+async def upgrade_equip_card_skill2(
+    card_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await upgrade_equip_card_skill2_service(db, auth.payload["user_id"], card_id)
+    return BaseResponse.success(token=auth.new_token, data=result, message="升级成功")
+
+@router.post("/upgrade_equip_card_skill3",response_model=BaseResponse[EquipCardSkillUpgradeResponse],summary="升级卡牌技能3")
+async def upgrade_equip_card_skill3(
+    card_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await upgrade_equip_card_skill3_service(db, auth.payload["user_id"], card_id)
+    return BaseResponse.success(token=auth.new_token, data=result, message="升级成功")

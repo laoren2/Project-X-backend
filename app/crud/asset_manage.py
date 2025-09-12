@@ -4,7 +4,7 @@ from app.db.models.asset import (
     CPAssetTransaction, CPAssetDef, CPRegistrationCardDef, CPAssetPrice, CPTeamCardDef,
     EquipmentCardDef, EquipCardPrice, UserEquipmentCard, EquipCardTransaction
 )
-from app.schemas.asset import CCAssetType, AssetOperation, CPAssetType
+from app.schemas.asset import CCAssetType, AssetOperation, CPAssetType, CCAssetBaseInfo
 from app.schemas.common import SportType
 from app.schemas.base import BizException
 from app.core.errors import ErrorCode
@@ -40,13 +40,13 @@ async def consume_cpasset(db: AsyncSession, user_id: uuid.UUID, asset_id: uuid.U
     )
     return new_balance
 
-# 奖励cc资产
-async def reward_ccasset(db: AsyncSession, asset_type: CCAssetType, amount: int, user_id: uuid.UUID, comment: str) -> int:
+# 获得cc资产
+async def reward_ccasset(db: AsyncSession, asset_type: CCAssetType, amount: int, user_id: uuid.UUID, comment: str, op: AssetOperation) -> int:
     asset = await get_or_create_user_ccasset(db, user_id, asset_type)
     new_balance = asset.balance + amount
     new_balance = await update_user_ccasset_balance(db, asset, new_balance)
     await create_ccasset_transaction(
-        db, user_id, asset_type, AssetOperation.REWARD, amount, new_balance, description=comment
+        db, user_id, asset_type, op, amount, new_balance, description=comment
     )
     return new_balance
 
@@ -320,9 +320,11 @@ async def get_equip_card_def_by_card_id(db: AsyncSession, card_id: str) -> Equip
 
 async def get_equip_card_by_card_id(db: AsyncSession, card_id: str) -> UserEquipmentCard | None:
     result = await db.execute(
-        select(UserEquipmentCard).where(
-            UserEquipmentCard.card_id == card_id
+        select(UserEquipmentCard)
+        .options(
+            selectinload(UserEquipmentCard.equipment_def)
         )
+        .where(UserEquipmentCard.card_id == card_id)
     )
     return result.scalar_one_or_none()
 
@@ -351,13 +353,25 @@ async def get_equip_card_price_on_shelves(db: AsyncSession, card_id: uuid.UUID) 
     )
     return result.scalar_one_or_none()
 
-def generate_lucky_value(mu: float = 55, sigma: float = 15) -> float:
-    """生成符合正态分布的幸运值 (0 ~ 100)"""
-    while True:
-        value = random.gauss(mu, sigma)
-        # 舍弃落在范围外的值，重新采样
-        if 0 < value < 100:
-            return value
+def generate_lucky_value(target_mean: float = 60.0, concentration: float = 25.0) -> float:
+    """生成更集中且可控偏度的幸运值，使用 Beta 分布 (0 ~ 100)
+    参数:
+    - target_mean: 目标均值，默认 60(更贴近用户感受)
+    - concentration: 集中度(alpha+beta)，越大分布越集中，默认 25
+    """
+    # 将目标均值与集中度映射为 Beta 分布参数
+    m = max(0.01, min(0.99, target_mean / 100.0))
+    c = max(2.0, concentration)  # 至少保证 alpha、beta > 1 时更平滑
+    alpha = m * c
+    beta = (1.0 - m) * c
+    y = random.betavariate(alpha, beta)  # (0,1)
+    # 映射到 (0,100)，并做轻微裁剪，避免极端 0/100
+    value = y * 100.0
+    if value <= 0:
+        value = 0.1
+    elif value >= 100:
+        value = 99.9
+    return value
 
 async def create_user_equip_card(db: AsyncSession, user_id: uuid.UUID, card_def: EquipmentCardDef) -> UserEquipmentCard:
     card_id = f"equipcard_{uuid.uuid4()}"
@@ -368,8 +382,17 @@ async def create_user_equip_card(db: AsyncSession, user_id: uuid.UUID, card_def:
         equipment_def_id=card_def.id,
         level=0,
         lucky_value=lucky_value,
-        effect_config=card_def.effect_config
+        multiplier=1
     )
+    if card_def.skill1_description:
+        card.skill1_level = 0
+        card.multiplier_skill1 = 1
+    if card_def.skill2_description:
+        card.skill2_level = 0
+        card.multiplier_skill2 = 1
+    if card_def.skill3_description:
+        card.skill3_level = 0
+        card.multiplier_skill3 = 1
     db.add(card)
     await db.flush()
     await db.refresh(card)
@@ -378,7 +401,8 @@ async def create_user_equip_card(db: AsyncSession, user_id: uuid.UUID, card_def:
 async def create_equip_card_transaction(
     db: AsyncSession, 
     user_id: uuid.UUID, 
-    card_id: uuid.UUID, 
+    card_id: uuid.UUID,
+    card_def_id: uuid.UUID,
     operation: AssetOperation,
     balance_after: int, 
     description: str = None
@@ -386,6 +410,7 @@ async def create_equip_card_transaction(
     transaction = EquipCardTransaction(
         user_id=user_id,
         card_id=card_id,
+        card_def_id=card_def_id,
         operation=operation,
         balance_after=balance_after,
         description=description

@@ -201,7 +201,10 @@ class UserEquipmentCard(Base):
     skill2_level = Column(Integer, nullable=True)
     skill3_level = Column(Integer, nullable=True)
     lucky_value = Column(Float, nullable=False)
-    effect_config = Column(JSONB, nullable=False)
+    multiplier = Column(Float, default=1, nullable=False)
+    multiplier_skill1 = Column(Float, nullable=True)
+    multiplier_skill2 = Column(Float, nullable=True)
+    multiplier_skill3 = Column(Float, nullable=True)
     
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
 
@@ -215,6 +218,7 @@ class EquipCardTransaction(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), nullable=False)
     card_id = Column(UUID(as_uuid=True), nullable=False)
+    card_def_id = Column(UUID(as_uuid=True), nullable=False)
     operation = Column(Enum(AssetOperation), nullable=False)
     balance_after = Column(Integer, nullable=False)
     description = Column(String, nullable=True)
@@ -222,3 +226,4 @@ class EquipCardTransaction(Base):
 
     user = relationship("User", primaryjoin="foreign(EquipCardTransaction.user_id)==User.id")
     card = relationship("UserEquipmentCard", primaryjoin="foreign(EquipCardTransaction.card_id)==UserEquipmentCard.id")
+    card_def = relationship("EquipmentCardDef", primaryjoin="foreign(EquipCardTransaction.card_def_id)==EquipmentCardDef.id")
