@@ -22,6 +22,7 @@ from app.core.errors import ErrorCode
 from app.schemas.user import Gender
 from app.schemas.base import BizException
 from app.schemas.common import PersonInfoResponse, EquipCardBaseInfo, SportType
+from app.services.mappers import equip_card_to_base_info
 from app.schemas.asset import CPAssetResponse
 from app.schemas.competition.common import TeamRelationship, RecordStatus, TeamStatus, CardBonusInfo, PathPoint, MemberScoreInfo
 from app.schemas.competition.bike import (
@@ -1538,34 +1539,15 @@ async def get_record_detail_service(db: AsyncSession, record_id: str) -> BikeRec
     card_bonus_list = []
     if record.card_bonus:
         for card_bonus in record.card_bonus:
-            if card_bonus.card and card_bonus.card.equipment_def:
-                card_def = card_bonus.card.equipment_def
-                card_info = EquipCardBaseInfo(
-                    card_id=card_bonus.card.card_id,
-                    name=card_def.name,
-                    sport_type=card_def.sport_type,
-                    level=card_bonus.card.level,
-                    levelSkill1=card_bonus.card.skill1_level,
-                    levelSkill2=card_bonus.card.skill2_level,
-                    levelSkill3=card_bonus.card.skill3_level,
-                    image_url=card_def.image_url,
-                    lucky=card_bonus.card.lucky_value,
-                    rarity=card_def.rarity,
-                    description=card_def.description,
-                    description_skill1=card_def.skill1_description,
-                    description_skill2=card_def.skill2_description,
-                    description_skill3=card_def.skill3_description,
-                    version=card_def.version,
-                    type_name=card_def.type_name,
-                    tags=card_def.tags,
-                    effect_def=card_bonus.card.effect_config
-                )
-                card_bonus_list.append(
-                    CardBonusInfo(
-                        card=card_info,
-                        bonus_time=float(card_bonus.bonus_time)
+            if card_bonus.card:
+                card_info = equip_card_to_base_info(card_bonus.card)
+                if card_info is not None:
+                    card_bonus_list.append(
+                        CardBonusInfo(
+                            card=card_info,
+                            bonus_time=float(card_bonus.bonus_time)
+                        )
                     )
-                )
     
     # 构建路径点列表
     path_points = []

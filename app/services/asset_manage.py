@@ -1,5 +1,5 @@
 from app.crud.asset_manage import (
-    get_or_create_user_ccasset, get_cpasset_price_on_shelves,
+    get_equip_card_by_card_id, get_or_create_user_ccasset, get_cpasset_price_on_shelves,
     update_user_ccasset_balance, create_ccasset_transaction, 
     get_or_create_user_cpasset, update_user_cpasset_balance, create_cpasset_transaction,
     get_user_cpasset_all, get_cpasset_def_by_asset_id, get_cpassets_on_shelves_crud,
@@ -10,7 +10,7 @@ from app.crud.asset_manage import (
     get_equip_card_price_on_shelves, create_user_equip_card, create_equip_card_transaction
 )
 from app.crud.user import get_user_by_id
-from app.db.models.asset import CPRegistrationCardDef, CPTeamCardDef, CPAssetDef, CPAssetPrice, EquipmentCardDef, EquipCardPrice
+from app.db.models.asset import CPRegistrationCardDef, CPTeamCardDef, CPAssetDef, CPAssetPrice, EquipmentCardDef, EquipCardPrice, UserEquipmentCard
 from app.core.errors import ErrorCode
 from app.schemas.base import BizException
 from app.schemas.asset import (
@@ -20,14 +20,16 @@ from app.schemas.asset import (
     CPAssetsShopInternalResponse, CPAssetShopInternalInfo, CCAssetRewardRequest,
     EquipCardDefCreateForm, EquipCardDefInfo, EquipCardDefResponse, EquipCardShopInternalResponse,
     EquipCardShopInfoCreateRequest, EquipCardShopInternalInfo, EquipCardShopResponse,
-    EquipCardShopInfo, EquipCardsResponse, CC_ECARD_PurchaseResultResponse
+    EquipCardShopInfo, EquipCardsResponse, CC_ECARD_PurchaseResultResponse,
+    EquipCardUpgradeResponse, CCAssetBaseInfo, EquipCardUpgradePriceInfo,
+    EquipCardSkillUpgradeResponse
 )
 from app.schemas.common import EquipCardBaseInfo, SportType
+from app.services.mappers import equip_card_to_base_info
 from app.core.tools import auto_cast_fields
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
-import uuid
-import json
+import uuid, random, math, json
 
 
 # 子类映射表
@@ -72,7 +74,7 @@ async def buy_cpassets_use_ccasset(
         ccamount = cpasset_price.price
     
         cpasset = await get_or_create_user_cpasset(db, user.id, cpasset_def.id)
-        new_ccsset_balance = await consume_ccasset(db, ccasset_type, ccamount * cpamount, user.id, f"购买 {cpamount} {cpasset_def.prop_type.display_name()}")
+        new_ccasset_balance = await consume_ccasset(db, ccasset_type, ccamount * cpamount, user.id, f"购买 {cpamount} {cpasset_def.prop_type.display_name()}")
         new_cpasset_balance = cpasset.balance + cpamount
         await update_user_cpasset_balance(db, cpasset, new_cpasset_balance)
         await create_cpasset_transaction(
@@ -80,7 +82,7 @@ async def buy_cpassets_use_ccasset(
         )
         return CC_CP_PurchaseResultResponse(
             ccasset_type=ccasset_type,
-            new_ccamount=new_ccsset_balance,
+            new_ccamount=new_ccasset_balance,
             cpasset_id=cpasset_id,
             new_cpamount=new_cpasset_balance
         )
@@ -88,18 +90,24 @@ async def buy_cpassets_use_ccasset(
 
 # 查询用户所有cc资产
 async def get_user_ccassets(db: AsyncSession, user_id: str) -> CCAssetsResponse:
-    user = await get_user_by_id(db, user_id)
-    if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
-    coin = await get_or_create_user_ccasset(db, user.id, CCAssetType.COIN)
-    coupon = await get_or_create_user_ccasset(db, user.id, CCAssetType.COUPON)
-    voucher = await get_or_create_user_ccasset(db, user.id, CCAssetType.VOUCHER)
-    await db.commit()
-    return CCAssetsResponse(
-        coin_amount=coin.balance,
-        coupon_amount=coupon.balance,
-        voucher_amount=voucher.balance
-    )
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        coin = await get_or_create_user_ccasset(db, user.id, CCAssetType.COIN)
+        coupon = await get_or_create_user_ccasset(db, user.id, CCAssetType.COUPON)
+        voucher = await get_or_create_user_ccasset(db, user.id, CCAssetType.VOUCHER)
+        stone1 = await get_or_create_user_ccasset(db, user.id, CCAssetType.STONE1)
+        stone2 = await get_or_create_user_ccasset(db, user.id, CCAssetType.STONE2)
+        stone3 = await get_or_create_user_ccasset(db, user.id, CCAssetType.STONE3)
+        return CCAssetsResponse(
+            coin_amount=coin.balance,
+            coupon_amount=coupon.balance,
+            voucher_amount=voucher.balance,
+            stone1_amount=stone1.balance,
+            stone2_amount=stone2.balance,
+            stone3_amount=stone3.balance
+        )
 
 
 # 查询用户指定cp资产
@@ -275,7 +283,7 @@ async def reward_ccasset_to_user_service(db: AsyncSession, request: CCAssetRewar
         user = await get_user_by_id(db, request.user_id)
         if user is None:
             raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
-        new_balance = await reward_ccasset(db, request.ccasset_type, request.amount, user.id, "系统奖励")
+        new_balance = await reward_ccasset(db, request.ccasset_type, request.amount, user.id, "系统奖励", AssetOperation.REWARD)
         return new_balance
 
 
@@ -402,30 +410,9 @@ async def get_user_equip_cards(db: AsyncSession, user_id: str) -> EquipCardsResp
     user_cards = await get_user_equip_cards_all(db, user.id)
     cards = []
     for card in user_cards:
-        card_def = card.equipment_def
-        if card_def is not None:
-            cards.append(
-                EquipCardBaseInfo(
-                    card_id=card.card_id,
-                    name=card_def.name,
-                    sport_type=card_def.sport_type,
-                    level=card.level,
-                    levelSkill1=card.skill1_level,
-                    levelSkill2=card.skill2_level,
-                    levelSkill3=card.skill3_level,
-                    image_url=card_def.image_url,
-                    lucky=card.lucky_value,
-                    rarity=card_def.rarity,
-                    description=card_def.description,
-                    description_skill1=card_def.skill1_description,
-                    description_skill2=card_def.skill2_description,
-                    description_skill3=card_def.skill3_description,
-                    version=card_def.version,
-                    type_name=card_def.type_name,
-                    tags=card_def.tags,
-                    effect_def=card.effect_config
-                )
-            )
+        card_info = equip_card_to_base_info(card)
+        if card_info is not None:
+            cards.append(card_info)
     return EquipCardsResponse(cards=cards)
 
 async def buy_equip_card_use_ccasset(
@@ -450,10 +437,11 @@ async def buy_equip_card_use_ccasset(
         equip_card = await create_user_equip_card(db, user.id, card_def)
         new_ccasset_balance = await consume_ccasset(db, ccasset_type, ccamount, user.id, f"购买 {card_def.name}")
         await create_equip_card_transaction(
-            db, user.id, equip_card.id, AssetOperation.CONSUME, 1, description=f"消费 {ccamount} {ccasset_type.display_name()} 购买"
+            db, user.id, equip_card.id, card_def.id, AssetOperation.CONSUME, 1, description=f"消费 {ccamount} {ccasset_type.display_name()} 购买"
         )
         card_info = EquipCardBaseInfo(
             card_id=equip_card.card_id,
+            def_id=card_def.def_id,
             name=card_def.name,
             sport_type=card_def.sport_type,
             level=equip_card.level,
@@ -467,13 +455,289 @@ async def buy_equip_card_use_ccasset(
             description_skill1=card_def.skill1_description,
             description_skill2=card_def.skill2_description,
             description_skill3=card_def.skill3_description,
+            multiplier=equip_card.multiplier,
+            multiplier_skill1=equip_card.multiplier_skill1,
+            multiplier_skill2=equip_card.multiplier_skill2,
+            multiplier_skill3=equip_card.multiplier_skill3,
             version=card_def.version,
             type_name=card_def.type_name,
             tags=card_def.tags,
-            effect_def=equip_card.effect_config
+            effect_def=card_def.effect_config
         )
         return CC_ECARD_PurchaseResultResponse(
             ccasset_type=ccasset_type,
             new_ccamount=new_ccasset_balance,
+            card=card_info
+        )
+
+def get_card_destroy_price(card: UserEquipmentCard) -> List[CCAssetBaseInfo]:
+    if card.equipment_def is None:
+        return []
+    if card.equipment_def.rarity == "C":
+        amount = 100
+    elif card.equipment_def.rarity == "B":
+        amount = 500
+    elif card.equipment_def.rarity == "A":
+        amount = 1000
+    else:
+        amount = 2000
+    result = [
+        CCAssetBaseInfo(ccasset_type=CCAssetType.COIN, new_ccamount=amount),
+        CCAssetBaseInfo(ccasset_type=CCAssetType.VOUCHER, new_ccamount=amount),
+        CCAssetBaseInfo(ccasset_type=CCAssetType.COUPON, new_ccamount=amount),
+        CCAssetBaseInfo(ccasset_type=CCAssetType.STONE1, new_ccamount=amount/10),
+        CCAssetBaseInfo(ccasset_type=CCAssetType.STONE2, new_ccamount=amount/10),
+        CCAssetBaseInfo(ccasset_type=CCAssetType.STONE3, new_ccamount=amount/10)
+    ]
+    return result
+
+async def destroy_equip_card_service(
+    db: AsyncSession,
+    user_id: str,
+    card_id: str
+) -> EquipCardUpgradePriceInfo:
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        card = await get_equip_card_by_card_id(db, card_id)
+        if card is None or card.user_id != user.id:
+            raise BizException(code=ErrorCode.ASSET_NOT_FOUND, message="找不到卡牌")
+        if card.equipment_def is None:
+            raise BizException(code=ErrorCode.ASSET_DEF_ERROR, message="找不到卡牌定义")
+        prices = get_card_destroy_price(card)
+        result = []
+        for price in prices:
+            new_balance = await reward_ccasset(db, price.ccasset_type, price.new_ccamount, user.id, "销毁卡牌获得", AssetOperation.DESTROY)
+            result.append(CCAssetBaseInfo(ccasset_type=price.ccasset_type, new_ccamount=new_balance))
+        await create_equip_card_transaction(db, user.id, card.id, card.equipment_def.id, AssetOperation.DESTROY, 0, description=f"销毁卡牌 {card.equipment_def.name}")
+        await db.delete(card)
+        return EquipCardUpgradePriceInfo(prices=result)
+
+# 查询卡牌升级价格
+async def get_equip_card_upgrade_price_service(db: AsyncSession, card_id: str) -> EquipCardUpgradePriceInfo:
+    card = await get_equip_card_by_card_id(db, card_id)
+    if card is None:
+        raise BizException(code=ErrorCode.ASSET_NOT_FOUND, message="找不到资产")
+    prices = get_card_upgrade_price(card)
+    return EquipCardUpgradePriceInfo(prices=prices)
+
+# 查询技能升级价格
+async def get_equip_card_skill1_upgrade_price_service(db: AsyncSession, card_id: str) -> CCAssetBaseInfo:
+    card = await get_equip_card_by_card_id(db, card_id)
+    if card is None:
+        raise BizException(code=ErrorCode.ASSET_NOT_FOUND, message="找不到资产")
+    if card.skill1_level is None:
+        raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级信息错误")
+    price = get_skill_upgrade_price(1, card.skill1_level)
+    if price is None:
+        raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级信息错误")
+    return price
+
+async def get_equip_card_skill2_upgrade_price_service(db: AsyncSession, card_id: str) -> CCAssetBaseInfo:
+    card = await get_equip_card_by_card_id(db, card_id)
+    if card is None:
+        raise BizException(code=ErrorCode.ASSET_NOT_FOUND, message="找不到资产")
+    if card.skill2_level is None:
+        raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级信息错误")
+    price = get_skill_upgrade_price(2, card.skill2_level)
+    if price is None:
+        raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级信息错误")
+    return price
+
+async def get_equip_card_skill3_upgrade_price_service(db: AsyncSession, card_id: str) -> CCAssetBaseInfo:
+    card = await get_equip_card_by_card_id(db, card_id)
+    if card is None:
+        raise BizException(code=ErrorCode.ASSET_NOT_FOUND, message="找不到资产")
+    if card.skill3_level is None:
+        raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级信息错误")
+    price = get_skill_upgrade_price(3, card.skill3_level)
+    if price is None:
+        raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级信息错误")
+    return price
+
+
+def get_card_upgrade_price(card: UserEquipmentCard) -> List[CCAssetBaseInfo]:
+    if card.level < 0 or card.level > 9:
+        return []
+    if card.level < 3:
+        result = [CCAssetBaseInfo(ccasset_type=CCAssetType.STONE1, new_ccamount=10)]
+    elif card.level < 6:
+        result = [
+            CCAssetBaseInfo(ccasset_type=CCAssetType.STONE1, new_ccamount=5),
+            CCAssetBaseInfo(ccasset_type=CCAssetType.STONE2, new_ccamount=10)
+        ]
+    else:
+        result = [
+            CCAssetBaseInfo(ccasset_type=CCAssetType.STONE2, new_ccamount=5),
+            CCAssetBaseInfo(ccasset_type=CCAssetType.STONE3, new_ccamount=10)
+        ]
+    return result
+
+def get_skill_upgrade_price(skill: int, level: int) -> CCAssetBaseInfo | None:
+    if level < 0 or level > 4:
+        return None
+    if skill == 1:
+        price = CCAssetBaseInfo(ccasset_type=CCAssetType.STONE1, new_ccamount=level+1)
+    elif skill == 2:
+        price = CCAssetBaseInfo(ccasset_type=CCAssetType.STONE2, new_ccamount=level+1)
+    else:
+        price = CCAssetBaseInfo(ccasset_type=CCAssetType.STONE3, new_ccamount=level+1)
+    return price
+
+# 计算升级幅度
+def sample_upgrade_amplitude(lucky_value: float, a: float = 8.0, p: float = 1.5) -> int:
+    x = max(0.0, min(1.0, lucky_value / 100.0))
+    alpha = 1.0 + a * (x ** p)
+    beta = 1.0 + a * ((1.0 - x) ** p)
+    # 简单 Beta 抽样（可用 numpy/scipy 或自写近似）
+    y = random.betavariate(alpha, beta)  # Python 自带
+    amp = max(1, min(100, math.ceil(100 * y)))
+    return amp
+
+# 卡牌材料升级
+async def upgrade_equip_card_mat_service(
+    db: AsyncSession,
+    user_id: str,
+    card_id: str
+) -> EquipCardUpgradeResponse:
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        card = await get_equip_card_by_card_id(db, card_id)
+        if card is None:
+            raise BizException(code=ErrorCode.ASSET_NOT_FOUND, message="找不到资产")
+        if card.level < 0 or card.level > 9:
+            raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级失败")
+        prices = get_card_upgrade_price(card)
+        new_ccassets = []
+        for price in prices:
+            new_amount = await consume_ccasset(db, price.ccasset_type, price.new_ccamount, user.id, f"升级卡牌 {card.equipment_def.name}")
+            new_ccassets.append(CCAssetBaseInfo(ccasset_type=price.ccasset_type, new_ccamount=new_amount))
+        card.level += 1
+        card.multiplier += 0.001 * sample_upgrade_amplitude(card.lucky_value)
+        db.add(card)
+        card_info = equip_card_to_base_info(card)
+        if card_info is None:
+            raise BizException(code=ErrorCode.ASSET_DEF_ERROR, message="卡牌数据错误")
+        return EquipCardUpgradeResponse(
+            ccassets=new_ccassets,
+            card=card_info
+        )
+
+# 卡牌融合升级
+async def upgrade_equip_card_fusion_service(
+    db: AsyncSession,
+    card_id: str,
+    fusion_card_id: str
+) -> EquipCardBaseInfo:
+    async with db.begin():
+        if card_id == fusion_card_id:
+            raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级失败")
+        card = await get_equip_card_by_card_id(db, card_id)
+        if card is None:
+            raise BizException(code=ErrorCode.ASSET_NOT_FOUND, message="找不到资产")
+        if card.level < 0 or card.level > 9:
+            raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级失败")
+        fusion_card = await get_equip_card_by_card_id(db, fusion_card_id)
+        if fusion_card is None:
+            raise BizException(code=ErrorCode.ASSET_NOT_FOUND, message="找不到资产")
+        if fusion_card.level != 0 or card.equipment_def_id != fusion_card.equipment_def_id:
+            raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级失败")
+        await db.delete(fusion_card)
+        card.level += 1
+        card.multiplier += 0.001 * sample_upgrade_amplitude(card.lucky_value)
+        db.add(card)
+        card_info = equip_card_to_base_info(card)
+        if card_info is None:
+            raise BizException(code=ErrorCode.ASSET_DEF_ERROR, message="卡牌数据错误")
+        return card_info
+
+# 技能升级
+async def upgrade_equip_card_skill1_service(
+    db: AsyncSession,
+    user_id: str,
+    card_id: str
+) -> EquipCardSkillUpgradeResponse:
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        card = await get_equip_card_by_card_id(db, card_id)
+        if card is None:
+            raise BizException(code=ErrorCode.ASSET_NOT_FOUND, message="找不到资产")
+        if card.skill1_level is None or card.level < 3 or card.skill1_level < 0 or card.skill1_level > 4:
+            raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级失败")
+        price = get_skill_upgrade_price(1, card.skill1_level)
+        if price is None:
+            raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级失败")
+        new_amount = await consume_ccasset(db, price.ccasset_type, price.new_ccamount, user.id, f"升级卡牌 {card.equipment_def.name} 技能1")
+        card.skill1_level += 1
+        card.multiplier_skill1 += 0.001 * sample_upgrade_amplitude(card.lucky_value)
+        db.add(card)
+        card_info = equip_card_to_base_info(card)
+        if card_info is None:
+            raise BizException(code=ErrorCode.ASSET_DEF_ERROR, message="卡牌数据错误")
+        return EquipCardSkillUpgradeResponse(
+            ccasset=CCAssetBaseInfo(ccasset_type=price.ccasset_type, new_ccamount=new_amount),
+            card=card_info
+        )
+
+async def upgrade_equip_card_skill2_service(
+    db: AsyncSession,
+    user_id: str,
+    card_id: str
+) -> EquipCardSkillUpgradeResponse:
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        card = await get_equip_card_by_card_id(db, card_id)
+        if card is None:
+            raise BizException(code=ErrorCode.ASSET_NOT_FOUND, message="找不到资产")
+        if card.skill2_level is None or card.level < 6 or card.skill2_level < 0 or card.skill2_level > 4:
+            raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级失败")
+        price = get_skill_upgrade_price(2, card.skill2_level)
+        if price is None:
+            raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级失败")
+        new_amount = await consume_ccasset(db, price.ccasset_type, price.new_ccamount, user.id, f"升级卡牌 {card.equipment_def.name} 技能2")
+        card.skill2_level += 1
+        card.multiplier_skill2 += 0.001 * sample_upgrade_amplitude(card.lucky_value)
+        db.add(card)
+        card_info = equip_card_to_base_info(card)
+        if card_info is None:
+            raise BizException(code=ErrorCode.ASSET_DEF_ERROR, message="卡牌数据错误")
+        return EquipCardSkillUpgradeResponse(
+            ccasset=CCAssetBaseInfo(ccasset_type=price.ccasset_type, new_ccamount=new_amount),
+            card=card_info
+        )
+
+async def upgrade_equip_card_skill3_service(
+    db: AsyncSession,
+    user_id: str,
+    card_id: str
+) -> EquipCardSkillUpgradeResponse:
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        card = await get_equip_card_by_card_id(db, card_id)
+        if card is None:
+            raise BizException(code=ErrorCode.ASSET_NOT_FOUND, message="找不到资产")
+        if card.skill3_level is None or card.level < 10 or card.skill3_level < 0 or card.skill3_level > 4:
+            raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级失败")
+        price = get_skill_upgrade_price(3, card.skill3_level)
+        if price is None:
+            raise BizException(code=ErrorCode.UPGRADE_ERROR, message="升级失败")
+        new_amount = await consume_ccasset(db, price.ccasset_type, price.new_ccamount, user.id, f"升级卡牌 {card.equipment_def.name} 技能3")
+        card.skill3_level += 1
+        card.multiplier_skill3 += 0.001 * sample_upgrade_amplitude(card.lucky_value)
+        db.add(card)
+        card_info = equip_card_to_base_info(card)
+        if card_info is None:
+            raise BizException(code=ErrorCode.ASSET_DEF_ERROR, message="卡牌数据错误")
+        return EquipCardSkillUpgradeResponse(
+            ccasset=CCAssetBaseInfo(ccasset_type=price.ccasset_type, new_ccamount=new_amount),
             card=card_info
         )

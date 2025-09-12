@@ -44,6 +44,8 @@ class ErrorCode:
     TEAM_JOIN_ERROR = 4016
     TEAM_ERROR = 4017
     TRACK_ERROR = 4018
+    ASSET_NOT_FOUND = 4019
+    UPGRADE_ERROR = 4020
 
     # 第三方服务
     SMS_SERVICE_ERROR = 5001
