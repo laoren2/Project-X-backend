@@ -1,5 +1,8 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, func, UniqueConstraint, Integer, Float, Enum
+from sqlalchemy import (
+    Column, String, Boolean, ForeignKey, DateTime, 
+    func, UniqueConstraint, Integer, Float, Enum, Text
+)
 from sqlalchemy.dialects.postgresql import UUID
 from app.schemas.asset import CCAssetType, CPAssetType, AssetOperation
 from app.schemas.common import SportType

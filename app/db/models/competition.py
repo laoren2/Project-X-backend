@@ -2,6 +2,7 @@ import uuid
 from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, func, UniqueConstraint, Integer, Float, Enum, Numeric
 from sqlalchemy.dialects.postgresql import UUID
 from app.schemas.competition.common import RecordStatus, TeamStatus
+from app.schemas.user import Gender
 from app.db.base import Base
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
@@ -81,7 +82,8 @@ class BikeTrack(Base):
 
     elevation_difference = Column(Integer, default=0, nullable=False)
     sub_region_name = Column(String, nullable=False)
-    prize_pool = Column(Integer, default=0, nullable=False)
+    prize_pool = Column(Integer, default=0, nullable=False)     # 暂只支持金券
+    score = Column(Integer, default=0, nullable=False)          # 赛道冠军对应积分
 
     image_url = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -124,7 +126,8 @@ class RunningTrack(Base):
 
     elevation_difference = Column(Integer, default=0, nullable=False)
     sub_region_name = Column(String, nullable=False)
-    prize_pool = Column(Integer, default=0)
+    prize_pool = Column(Integer, default=0, nullable=False)
+    score = Column(Integer, default=0, nullable=False)          # 赛道冠军对应积分
     distance = Column(Float, nullable=False)
 
     image_url = Column(String, nullable=False)
@@ -441,3 +444,92 @@ class CardBonusInRunningRecord(Base):
     card = relationship("UserEquipmentCard", primaryjoin="foreign(CardBonusInRecordHistory.card_id)==UserEquipmentCard.id")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)'''
+
+class BikeLeaderboard(Base):
+    __tablename__ = "bike_leaderboard"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    track_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    gender = Column(Enum(Gender), nullable=False)
+    rank_position = Column(Integer, nullable=False)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    record_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    duration_seconds = Column(Float, nullable=False)
+    reward = Column(JSONB, nullable=False)        # 暂只支持金券
+    score = Column(Integer, nullable=False)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    
+    # 每个赛道性别组合的排名唯一
+    __table_args__ = (
+        UniqueConstraint('track_id', 'gender', 'rank_position', name='uq_bike_leaderboard_track_gender_rank'),
+    )
+    # 每个赛道的用户记录唯一
+    __table_args__ = (
+        UniqueConstraint('track_id', 'user_id', name='uq_bike_leaderboard_track_user'),
+    )
+    
+    # ORM 关系
+    record = relationship("BikeRaceRecord",primaryjoin="foreign(BikeLeaderboard.record_id)==BikeRaceRecord.id")
+    track = relationship("BikeTrack", primaryjoin="foreign(BikeLeaderboard.track_id)==BikeTrack.id")
+    user = relationship("User", primaryjoin="foreign(BikeLeaderboard.user_id)==User.id")
+
+class BikeCareerScore(Base):
+    __tablename__ = "bike_career_scores"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    season_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    gender = Column(Enum(Gender), nullable=False)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    score = Column(Integer, default=0, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('season_id', 'user_id', name='uq_bike_career_score_season_user'),
+    )
+
+    user = relationship("User", primaryjoin="foreign(BikeCareerScore.user_id)==User.id")
+
+class RunningLeaderboard(Base):
+    __tablename__ = "running_leaderboard"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    track_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    gender = Column(Enum(Gender), nullable=False)
+    rank_position = Column(Integer, nullable=False)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    record_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    duration_seconds = Column(Float, nullable=False)
+    reward = Column(JSONB, nullable=False)        # 暂只支持金券
+    score = Column(Integer, nullable=False)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    
+    # 每个赛道性别组合的排名唯一
+    __table_args__ = (
+        UniqueConstraint('track_id', 'gender', 'rank_position', name='uq_running_leaderboard_track_gender_rank'),
+    )
+    # 每个赛道的用户记录唯一
+    __table_args__ = (
+        UniqueConstraint('track_id', 'user_id', name='uq_running_leaderboard_track_user'),
+    )
+    # ORM 关系
+    record = relationship("RunningRaceRecord",primaryjoin="foreign(RunningLeaderboard.record_id)==RunningRaceRecord.id")
+    track = relationship("RunningTrack", primaryjoin="foreign(RunningLeaderboard.track_id)==RunningTrack.id")
+    user = relationship("User", primaryjoin="foreign(RunningLeaderboard.user_id)==User.id")
+
+class RunningCareerScore(Base):
+    __tablename__ = "running_career_scores"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    season_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    gender = Column(Enum(Gender), nullable=False)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    score = Column(Integer, default=0, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('season_id', 'user_id', name='uq_running_career_score_season_user'),
+    )
+
+    user = relationship("User", primaryjoin="foreign(RunningCareerScore.user_id)==User.id")

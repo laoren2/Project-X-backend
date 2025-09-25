@@ -1,15 +1,17 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, func, and_
+from sqlalchemy import select, update, func, and_, exists
 from app.db.models.competition import (
     Region, RunningEvent, RunningSeason, 
     RunningTrack, RunningRaceRecord, RunningTeam, RunningTeamMember, RunningTeamAppliedMember,
-    CardBonusInRunningRecord
+    CardBonusInRunningRecord, RunningLeaderboard, RunningCareerScore
 )
 from app.db.models.asset import UserEquipmentCard
 from app.schemas.competition.common import RecordStatus, TeamStatus
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
 from datetime import timedelta
+from sqlalchemy.dialects.postgresql import insert
+from app.schemas.user import Gender
 import uuid
 
 
@@ -40,6 +42,15 @@ async def get_season_now(db: AsyncSession) -> List[RunningSeason]:
     seasons = result.scalars().all()
     return seasons
 
+async def get_history_seasons(db: AsyncSession) -> List[RunningSeason]:
+    result = await db.execute(
+        select(RunningSeason).where(
+            RunningSeason.start_date < func.now()
+        )
+        .order_by(RunningSeason.start_date.desc())
+    )
+    return result.scalars().all()
+
 async def get_season_by_name(db: AsyncSession, name: str) -> RunningSeason | None:
     result = await db.execute(
         select(RunningSeason).where(
@@ -49,14 +60,26 @@ async def get_season_by_name(db: AsyncSession, name: str) -> RunningSeason | Non
     return result.scalar_one_or_none()
 
 async def get_season_by_season_id(db: AsyncSession, season_id: str) -> RunningSeason | None:
-    result = await db.execute(select(RunningSeason).where(RunningSeason.season_id == season_id))
+    result = await db.execute(
+        select(RunningSeason)
+        .where(RunningSeason.season_id == season_id)
+        .options(
+            selectinload(RunningSeason.running_events)
+                .selectinload(RunningEvent.region),
+            selectinload(RunningSeason.running_events)
+                .selectinload(RunningEvent.tracks)
+        )
+    )
     return result.scalar_one_or_none()
 
 
 async def get_active_events_by_season_id(db: AsyncSession, season_id: uuid.UUID) -> List[RunningEvent]:
     result = await db.execute(
         select(RunningEvent)
-        .options(selectinload(RunningEvent.tracks))
+        .options(
+            selectinload(RunningEvent.tracks),
+            selectinload(RunningEvent.region)
+        )
         .where(
             RunningEvent.season_id == season_id,
             RunningEvent.start_date < func.now(),
@@ -67,7 +90,13 @@ async def get_active_events_by_season_id(db: AsyncSession, season_id: uuid.UUID)
 
 
 async def get_event_by_event_id(db: AsyncSession, event_id: str) -> RunningEvent | None:
-    result = await db.execute(select(RunningEvent).where(RunningEvent.event_id == event_id))
+    result = await db.execute(
+        select(RunningEvent)
+        .options(
+            selectinload(RunningEvent.season)
+        )
+        .where(RunningEvent.event_id == event_id)
+    )
     return result.scalar_one_or_none()
 
 
@@ -137,7 +166,24 @@ async def query_events_crud(
 
 
 async def get_track_by_track_id(db: AsyncSession, track_id: str) -> RunningTrack | None:
-    result = await db.execute(select(RunningTrack).where(RunningTrack.track_id == track_id))
+    result = await db.execute(
+        select(RunningTrack)
+        .where(RunningTrack.track_id == track_id)
+        .options(
+            selectinload(RunningTrack.event).selectinload(RunningEvent.season)
+        )
+    )
+    return result.scalar_one_or_none()
+
+async def get_track_by_track_id_for_update(db: AsyncSession, track_id: str) -> RunningTrack | None:
+    result = await db.execute(
+        select(RunningTrack)
+        .where(RunningTrack.track_id == track_id)
+        .options(
+            selectinload(RunningTrack.event).selectinload(RunningEvent.season)
+        )
+        .with_for_update()
+    )
     return result.scalar_one_or_none()
 
 
@@ -147,11 +193,15 @@ async def get_track_by_name(db: AsyncSession, name: str) -> RunningTrack | None:
 
 
 async def get_track_by_event_id(db: AsyncSession, event_id: uuid.UUID) -> List[RunningTrack]:
-    result = await db.execute(select(RunningTrack).where(
-        RunningTrack.event_id == event_id,
-        RunningTrack.start_date <= func.now() + timedelta(days=3),
-        RunningTrack.end_date >= func.now()
-    ))
+    result = await db.execute(
+        select(RunningTrack)
+        .where(
+            RunningTrack.event_id == event_id,
+            RunningTrack.start_date <= func.now() + timedelta(days=3),
+            RunningTrack.end_date >= func.now()
+        )
+        .order_by(RunningTrack.start_date.desc())
+    )
     return result.scalars().all()
 
 
@@ -188,10 +238,24 @@ async def query_tracks_crud(
     page: int,
     size: int
 ) -> List[RunningTrack]:
-    stmt = select(RunningTrack).options(
-        selectinload(RunningTrack.event).selectinload(RunningEvent.season),
-        selectinload(RunningTrack.event).selectinload(RunningEvent.region)
-    ).join(RunningTrack.event).join(RunningEvent.season).join(RunningEvent.region)
+    # EXISTS 子查询：判断某 track_id 是否在 RunningLeaderboard 里存在
+    is_settled_subq = (
+        exists().where(RunningLeaderboard.track_id == RunningTrack.id)
+        .correlate(RunningTrack)
+        .select()
+        .label("is_settled")
+    )
+
+    stmt = (
+        select(RunningTrack, is_settled_subq)
+        .options(
+            selectinload(RunningTrack.event).selectinload(RunningEvent.season),
+            selectinload(RunningTrack.event).selectinload(RunningEvent.region)
+        )
+        .join(RunningTrack.event)
+        .join(RunningEvent.season)
+        .join(RunningEvent.region)
+    )
 
     if event_name:
         stmt = stmt.filter(func.lower(RunningEvent.name).contains(event_name.lower()))
@@ -205,8 +269,15 @@ async def query_tracks_crud(
     stmt = stmt.order_by(RunningTrack.created_at.asc()).offset((page - 1) * size).limit(size)
 
     result = await db.execute(stmt)
-    return result.scalars().all()
+    rows = result.all()
+    return [(track, is_settled) for track, is_settled in rows]
 
+async def track_has_settled(db: AsyncSession, track_id: uuid.UUID) -> bool:
+    stmt = select(
+        exists().where(RunningLeaderboard.track_id == track_id)
+    )
+    result = await db.execute(stmt)
+    return result.scalar()
 
 async def create_record_crud(db: AsyncSession, record: RunningRaceRecord):
     db.add(record)
@@ -475,3 +546,115 @@ async def update_team_crud(db: AsyncSession, team: RunningTeam, update_data: dic
     db.add(team)
     await db.flush()
     await db.refresh(team)
+
+async def get_leaderboad_record(
+    db: AsyncSession, 
+    track_id: uuid.UUID,
+    user_id: uuid.UUID
+) -> RunningLeaderboard | None:
+    result = await db.execute(
+        select(RunningLeaderboard)
+        .where(
+            RunningLeaderboard.track_id == track_id,
+            RunningLeaderboard.user_id == user_id
+        )
+        .options(
+            selectinload(RunningLeaderboard.record)
+        )
+    )
+    return result.scalar_one_or_none()
+
+# todo: 使用游标而不是offset，避免深分页问题
+async def get_leaderboad_records_in_page(
+    db: AsyncSession, 
+    track_id: uuid.UUID,
+    gender: Gender,
+    page: int,
+    size: int
+) -> List[RunningLeaderboard]:
+    result = await db.execute(
+        select(RunningLeaderboard)
+        .where(
+            RunningLeaderboard.track_id == track_id,
+            RunningLeaderboard.gender == gender
+        )
+        .options(
+            selectinload(RunningLeaderboard.record),
+            selectinload(RunningLeaderboard.user)
+        )
+        .order_by(RunningLeaderboard.rank_position.asc())
+        .offset((page - 1) * size)
+        .limit(size)
+    )
+    return result.scalars().all()
+
+async def get_scores_in_page(
+    db: AsyncSession, 
+    season_id: uuid.UUID,
+    gender: Gender,
+    page: int,
+    size: int
+) -> List[RunningCareerScore]:
+    result = await db.execute(
+        select(RunningCareerScore)
+        .where(
+            RunningCareerScore.season_id == season_id,
+            RunningCareerScore.gender == gender
+        )
+        .options(
+            selectinload(RunningCareerScore.user)
+        )
+        .order_by(RunningCareerScore.score.desc(), RunningCareerScore.updated_at.asc())
+        .offset((page - 1) * size)
+        .limit(size)
+    )
+    return result.scalars().all()
+
+async def get_score_and_rank_by_season_id_and_user_id(
+    db: AsyncSession, 
+    season_id: uuid.UUID,
+    user_id: uuid.UUID
+) -> tuple[int | None, int | None]:
+    rank_col = func.rank().over(
+        order_by=(RunningCareerScore.score.desc(), RunningCareerScore.updated_at.asc())
+    )
+    # 子查询：对整个赛季计算 rank
+    subq = (
+        select(
+            RunningCareerScore.user_id,
+            RunningCareerScore.score,
+            rank_col.label("rank")
+        )
+        .where(RunningCareerScore.season_id == season_id)
+        .subquery()
+    )
+    # 再查出目标用户
+    stmt = select(subq.c.score, subq.c.rank).where(subq.c.user_id == user_id)
+    result = await db.execute(stmt)
+    row = result.first()
+
+    if row is None:
+        return None, None
+    score, rank = row
+    return score, rank
+
+async def add_or_update_career_score(
+    db: AsyncSession, 
+    season_id: uuid.UUID,
+    gender: Gender, 
+    user_id: uuid.UUID, 
+    score: int
+):
+    stmt = insert(RunningCareerScore).values(
+        season_id=season_id,
+        gender=gender,
+        user_id=user_id,
+        score=score
+    ).on_conflict_do_update(
+        index_elements=[RunningCareerScore.season_id, RunningCareerScore.user_id],
+        set_={
+            "score": RunningCareerScore.score + score,
+            "gender": gender  # 冲突时强制更新为新 gender
+        }
+    )
+    await db.execute(stmt)

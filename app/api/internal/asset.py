@@ -102,7 +102,7 @@ async def create_cpasset_def(
     return BaseResponse.success(token=auth.new_token, message="成功创建", data=None)
 
 
-@router.post("/reward_ccasset",response_model=BaseResponse[None],summary="用户通用道具资产奖励")
+@router.post("/reward_ccasset",response_model=BaseResponse[None],summary="用户通用货币资产奖励")
 async def reward_ccasset_to_user(
     request: CCAssetRewardRequest,
     auth: AuthContext = Depends(get_current_admin),

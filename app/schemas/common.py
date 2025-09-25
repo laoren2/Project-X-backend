@@ -1,6 +1,7 @@
 from typing import Optional, List, Any
 from app.schemas.base import ORMBase
 from enum import Enum
+from pydantic import BaseModel
 
 
 class SportType(str, Enum):

@@ -11,7 +11,9 @@ from app.schemas.competition.running import (
     RunningAppliedTeamResponse, RunningTeamDetailResponse, RunningTeamManageResponse,
     RunningTeamCreateResponse, RunningTeamUpdateInfo, RunningTeamUpdateResponse,
     RunningTeamStatusUpdateInfo, RunningTeamMembersResponse, RunningTeamAppliedRequest,
-    RunningTeamExpiredResponse, RunningRecordDetailInfo
+    RunningTeamExpiredResponse, RunningRecordDetailInfo, RunningSummaryRecordResponse,
+    RunningHistorySeasonResponse, RunningCareerRecordResponse, RunningScoreLeaderboardResponse,
+    RunningCareerDataInfo
 )
 from app.schemas.asset import CPAssetResponse
 from app.schemas.user import AuthContext, Gender
@@ -27,7 +29,9 @@ from app.services.competition.running import (
     quit_team_service, remove_team_member_service, get_public_teams_service,
     applied_join_team_service, reject_applied_request_service, approve_applied_request_service,
     cancel_applied_join_team_service, start_team_competition_service, finish_team_competition_service,
-    get_team_expired_date_service, enter_team_competition_link_service, get_record_detail_service
+    get_team_expired_date_service, enter_team_competition_link_service, get_record_detail_service,
+    get_current_best_records_service, get_history_seasons_service, get_career_records_service,
+    query_leaderboard_history_in_page, get_score_leaderboard_service, get_career_data_service
 )
 from app.api.deps import get_current_user
 from typing import Optional
@@ -192,8 +196,8 @@ async def query_me_rank(
     return BaseResponse.success(token=auth.new_token, data=rank_info)
 
 
-# 查询排名榜
-@router.get("/query_leaderboads",response_model=BaseResponse[RunningLeaderboardResponse],summary="查询当前排行榜")
+# 查询实时排名榜
+@router.get("/query_leaderboads",response_model=BaseResponse[RunningLeaderboardResponse],summary="查询当前实时排行榜")
 async def query_leaderboads(
     track_id: str = Query(...),
     gender: Gender = Query(...),
@@ -203,6 +207,31 @@ async def query_leaderboads(
     db: AsyncSession = Depends(get_db)
 ):
     rank_info = await query_leaderboard_in_page(db, track_id, gender, page, size, time_stamp)
+    return BaseResponse.success(data=rank_info)
+
+
+# 查询历史排名榜
+@router.get("/query_leaderboads_history",response_model=BaseResponse[RunningLeaderboardResponse],summary="查询历史排行榜")
+async def query_leaderboads(
+    track_id: str = Query(...),
+    gender: Gender = Query(...),
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1),
+    db: AsyncSession = Depends(get_db)
+):
+    rank_info = await query_leaderboard_history_in_page(db, track_id, gender, page, size)
+    return BaseResponse.success(data=rank_info)
+
+# 查询赛季积分排名榜
+@router.get("/query_score_leaderboard",response_model=BaseResponse[RunningScoreLeaderboardResponse],summary="查询赛季积分排行榜")
+async def query_score_leaderboard(
+    season_id: str = Query(...),
+    gender: Gender = Query(...),
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1),
+    db: AsyncSession = Depends(get_db)
+):
+    rank_info = await get_score_leaderboard_service(db, season_id, gender, page, size)
     return BaseResponse.success(data=rank_info)
 
 
@@ -405,8 +434,67 @@ async def cancel_applied_join_team(
 @router.get("/query_record_detail",response_model=BaseResponse[RunningRecordDetailInfo],summary="查询比赛记录详情")
 async def query_record_detail(
     record_id: str = Query(...),
+    user_id: str = Query(...),
+    db: AsyncSession = Depends(get_db)
+):
+    detail = await get_record_detail_service(db, record_id, user_id)
+    return BaseResponse.success(data=detail)
+
+@router.get("/query_user_current_best_records",response_model=BaseResponse[RunningSummaryRecordResponse],summary="查询任意用户当前赛季最佳记录")
+async def query_user_current_best_records(
+    user_id: str = Query(...),
+    db: AsyncSession = Depends(get_db)
+):
+    records = await get_current_best_records_service(db, user_id)
+    return BaseResponse.success(data=records)
+
+@router.get("/query_me_current_best_records",response_model=BaseResponse[RunningSummaryRecordResponse],summary="查询自己当前赛季最佳记录")
+async def query_me_current_best_records(
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    detail = await get_record_detail_service(db, record_id)
-    return BaseResponse.success(token=auth.new_token, message="查询成功", data=detail)
+    records = await get_current_best_records_service(db, auth.payload["user_id"])
+    return BaseResponse.success(token=auth.new_token, data=records)
+
+@router.get("/query_history_seasons",response_model=BaseResponse[RunningHistorySeasonResponse],summary="查询历史赛季信息")
+async def query_history_seasons(
+    db: AsyncSession = Depends(get_db)
+):
+    seasons = await get_history_seasons_service(db)
+    return BaseResponse.success(data=seasons)
+
+@router.get("/query_user_career_records",response_model=BaseResponse[RunningCareerRecordResponse],summary="查询任意用户历史赛季记录")
+async def query_user_career_records(
+    season_id: str = Query(...),
+    user_id: str = Query(...),
+    db: AsyncSession = Depends(get_db)
+):
+    records = await get_career_records_service(db, season_id, user_id)
+    return BaseResponse.success(data=records)
+
+@router.get("/query_me_career_records",response_model=BaseResponse[RunningCareerRecordResponse],summary="查询自己历史赛季最佳记录")
+async def query_me_career_records(
+    season_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    records = await get_career_records_service(db, season_id, auth.payload["user_id"])
+    return BaseResponse.success(token=auth.new_token, data=records)
+
+@router.get("/query_user_career_data",response_model=BaseResponse[RunningCareerDataInfo],summary="查询用户历史赛季总结数据")
+async def query_user_career_data(
+    season_id: str = Query(...),
+    user_id: str = Query(...),
+    db: AsyncSession = Depends(get_db)
+):
+    records = await get_career_data_service(db, season_id, user_id)
+    return BaseResponse.success(data=records)
+
+@router.get("/query_me_career_data",response_model=BaseResponse[RunningCareerDataInfo],summary="查询我的历史赛季总结数据")
+async def query_me_career_data(
+    season_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    records = await get_career_data_service(db, season_id, auth.payload["user_id"])
+    return BaseResponse.success(data=records)

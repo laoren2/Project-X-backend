@@ -1,5 +1,6 @@
 from app.crud.user import get_user_by_phone, create_user, get_user_by_id, update_user, get_banned_history_by_user_id
 from app.core.security import create_access_token
+from app.schemas.common import SportType
 from app.schemas.user import UserUpdateForm, UserBaseInfo, UserRole, UserStatus
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.base import BizException
@@ -80,3 +81,22 @@ async def delete_user_info(user_id: str, db: AsyncSession):
     user.is_display_identity = False
     await db.commit()
     return True
+
+async def update_user_default_sport_service(sport: SportType, user_id: str, db: AsyncSession) -> SportType:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+    user.default_sport = sport
+    db.add(user)
+    await db.flush()
+    await db.refresh(user)
+    await db.commit()
+    return user.default_sport
+
+async def update_user_location_service(region: str, user_id: str, db: AsyncSession):
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+    user.location = region
+    db.add(user)
+    await db.commit()

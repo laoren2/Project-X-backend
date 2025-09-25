@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080    # 默认 7 天
     MIN_APP_VERSION: str = "1.0.0"              # 默认最低版本
+    GEOIP_DB_PATH: str = "app/resources/CN_ip.mmdb"
 
     class Config:
         env_file = ".env"  # 默认从项目根目录的 .env 文件中读取

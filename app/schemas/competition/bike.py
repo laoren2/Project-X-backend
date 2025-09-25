@@ -113,6 +113,7 @@ class BikeTrackCreateForm:
     elevationDifference: int
     subRegioName: str
     prizePool: int
+    score: int
 
     def __init__(
         self,
@@ -128,7 +129,8 @@ class BikeTrackCreateForm:
         to_longitude: float = Form(...),
         elevationDifference: int = Form(...),
         subRegioName: str = Form(...),
-        prizePool: int = Form(...)
+        prizePool: int = Form(...),
+        score: int = Form(...)
     ):
         self.name = name
         self.start_date = start_date
@@ -143,6 +145,7 @@ class BikeTrackCreateForm:
         self.elevationDifference = elevationDifference
         self.subRegioName = subRegioName
         self.prizePool = prizePool
+        self.score = score
 
 
 class BikeTrackUpdateForm:
@@ -157,6 +160,7 @@ class BikeTrackUpdateForm:
     elevationDifference: int
     subRegioName: str
     prizePool: int
+    score: int
 
     def __init__(
         self,
@@ -170,7 +174,8 @@ class BikeTrackUpdateForm:
         to_longitude: float = Form(...),
         elevationDifference: int = Form(...),
         subRegioName: str = Form(...),
-        prizePool: int = Form(...)
+        prizePool: int = Form(...),
+        score: int = Form(...)
     ):
         self.track_id = track_id
         self.name = name
@@ -183,6 +188,7 @@ class BikeTrackUpdateForm:
         self.elevationDifference = elevationDifference
         self.subRegioName = subRegioName
         self.prizePool = prizePool
+        self.score = score
 
 
 class BikeTrackBaseInfoInternal(ORMBase):
@@ -202,6 +208,8 @@ class BikeTrackBaseInfoInternal(ORMBase):
     elevation_difference: str
     sub_region_name: str
     prize_pool: str
+    score: str
+    is_settled: bool
 
 
 class BikeTrackListInternalResponse(ORMBase):
@@ -221,18 +229,18 @@ class BikeTrackBaseInfo(ORMBase):
     elevation_difference: int
     sub_region_name: str
     prize_pool: int
+    score: int
+    totalParticipants: int
 
 class BikeTrackListResponse(ORMBase):
     tracks: List[BikeTrackBaseInfo]
 
 class BikeRankInfo(ORMBase):
-    record_id: Optional[str]
-    rank: Optional[int]
-    duration_seconds: Optional[float]
-    reward_coin_amount: int
-    reward_coupon_amount: int
-    reward_voucher_amount: int
-    cpassets: List[CPAssetBaseInfo]
+    record_id: Optional[str] = None
+    rank: Optional[int] = None
+    duration_seconds: Optional[float] = None
+    reward_voucher_amount: Optional[int] = None
+    score: Optional[int] = None
 
 class BikeBeginInfo(ORMBase):
     record_id: str
@@ -274,9 +282,12 @@ class BikeSingleRegisterResponse(ORMBase):
     new_balance: int
 
 class BikeLeaderboardInfo(ORMBase):
+    rank: int
     record_id: str
     user_info: PersonInfoResponse
     duration_seconds: float
+    voucher: int
+    score: int
 
 class BikeLeaderboardResponse(ORMBase):
     entries: List[BikeLeaderboardInfo]
@@ -413,3 +424,49 @@ class BikeRecordDetailInfo(BaseModel):
     path: List[PathPoint]
     card_bonus: List[CardBonusInfo]
     team_member_scores: List[MemberScoreInfo]
+
+class BikeSummaryRecordInfo(BaseModel):
+    record_id: str
+    event_name: str
+    track_name: str
+    city_name: str
+    best_time: float
+    rank: int
+    voucher: int
+    score: int
+
+class BikeSummaryRecordResponse(BaseModel):
+    records: List[BikeSummaryRecordInfo]
+
+class BikeHistorySeasonInfo(BaseModel):
+    season_id: str
+    season_name: str
+
+class BikeHistorySeasonResponse(BaseModel):
+    seasons: List[BikeHistorySeasonInfo]
+
+class BikeCareerRecordInfo(BaseModel):
+    record_id: str
+    track_id: str
+    track_name: str
+    event_name: str
+    region: str
+    track_score: int
+    score: int
+    record_date: str
+
+class BikeCareerRecordResponse(BaseModel):
+    records: List[BikeCareerRecordInfo]
+
+class BikeScoreLeaderboardInfo(ORMBase):
+    rank: int
+    user_info: PersonInfoResponse
+    score: int
+
+class BikeScoreLeaderboardResponse(ORMBase):
+    entries: List[BikeScoreLeaderboardInfo]
+
+class BikeCareerDataInfo(ORMBase):
+    total_score: int | None
+    total_rank: int | None
+    

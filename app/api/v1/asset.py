@@ -202,3 +202,5 @@ async def upgrade_equip_card_skill3(
 ):
     result = await upgrade_equip_card_skill3_service(db, auth.payload["user_id"], card_id)
     return BaseResponse.success(token=auth.new_token, data=result, message="升级成功")
+
+
