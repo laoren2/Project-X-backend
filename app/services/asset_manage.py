@@ -260,8 +260,8 @@ async def create_cp_asset_def_with_subclass(db: AsyncSession, parent_data: dict,
             raise BizException(code=ErrorCode.PROPERTY_ERROR, message=f"prop_type字段非法")
 
     # 2. 获取子类
-    print("prop_type:", prop_type, type(prop_type))
-    print("CP_ASSET_SUBCLASS_MAP keys:", list(CP_ASSET_SUBCLASS_MAP.keys()))
+    #print("prop_type:", prop_type, type(prop_type))
+    #print("CP_ASSET_SUBCLASS_MAP keys:", list(CP_ASSET_SUBCLASS_MAP.keys()))
     subclass = CP_ASSET_SUBCLASS_MAP.get(prop_type)
     if not subclass:
         raise BizException(code=ErrorCode.TABLE_NOT_FOUND, message=f"找不到相应表")

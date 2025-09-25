@@ -13,7 +13,7 @@ from app.services.competition.bike import (
     update_event_service, update_track_service,
     update_event_image_url, update_track_image_url,
     query_events_service, query_tracks_service,
-    create_season_service, update_season_image_url
+    create_season_service, update_season_image_url, settle_bike_leaderboard_service
 )
 from app.core.errors import ErrorCode
 from app.api.deps import get_current_admin
@@ -204,3 +204,13 @@ async def query_tracks(
         size=size
     )
     return BaseResponse.success(token=auth.new_token, data=BikeTrackListInternalResponse(tracks=tracks))
+
+# bike赛道排行榜数据的结算和存档，包括voucher奖池结算（通过邮箱发放）、积分的结算（直接写表）以及leaderboard数据存表
+@router.post("/settle_leaderboard", response_model=BaseResponse[None], summary="结算bike赛道排行榜")
+async def settle_leaderboard(
+    track_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    male_settled, male_sum, female_settled, female_sum, voucher = await settle_bike_leaderboard_service(db, track_id)
+    return BaseResponse.success(token=auth.new_token, message=f"结算完成，共结算男{male_settled}/{male_sum}人，女{female_settled}/{female_sum}人，金券{voucher}张")

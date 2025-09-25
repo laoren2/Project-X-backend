@@ -13,3 +13,4 @@ python-dotenv
 email-validator
 python-multipart
 apscheduler
+geoip2

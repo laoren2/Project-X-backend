@@ -4,6 +4,8 @@ from typing import Optional
 from app.schemas.base import ORMBase
 from enum import Enum
 
+from app.schemas.common import SportType
+
 
 class UserRole(str, Enum):
     user = "user"
@@ -40,6 +42,7 @@ class UserBaseInfo(ORMBase):
     is_display_location: bool = False
     enable_auto_location: bool = False
     is_display_identity: bool = False
+    default_sport: SportType = SportType.bike
 
 class UserRelationInfo(ORMBase):
     follower: int = 0

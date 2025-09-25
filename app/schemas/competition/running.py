@@ -114,6 +114,7 @@ class RunningTrackCreateForm:
     subRegioName: str
     prizePool: int
     distance: float
+    score: int
 
     def __init__(
         self,
@@ -130,7 +131,8 @@ class RunningTrackCreateForm:
         elevationDifference: int = Form(...),
         subRegioName: str = Form(...),
         prizePool: int = Form(...),
-        distance: float = Form(...)
+        distance: float = Form(...),
+        score: int = Form(...)
     ):
         self.name = name
         self.start_date = start_date
@@ -146,6 +148,7 @@ class RunningTrackCreateForm:
         self.subRegioName = subRegioName
         self.prizePool = prizePool
         self.distance = distance
+        self.score = score
 
 
 class RunningTrackUpdateForm:
@@ -161,6 +164,7 @@ class RunningTrackUpdateForm:
     subRegioName: str
     prizePool: int
     distance: float
+    score: int
 
     def __init__(
         self,
@@ -175,7 +179,8 @@ class RunningTrackUpdateForm:
         elevationDifference: int = Form(...),
         subRegioName: str = Form(...),
         prizePool: int = Form(...),
-        distance: float = Form(...)
+        distance: float = Form(...),
+        score: int = Form(...)
     ):
         self.track_id = track_id
         self.name = name
@@ -189,6 +194,7 @@ class RunningTrackUpdateForm:
         self.subRegioName = subRegioName
         self.prizePool = prizePool
         self.distance = distance
+        self.score = score
 
 
 class RunningTrackBaseInfoInternal(ORMBase):
@@ -209,6 +215,8 @@ class RunningTrackBaseInfoInternal(ORMBase):
     sub_region_name: str
     prize_pool: str
     distance: str
+    score: str
+    is_settled: bool
 
 
 class RunningTrackListInternalResponse(ORMBase):
@@ -230,6 +238,8 @@ class RunningTrackBaseInfo(ORMBase):
     sub_region_name: str
     prize_pool: int
     distance: float
+    score: int
+    totalParticipants: int
 
 
 class RunningTrackListResponse(ORMBase):
@@ -237,13 +247,11 @@ class RunningTrackListResponse(ORMBase):
 
 
 class RunningRankInfo(ORMBase):
-    record_id: Optional[str]
-    rank: Optional[int]
-    duration_seconds: Optional[float]
-    reward_coin_amount: int
-    reward_coupon_amount: int
-    reward_voucher_amount: int
-    cpassets: List[CPAssetBaseInfo]
+    record_id: Optional[str] = None
+    rank: Optional[int] = None
+    duration_seconds: Optional[float] = None
+    reward_voucher_amount: Optional[int] = None
+    score: Optional[int] = None
 
 class RunningBeginInfo(ORMBase):
     record_id: str
@@ -285,9 +293,12 @@ class RunningSingleRegisterResponse(ORMBase):
     new_balance: int
 
 class RunningLeaderboardInfo(ORMBase):
+    rank: int
     record_id: str
     user_info: PersonInfoResponse
     duration_seconds: float
+    voucher: int
+    score: int
 
 class RunningLeaderboardResponse(ORMBase):
     entries: List[RunningLeaderboardInfo]
@@ -424,3 +435,48 @@ class RunningRecordDetailInfo(BaseModel):
     path: List[PathPoint]
     card_bonus: List[CardBonusInfo]
     team_member_scores: List[MemberScoreInfo]
+
+class RunningSummaryRecordInfo(BaseModel):
+    record_id: str
+    event_name: str
+    track_name: str
+    city_name: str
+    best_time: float
+    rank: int
+    voucher: int
+    score: int
+
+class RunningSummaryRecordResponse(BaseModel):
+    records: List[RunningSummaryRecordInfo]
+
+class RunningHistorySeasonInfo(BaseModel):
+    season_id: str
+    season_name: str
+
+class RunningHistorySeasonResponse(BaseModel):
+    seasons: List[RunningHistorySeasonInfo]
+
+class RunningCareerRecordInfo(BaseModel):
+    record_id: str
+    track_id: str
+    track_name: str
+    event_name: str
+    region: str
+    track_score: int
+    score: int
+    record_date: str
+
+class RunningCareerRecordResponse(BaseModel):
+    records: List[RunningCareerRecordInfo]
+
+class RunningScoreLeaderboardInfo(ORMBase):
+    rank: int
+    user_info: PersonInfoResponse
+    score: int
+
+class RunningScoreLeaderboardResponse(ORMBase):
+    entries: List[RunningScoreLeaderboardInfo]
+
+class RunningCareerDataInfo(ORMBase):
+    total_score: int | None
+    total_rank: int | None

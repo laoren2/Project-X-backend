@@ -254,3 +254,8 @@ class EquipCardSkillUpgradeResponse(BaseModel):
 
 class EquipCardUpgradePriceInfo(BaseModel):
     prices: List[CCAssetBaseInfo]
+
+class AssetRewardsResponse(BaseModel):
+    ccassets: List[CCAssetBaseInfo]
+    cpassets: List[CPAssetResponse]
+    equip_cards: List[EquipCardBaseInfo]

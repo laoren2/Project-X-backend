@@ -62,8 +62,8 @@ async def get_following_list(db: AsyncSession, user_id, limit=20, cursor_created
     cursor_user_id = cursor_id
     if cursor_user_id:
         cursor_user = await get_user_by_id(db, cursor_id)
-        if not cursor_user:
-            print("get_follower_list携带的cursor_id无效")
+        #if not cursor_user:
+        #    print("get_follower_list携带的cursor_id无效")
         cursor_user_id = cursor_user.id if cursor_user else None
     users, next_cursor_created_at, next_cursor_id, has_more = await user_follow.get_following_ids(db, user.id, limit, cursor_created_at, cursor_user_id, search)
     items = [
@@ -83,8 +83,8 @@ async def get_follower_list(db: AsyncSession, user_id, limit=20, cursor_created_
     cursor_user_id = cursor_id
     if cursor_user_id:
         cursor_user = await get_user_by_id(db, cursor_id)
-        if not cursor_user:
-            print("get_follower_list携带的cursor_id无效")
+        #if not cursor_user:
+        #    print("get_follower_list携带的cursor_id无效")
         cursor_user_id = cursor_user.id if cursor_user else None
     users, next_cursor_created_at, next_cursor_id, has_more = await user_follow.get_follower_ids(db, user.id, limit, cursor_created_at, cursor_user_id, search)
     items = [
@@ -104,8 +104,8 @@ async def get_friend_list(db: AsyncSession, user_id, limit=20, cursor_created_at
     cursor_user_id = cursor_id
     if cursor_user_id:
         cursor_user = await get_user_by_id(db, cursor_id)
-        if not cursor_user:
-            print("get_follower_list携带的cursor_id无效")
+        #if not cursor_user:
+        #    print("get_follower_list携带的cursor_id无效")
         cursor_user_id = cursor_user.id if cursor_user else None
     users, next_cursor_created_at, next_cursor_id, has_more = await user_follow.get_friend_ids(db, user.id, limit, cursor_created_at, cursor_user_id, search)
     items = [

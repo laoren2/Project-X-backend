@@ -1,8 +1,13 @@
 from fastapi import APIRouter, Depends, File, UploadFile, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
+from app.schemas.common import SportType
 from app.services.sms import send_sms_code, verify_sms_code
-from app.services.user import login_or_register, get_user_info, update_user_info, delete_user_info, get_user_by_phone, get_user_role
+from app.services.user import (
+    login_or_register, get_user_info, update_user_info, delete_user_info, 
+    get_user_by_phone, get_user_role, update_user_default_sport_service,
+    update_user_location_service
+)
 from app.services.user_follow import get_relation_count, get_relationship_service
 from app.api.deps import get_current_user
 from app.core.errors import ErrorCode
@@ -108,3 +113,21 @@ async def delete_account(
 ):
     await delete_user_info(auth.payload["user_id"], db)
     return BaseResponse.success(message="账号已成功注销")
+
+@router.post("/update_user_default_sport", response_model=BaseResponse[SportType], summary="更新用户主页的默认展示运动")
+async def update_user_default_sport(
+    sport: SportType = Query(...),
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await update_user_default_sport_service(sport, auth.payload["user_id"], db)
+    return BaseResponse.success(token=auth.new_token, message="更新成功", data=result)
+
+@router.post("/update_location", response_model=BaseResponse[None], summary="更新用户位置")
+async def update_location(
+    region: str = Query(...),
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    await update_user_location_service(region, auth.payload["user_id"], db)
+    return BaseResponse.success(token=auth.new_token, message="更新成功")

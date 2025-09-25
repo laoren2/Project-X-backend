@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.db.models.asset import (
     CCUserAsset, CCAssetTransaction, CPUserAsset, 
     CPAssetTransaction, CPAssetDef, CPRegistrationCardDef, CPAssetPrice, CPTeamCardDef,
@@ -69,6 +69,23 @@ async def get_cpasset_price_on_shelves(db: AsyncSession, asset_id: uuid.UUID) ->
     )
     return result.scalar_one_or_none()
 
+# 查询报名卡的价格
+async def get_register_card_price(db: AsyncSession, sport_type: SportType, is_team: bool) -> CPAssetPrice | None:
+    card_defs = await db.execute(
+        select(CPRegistrationCardDef).where(
+            CPRegistrationCardDef.sport_type == sport_type,
+            CPRegistrationCardDef.is_team == is_team
+        )
+    )
+    card_def = card_defs.scalar_one_or_none()
+    if card_def is None:
+        return None
+    result = await db.execute(
+        select(CPAssetPrice).where(
+            CPAssetPrice.prop_def_id == card_def.id
+        )
+    )
+    return result.scalar_one_or_none()
 
 async def create_user_ccasset(db: AsyncSession, user_id: uuid.UUID, asset_type: CCAssetType) -> CCUserAsset:
     can_recharge = False

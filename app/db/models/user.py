@@ -1,6 +1,7 @@
 import uuid
 from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, func, UniqueConstraint, Integer, Float, Enum, Numeric
 from sqlalchemy.dialects.postgresql import UUID
+from app.schemas.common import SportType
 from app.schemas.user import UserRole, Gender, UserStatus
 from app.schemas.asset import CCAssetType, AssetOperation
 from app.db.base import Base
@@ -8,6 +9,7 @@ from sqlalchemy.orm import relationship
 
 
 # 用户表
+# todo: 将个人配置拆分出去只保留基本信息
 class User(Base):
     __tablename__ = "users"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -31,6 +33,7 @@ class User(Base):
     is_display_location = Column(Boolean, default=False, nullable=False)
     enable_auto_location = Column(Boolean, default=False, nullable=False)
     is_display_identity = Column(Boolean, default=False, nullable=False)
+    default_sport = Column(Enum(SportType), default=SportType.bike, nullable=False)     # 用户主页默认展示运动
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
