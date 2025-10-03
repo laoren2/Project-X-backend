@@ -1,25 +1,46 @@
 from fastapi import APIRouter, Depends, File, UploadFile, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.crud.user import get_user_by_id, get_user_by_phone
 from app.db.session import get_db
 from app.schemas.common import SportType
 from app.services.sms import send_sms_code, verify_sms_code
 from app.services.user import (
     login_or_register, get_user_info, update_user_info, delete_user_info, 
-    get_user_by_phone, get_user_role, update_user_default_sport_service,
-    update_user_location_service
+    get_user_role, update_user_default_sport_service, unbind_phone_service,
+    update_user_location_service, verify_apple_identity_token,
+    login_or_register_apple, realname_hk_service, bind_phone_service,
+    bind_apple_id_service, unbind_apple_id_service
 )
+from app.crud.user import get_exist_user_by_phone
 from app.services.user_follow import get_relation_count, get_relationship_service
 from app.api.deps import get_current_user
 from app.core.errors import ErrorCode
 from app.schemas import user as schemas_user
+from app.schemas.common import PersonInfoResponse
 from app.schemas.base import BaseResponse
 from typing import Optional
 from pathlib import Path
 from datetime import datetime
-
+import json
 
 router = APIRouter()
 
+
+@router.get("/user_card/phone", response_model=BaseResponse[PersonInfoResponse], summary="根据手机号查询用户")
+async def get_anyone_card(
+    phone_number: str,
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    user = await get_exist_user_by_phone(db, phone_number)
+    if user is None:
+        return BaseResponse.error(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+    userInfo = schemas_user.UserBaseInfo.model_validate(user)
+    return BaseResponse.success(
+        token=auth.new_token,
+        message="成功获取用户信息卡片", 
+        data=PersonInfoResponse(user_id=userInfo.user_id, avatar_image_url=userInfo.avatar_image_url, nickname=userInfo.nickname)
+    )
 
 @router.post("/send_code", response_model=BaseResponse[schemas_user.SendCodeResponse], summary="发送验证码")
 async def send_code(data: schemas_user.SMSCodeRequest):
@@ -131,3 +152,73 @@ async def update_location(
 ):
     await update_user_location_service(region, auth.payload["user_id"], db)
     return BaseResponse.success(token=auth.new_token, message="更新成功")
+
+@router.post("/realname_hk", response_model=BaseResponse[None], summary="香港身份证实名认证")
+async def realname_hk(
+    front_image: UploadFile = File(...),
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    front_bytes = await front_image.read()
+    await realname_hk_service(auth.payload["user_id"], front_bytes, db)
+    return BaseResponse.success(token=auth.new_token, message="实名认证成功")
+
+@router.post("/login/apple", response_model=BaseResponse[schemas_user.LoginResponse], summary="Apple ID 登录/注册")
+async def login_with_apple(
+    token: str = Query(...),   # identityToken
+    db: AsyncSession = Depends(get_db)
+):
+    # 验证并解码 ID Token
+    payload = await verify_apple_identity_token(token)
+    if not payload:
+        return BaseResponse.error(code=ErrorCode.OAUTH_FAILED, message="Apple 登录验证失败")
+
+    apple_sub = payload.get("sub")  # Apple 提供的唯一用户 ID
+    email = payload.get("email", "")
+    if not apple_sub:
+        return BaseResponse.error(code=ErrorCode.OAUTH_FAILED, message="Apple 登录验证失败")
+    new_token, user, is_register, role = await login_or_register_apple(apple_sub, email, db)
+    relation = await get_relation_count(db, user.user_id)
+    
+    return BaseResponse.success(
+        token=new_token,
+        message="登录成功",
+        data=schemas_user.LoginResponse(user=user, relation=relation, role=role, isRegister=is_register)
+    )
+
+@router.post("/account/bind_phone", response_model=BaseResponse[None], summary="绑定手机号")
+async def bind_phone(
+    phone: str = Query(...),
+    code: str = Query(...),
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if not await verify_sms_code(phone, code):
+        return BaseResponse.error(code=ErrorCode.SMS_CODE_WRONG, message="验证码错误")
+    await bind_phone_service(phone, auth.payload["user_id"], db)
+    return BaseResponse.success(token=auth.new_token, message="绑定成功")
+
+@router.post("/account/unbind_phone", response_model=BaseResponse[None], summary="解除绑定手机号")
+async def unbind_phone(
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    await unbind_phone_service(auth.payload["user_id"], db)
+    return BaseResponse.success(token=auth.new_token, message="解除绑定成功")
+
+@router.post("/account/bind_apple_id", response_model=BaseResponse[str], summary="绑定appleid")
+async def bind_apple_id(
+    token: str = Query(...),
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    email = await bind_apple_id_service(token, auth.payload["user_id"], db)
+    return BaseResponse.success(token=auth.new_token, message="绑定成功", data=email)
+
+@router.post("/account/unbind_apple_id", response_model=BaseResponse[None], summary="解除绑定appleid")
+async def unbind_apple_id(
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    await unbind_apple_id_service(auth.payload["user_id"], db)
+    return BaseResponse.success(token=auth.new_token, message="解除绑定成功")

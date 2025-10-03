@@ -19,7 +19,7 @@ from app.crud.asset_manage import (
     get_registration_card_def, consume_cpasset, get_register_card_price,
     reward_cpasset, get_team_card_def, get_equip_card_by_card_id
 )
-from app.crud.user import get_user_by_id, get_users_by_ids, get_users_by_user_ids
+from app.crud.user import get_user_by_id, get_users_by_ids, get_users_by_user_ids, get_exist_user_by_id
 from app.core.errors import ErrorCode
 from app.schemas.base import BizException
 from app.schemas.common import PersonInfoResponse, EquipCardBaseInfo, SportType
@@ -651,10 +651,7 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
         user = await get_user_by_id(db, user_id)
         if user is None:
             raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
-        if user.gender is not None:
-            gender = user.gender
-        else:
-            gender = Gender.male
+        gender = user.real_name_info.gender if user.real_name_info else Gender.male
         record = await get_record_by_record_id(db, info.record_id)
         if record is None:
             raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
@@ -732,10 +729,7 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
         user = await get_user_by_id(db, user_id)
         if user is None:
             raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
-        if user.gender is not None:
-            gender = user.gender
-        else:
-            gender = Gender.male
+        gender = user.real_name_info.gender if user.real_name_info else Gender.male
         record = await get_record_by_record_id(db, info.record_id)
         if record is None:
             raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
@@ -975,7 +969,7 @@ async def query_user_rank_info(db: AsyncSession, user_id: str, track_id: str) ->
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
-    gender = user.gender if user.gender is not None else Gender.male
+    gender = user.real_name_info.gender if user.real_name_info else Gender.male
 
     snapshot_key = await get_latest_snapshot_key(track_id, gender)
     if not snapshot_key:
@@ -1298,10 +1292,10 @@ async def _get_redis_leaderboard(key: str, start: int = 0, end: int = -1) -> Lis
 async def filtered_entries(db: AsyncSession, entries: List[tuple[str, str, float]], gender: Gender) -> List[tuple[str, str, float]]:
     filtered_result = []
     for user_id, record_id, duration in entries:
-        user = await get_user_by_id(db, user_id)
+        user = await get_exist_user_by_id(db, user_id)
         record = await get_record_by_record_id(db, record_id)
         # 未实名注册以及与排行榜性别不符的用户无法结算
-        if user is None or record is None or user.gender is None or user.gender != gender:
+        if user is None or record is None or user.real_name_info is None or user.real_name_info.gender != gender:
             continue
         filtered_result.append((user_id, record_id, duration))
     return filtered_result
@@ -1344,9 +1338,9 @@ async def settle_running_leaderboard_service(db: AsyncSession, track_id: str) ->
         # 写入RunningLeaderboard、生成Mailbox、累加RunningCareerScore
         async def _write_leaderboard(db: AsyncSession, gender: Gender, settled: List[tuple[str, str, float, int, int, int]]):
             for user_id, record_id, duration, voucher, score, rank in settled:
-                user = await get_user_by_id(db, user_id)
+                user = await get_exist_user_by_id(db, user_id)
                 record = await get_record_by_record_id(db, record_id)
-                if user is None or record is None or user.gender is None or user.gender != gender:
+                if user is None or record is None or user.real_name_info is None or user.real_name_info.gender != gender:
                     raise BizException(code=ErrorCode.TRACK_ERROR, message="结算失败")
                 # leaderboard
                 db.add(RunningLeaderboard(

@@ -28,6 +28,7 @@ class UserBaseInfo(ORMBase):
     user_id: str
     nickname: str
     phone_number: Optional[str] = None
+    apple_email: Optional[str] = None
     avatar_image_url: str
     background_image_url: str
     introduction: Optional[str] = None
@@ -35,14 +36,13 @@ class UserBaseInfo(ORMBase):
     birthday: Optional[str] = None
     location: Optional[str] = None
     identity_auth_name: Optional[str] = None
-    is_realname_auth: bool = False
-    is_identity_auth: bool = False
     is_display_gender: bool = False
     is_display_age: bool = False
     is_display_location: bool = False
     enable_auto_location: bool = False
     is_display_identity: bool = False
     default_sport: SportType = SportType.bike
+    status: UserStatus
 
 class UserRelationInfo(ORMBase):
     follower: int = 0
@@ -57,12 +57,7 @@ class UserCreateInfo(ORMBase):
 class UserUpdateForm:
     nickname: str
     introduction: Optional[str]
-    gender: Optional[str]
-    birthday: Optional[str]
     location: Optional[str]
-    identity_auth_name: Optional[str]
-    is_realname_auth: bool
-    is_identity_auth: bool
     is_display_gender: bool
     is_display_age: bool
     is_display_location: bool
@@ -73,12 +68,7 @@ class UserUpdateForm:
         self,
         nickname: str = Form(...),
         introduction: Optional[str] = Form(None),
-        gender: Optional[str] = Form(None),
-        birthday: Optional[str] = Form(None),
         location: Optional[str] = Form(None),
-        identity_auth_name: Optional[str] = Form(None),
-        is_realname_auth: bool = Form(...),
-        is_identity_auth: bool = Form(...),
         is_display_gender: bool = Form(...),
         is_display_age: bool = Form(...),
         is_display_location: bool = Form(...),
@@ -87,12 +77,7 @@ class UserUpdateForm:
     ):
         self.nickname = nickname
         self.introduction = introduction
-        self.gender = gender
-        self.birthday = birthday
         self.location = location
-        self.identity_auth_name = identity_auth_name
-        self.is_realname_auth = is_realname_auth
-        self.is_identity_auth = is_identity_auth
         self.is_display_gender = is_display_gender
         self.is_display_age = is_display_age
         self.is_display_location = is_display_location
