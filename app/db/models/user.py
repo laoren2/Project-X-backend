@@ -1,9 +1,8 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, func, UniqueConstraint, Integer, Float, Enum, Numeric
+from sqlalchemy import Column, String, Boolean, DateTime, func, UniqueConstraint, Integer, Enum, Index, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from app.schemas.common import SportType
 from app.schemas.user import UserRole, Gender, UserStatus
-from app.schemas.asset import CCAssetType, AssetOperation
 from app.db.base import Base
 from sqlalchemy.orm import relationship
 
@@ -14,20 +13,49 @@ class User(Base):
     __tablename__ = "users"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     user_id = Column(String, unique=True, index=True, nullable=False)
-    role = Column(String, default=UserRole.user.value, nullable=False)
+    role = Column(Enum(UserRole), default=UserRole.user.value, nullable=False)
     status = Column(Enum(UserStatus), default=UserStatus.normal, nullable=False)
 
-    nickname = Column(String, unique=True, nullable=False)
-    phone_number = Column(String, unique=True, index=True, nullable=True)
+    nickname = Column(String, nullable=False)
+    phone_number = Column(String, nullable=True)
+    apple_id = Column(String, nullable=True)
+    apple_email = Column(String, nullable=True)
     avatar_image_url = Column(String, nullable=False)
     background_image_url = Column(String, nullable=False)
     introduction = Column(String, nullable=True)
-    gender = Column(Enum(Gender), nullable=True)
-    birthday = Column(String, nullable=True)
     location = Column(String, nullable=True)
     identity_auth_name = Column(String, nullable=True)
-    is_realname_auth = Column(Boolean, default=False, nullable=False)
-    is_identity_auth = Column(Boolean, default=False, nullable=False)
+
+    settings = relationship("UserSetting", primaryjoin="foreign(User.id)==UserSetting.user_id", uselist=False)
+    real_name_info = relationship("UserRealNameHK", primaryjoin="foreign(User.id)==UserRealNameHK.user_id", uselist=False, overlaps="settings")
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        # 否则账号无法找回
+        CheckConstraint(
+            "phone_number IS NOT NULL OR apple_id IS NOT NULL",
+            name="ck_user_phone_or_apple_id_not_null"
+        ),
+        # 部分唯一索引：仅对 status='normal' 或 'banned' 的数据生效
+        Index(
+            "uq_users_nickname_status",
+            "nickname",
+            unique=True,
+            postgresql_where=(status.in_([UserStatus.normal, UserStatus.banned]))
+        ),
+        Index(
+            "uq_users_phone_status",
+            "phone_number",
+            unique=True,
+            postgresql_where=(status.in_([UserStatus.normal, UserStatus.banned]))
+        )
+    )
+
+class UserSetting(Base):
+    __tablename__ = "user_settings"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=False, unique=True)
     is_display_gender = Column(Boolean, default=False, nullable=False)
     is_display_age = Column(Boolean, default=False, nullable=False)
     is_display_location = Column(Boolean, default=False, nullable=False)
@@ -35,7 +63,17 @@ class User(Base):
     is_display_identity = Column(Boolean, default=False, nullable=False)
     default_sport = Column(Enum(SportType), default=SportType.bike, nullable=False)     # 用户主页默认展示运动
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+class UserRealNameHK(Base):
+    __tablename__ = "user_real_name_hk"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=False, unique=True)
+    gender = Column(Enum(Gender), nullable=False)
+    birth_date = Column(String, nullable=False)
+    name_Cn = Column(String, nullable=True)
+    name_En = Column(String, nullable=False)
+    card_id = Column(String, nullable=False)
+    name_code = Column(String, nullable=True)
+    issued_code = Column(String, nullable=False)
 
 
 class UserBanHistory(Base):

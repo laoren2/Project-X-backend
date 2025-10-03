@@ -14,3 +14,5 @@ email-validator
 python-multipart
 apscheduler
 geoip2
+alibabacloud_ocr_api20210707==3.1.3
+PyJWT>=2.8.0

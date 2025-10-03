@@ -25,7 +25,11 @@ async def get_current_user(
     
     user_id = result["payload"]["user_id"]
     result_db = await db.execute(
-        select(User).where(User.user_id == user_id)
+        select(User)
+        .where(
+            User.user_id == user_id,
+            User.status != UserStatus.deleted
+        )
     )
     user = result_db.scalar_one_or_none()
     if user is None:
@@ -44,8 +48,6 @@ async def get_current_user(
             else:
                 remaining_str = "未知"
             raise BizException(code=ErrorCode.USER_BANNED, message=f"账号已封禁\n剩余时间:{remaining_str}")
-    if user.status == UserStatus.deleted:
-        raise BizException(code=ErrorCode.USER_DELETED, message="账号已注销")
     
     if db.in_transaction():
         await db.commit()
