@@ -294,16 +294,36 @@ async def create_record_crud(db: AsyncSession, record: BikeRaceRecord):
     )
     return result.scalar_one()
 
-async def get_records_by_user_id(
+async def get_incompleted_records_by_user_id(
     db: AsyncSession, 
     user_id: uuid.UUID,
-    status: RecordStatus,
     page: int,
     size: int
 ) -> List[BikeRaceRecord]:
     stmt = (
         select(BikeRaceRecord)
-        .where(BikeRaceRecord.user_id == user_id, BikeRaceRecord.status == status)
+        .where(BikeRaceRecord.user_id == user_id, BikeRaceRecord.status == RecordStatus.notStarted)
+        .options(
+            selectinload(BikeRaceRecord.track).selectinload(BikeTrack.event).selectinload(BikeEvent.region),
+            selectinload(BikeRaceRecord.team)
+        )
+        .order_by(BikeRaceRecord.created_at.desc()).offset((page - 1) * size).limit(size)
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+async def get_completed_records_by_user_id(
+    db: AsyncSession, 
+    user_id: uuid.UUID,
+    page: int,
+    size: int
+) -> List[BikeRaceRecord]:
+    stmt = (
+        select(BikeRaceRecord)
+        .where(
+            BikeRaceRecord.user_id == user_id, 
+            BikeRaceRecord.status.in_([RecordStatus.completed, RecordStatus.expired, RecordStatus.invalid])
+        )
         .options(
             selectinload(BikeRaceRecord.track).selectinload(BikeTrack.event).selectinload(BikeEvent.region),
             selectinload(BikeRaceRecord.team)

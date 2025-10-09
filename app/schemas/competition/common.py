@@ -12,6 +12,8 @@ class RecordStatus(str, Enum):
     notStarted = "notStarted"
     recording = "recording"
     completed = "completed"
+    expired = "expired"         # 被系统定时清理的过期记录
+    invalid = "invalid"         # 成绩无效的记录
 
 class TeamStatus(str, Enum):
     prepared = "prepared"

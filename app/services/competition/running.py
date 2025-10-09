@@ -6,14 +6,15 @@ from app.crud.competition.running import (
     query_events_crud, query_tracks_crud, get_track_by_track_id_for_update,
     create_record_crud, get_record_by_record_id, update_record_crud,
     create_season_crud, get_season_by_season_id, update_season_crud, 
-    get_season_now, get_season_by_name, get_records_by_user_id, get_active_events_by_season_id,
+    get_season_now, get_season_by_name, get_active_events_by_season_id,
     delete_record_crud, create_team_crud, get_team_by_code_for_update,
     get_created_teams_by_user_id, get_applied_teams_by_user_id, get_joined_teams_by_user_id,
     get_team_by_team_id, create_team_member_crud, update_team_crud, delete_records_by_team_id,
     get_team_by_id_for_update, get_team_by_team_id_for_update, get_record_by_team_id_and_user_id,
     get_public_teams_by_track_id, get_records_by_team_id_for_update, get_records_by_team_id,
     track_has_settled, get_history_seasons, get_leaderboad_record, get_leaderboad_records_in_page,
-    get_scores_in_page, add_or_update_career_score, get_score_and_rank_by_season_id_and_user_id
+    get_scores_in_page, add_or_update_career_score, get_score_and_rank_by_season_id_and_user_id,
+    get_incompleted_records_by_user_id, get_completed_records_by_user_id
 )
 from app.crud.asset_manage import (
     get_registration_card_def, consume_cpasset, get_register_card_price,
@@ -490,17 +491,47 @@ async def team_register_service(db: AsyncSession, team_code: str, user_id: str) 
         )
 
 
-async def get_records_all(
+async def get_incompleted_records_all(
     db: AsyncSession, 
     user_id: str,
-    status: RecordStatus,
     page: int,
     size: int
 ) -> List[RunningRecordInfo]:
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
-    records = await get_records_by_user_id(db, user.id, status, page, size)
+    records = await get_incompleted_records_by_user_id(db, user.id, page, size)
+    return [RunningRecordInfo(
+        record_id=r.record_id,
+        region_name=r.track.event.region.name if r.track and r.track.event and r.track.event.region else "未知",
+        event_name=r.track.event.name if r.track and r.track.event else "未知",
+        track_name=r.track.name if r.track else "未知",
+        track_start_lat=r.track.from_lat if r.track else -1,
+        track_start_lng=r.track.from_lng if r.track else -1,
+        track_end_lat=r.track.to_lat if r.track else -1,
+        track_end_lng=r.track.to_lng if r.track else -1,
+        track_end_date=r.track.end_date.isoformat(),
+        status=r.status,
+        start_date=r.start_time.isoformat() if r.start_time else None,
+        end_date=r.end_time.isoformat() if r.end_time else None,
+        duration_seconds=r.duration_seconds,
+        is_team=True if r.team_id is not None else False,
+        team_title=r.team.title if r.team else None,
+        team_competition_date=r.team.start_date.isoformat() if r.team else None,
+        created_at=r.created_at.isoformat()
+    ) for r in records]
+
+
+async def get_completed_records_all(
+    db: AsyncSession, 
+    user_id: str,
+    page: int,
+    size: int
+) -> List[RunningRecordInfo]:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+    records = await get_completed_records_by_user_id(db, user.id, page, size)
     return [RunningRecordInfo(
         record_id=r.record_id,
         region_name=r.track.event.region.name if r.track and r.track.event and r.track.event.region else "未知",
@@ -1801,6 +1832,7 @@ async def get_record_detail_service(db: AsyncSession, record_id: str, user_id: s
         final_time = float(record.duration_seconds)
     
     return RunningRecordDetailInfo(
+        status=record.status,
         original_time=original_time,
         final_time=final_time,
         path=path_points,

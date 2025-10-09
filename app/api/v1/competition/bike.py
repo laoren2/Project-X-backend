@@ -20,7 +20,7 @@ from app.schemas.user import AuthContext, Gender
 from app.services.competition.bike import (
     query_events_by_region, query_tracks_by_event, single_register_service, 
     start_single_competition_service, finish_single_competition_service,
-    query_current_season_service, get_records_all, cancel_register_service,
+    query_current_season_service, get_incompleted_records_all, cancel_register_service,
     query_user_rank_info, query_leaderboard_in_page, create_team_service,
     get_user_teams, get_user_applied_teams, get_team_detail_service,
     get_team_manage_service, join_team_service, update_team_info_service,
@@ -31,7 +31,8 @@ from app.services.competition.bike import (
     cancel_applied_join_team_service, start_team_competition_service, finish_team_competition_service,
     get_team_expired_date_service, enter_team_competition_link_service, get_record_detail_service,
     get_current_best_records_service, get_history_seasons_service, get_career_records_service,
-    query_leaderboard_history_in_page, get_score_leaderboard_service, get_career_data_service
+    query_leaderboard_history_in_page, get_score_leaderboard_service, get_career_data_service,
+    get_completed_records_all
 )
 from app.api.deps import get_current_user
 from typing import Optional
@@ -172,16 +173,25 @@ async def query_team_expired_date(
     return BaseResponse.success(token=auth.new_token, data=date)
 
 
-# 查询当前赛季记录
-@router.get("/query_records",response_model=BaseResponse[BikeRecordResponse],summary="查询当前赛季记录")
-async def query_records(
-    status: RecordStatus = Query(...),
+@router.get("/query_incompleted_records",response_model=BaseResponse[BikeRecordResponse],summary="查询当前赛季未开始记录")
+async def query_incompleted_records(
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    records = await get_records_all(db, auth.payload["user_id"], status, page, size)
+    records = await get_incompleted_records_all(db, auth.payload["user_id"], page, size)
+    return BaseResponse.success(token=auth.new_token, data=BikeRecordResponse(records=records))
+
+
+@router.get("/query_completed_records",response_model=BaseResponse[BikeRecordResponse],summary="查询当前赛季已结束记录")
+async def query_completed_records(
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    records = await get_completed_records_all(db, auth.payload["user_id"], page, size)
     return BaseResponse.success(token=auth.new_token, data=BikeRecordResponse(records=records))
 
 
