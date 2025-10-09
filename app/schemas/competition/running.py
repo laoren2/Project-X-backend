@@ -430,6 +430,7 @@ class RunningTeamAppliedRequest(ORMBase):
     introduction: Optional[str] = None
 
 class RunningRecordDetailInfo(BaseModel):
+    status: RecordStatus
     original_time: float
     final_time: float
     path: List[PathPoint]

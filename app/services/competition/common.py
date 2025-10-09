@@ -6,17 +6,207 @@ import app.crud.competition.running as running
 from app.core.errors import ErrorCode
 from app.schemas.base import BizException
 from app.schemas.user import Gender
-from app.schemas.competition.common import RegionCreate
+from app.schemas.competition.common import RegionCreate, RecordStatus, TeamStatus
 from app.schemas.common import SportType
 from app.db.models.competition import BikeSeason, Region, RunningSeason
 from typing import Optional, List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import redis_client
+from sqlalchemy import select
+from app.db.models.competition import (
+    BikeRaceRecord, RunningRaceRecord,
+    BikeTrack, RunningTrack, BikeTeam, RunningTeam
+)
 import logging, json
 
 scheduler_logger = logging.getLogger("scheduler")
 
+
+async def clean_expired_records_service(db: AsyncSession):
+    """
+    规则:
+    - 单人未开始(notStarted 且 team_id 为空): 赛道已过期(track.end_date < now) -> completed
+    - 组队未开始(notStarted 且 team_id 非空): 队伍状态为 completed -> completed
+    - 进行中(recording): 开始超过2小时 -> completed (补全end_time/duration_seconds)
+    """
+    now = datetime.now(timezone.utc)
+    timeout_threshold = now - timedelta(hours=2)
+    async with db.begin():
+        # 1) 单人未开始且赛道过期 -> completed
+        bike_single_stmt = (
+            select(BikeRaceRecord)
+            .join(BikeTrack, BikeRaceRecord.track_id == BikeTrack.id)
+            .where(
+                BikeRaceRecord.status == RecordStatus.notStarted,
+                BikeRaceRecord.team_id.is_(None),
+                BikeTrack.end_date < now,
+            )
+        )
+        running_single_stmt = (
+            select(RunningRaceRecord)
+            .join(RunningTrack, RunningRaceRecord.track_id == RunningTrack.id)
+            .where(
+                RunningRaceRecord.status == RecordStatus.notStarted,
+                RunningRaceRecord.team_id.is_(None),
+                RunningTrack.end_date < now,
+            )
+        )
+
+        bike_single_records = (await db.execute(bike_single_stmt)).scalars().all()
+        running_single_records = (await db.execute(running_single_stmt)).scalars().all()
+
+        for r in bike_single_records:
+            await bike.update_record_crud(db, r, {"status": RecordStatus.expired})
+        for r in running_single_records:
+            await running.update_record_crud(db, r, {"status": RecordStatus.expired})
+
+        # 2) 组队未开始且队伍完成 -> completed
+        bike_team_stmt = (
+            select(BikeRaceRecord)
+            .join(BikeTeam, BikeRaceRecord.team_id == BikeTeam.id)
+            .where(
+                BikeRaceRecord.status == RecordStatus.notStarted,
+                BikeRaceRecord.team_id.is_not(None),
+                BikeTeam.status == TeamStatus.completed,
+            )
+        )
+        running_team_stmt = (
+            select(RunningRaceRecord)
+            .join(RunningTeam, RunningRaceRecord.team_id == RunningTeam.id)
+            .where(
+                RunningRaceRecord.status == RecordStatus.notStarted,
+                RunningRaceRecord.team_id.is_not(None),
+                RunningTeam.status == TeamStatus.completed,
+            )
+        )
+
+        bike_team_records = (await db.execute(bike_team_stmt)).scalars().all()
+        running_team_records = (await db.execute(running_team_stmt)).scalars().all()
+
+        for r in bike_team_records:
+            await bike.update_record_crud(db, r, {"status": RecordStatus.expired})
+        for r in running_team_records:
+            await running.update_record_crud(db, r, {"status": RecordStatus.expired})
+
+        # 3) 进行中且超过2小时 -> completed，并补全结束时间/成绩
+        bike_recording_stmt = (
+            select(BikeRaceRecord)
+            .where(
+                BikeRaceRecord.status == RecordStatus.recording,
+                BikeRaceRecord.start_time.is_not(None),
+                BikeRaceRecord.start_time < timeout_threshold,
+            )
+        )
+        running_recording_stmt = (
+            select(RunningRaceRecord)
+            .where(
+                RunningRaceRecord.status == RecordStatus.recording,
+                RunningRaceRecord.start_time.is_not(None),
+                RunningRaceRecord.start_time < timeout_threshold,
+            )
+        )
+
+        bike_recording_records = (await db.execute(bike_recording_stmt)).scalars().all()
+        running_recording_records = (await db.execute(running_recording_stmt)).scalars().all()
+
+        for r in bike_recording_records:
+            end_time = r.start_time + timedelta(hours=2)
+            await bike.update_record_crud(db, r, {
+                "status": RecordStatus.expired,
+                "end_time": end_time,
+                "duration_seconds": 2 * 60 * 60,
+            })
+        for r in running_recording_records:
+            end_time = r.start_time + timedelta(hours=2)
+            await running.update_record_crud(db, r, {
+                "status": RecordStatus.expired,
+                "end_time": end_time,
+                "duration_seconds": 2 * 60 * 60,
+            })
+        scheduler_logger.info(f"比赛记录清理完成")
+
+async def clean_expired_teams_service(db: AsyncSession):
+    now = datetime.now(timezone.utc)
+    two_hours = timedelta(hours=2)
+    async with db.begin():
+        # 1) prepared/locked 且赛道已结束 -> completed
+        bike_prepared_locked_stmt = (
+            select(BikeTeam)
+            .join(BikeTrack, BikeTeam.track_id == BikeTrack.id)
+            .where(
+                BikeTeam.status.in_([TeamStatus.prepared, TeamStatus.locked]),
+                BikeTrack.end_date < now,
+            )
+        )
+        running_prepared_locked_stmt = (
+            select(RunningTeam)
+            .join(RunningTrack, RunningTeam.track_id == RunningTrack.id)
+            .where(
+                RunningTeam.status.in_([TeamStatus.prepared, TeamStatus.locked]),
+                RunningTrack.end_date < now,
+            )
+        )
+
+        bike_prepared_locked = (await db.execute(bike_prepared_locked_stmt)).scalars().all()
+        running_prepared_locked = (await db.execute(running_prepared_locked_stmt)).scalars().all()
+
+        for team in bike_prepared_locked:
+            await bike.update_team_crud(db, team, {"status": TeamStatus.completed})
+        for team in running_prepared_locked:
+            await running.update_team_crud(db, team, {"status": TeamStatus.completed})
+
+        # 2) ready 且 start_date 已超过 2 小时仍未开始 -> completed
+        bike_ready_stmt = (
+            select(BikeTeam)
+            .where(
+                BikeTeam.status == TeamStatus.ready,
+                BikeTeam.start_date + two_hours < now,
+            )
+        )
+        running_ready_stmt = (
+            select(RunningTeam)
+            .where(
+                RunningTeam.status == TeamStatus.ready,
+                RunningTeam.start_date + two_hours < now,
+            )
+        )
+
+        bike_ready = (await db.execute(bike_ready_stmt)).scalars().all()
+        running_ready = (await db.execute(running_ready_stmt)).scalars().all()
+
+        for team in bike_ready:
+            await bike.update_team_crud(db, team, {"status": TeamStatus.completed})
+        for team in running_ready:
+            await running.update_team_crud(db, team, {"status": TeamStatus.completed})
+
+        # 3) recording 且 start_date_real 已超过 2 小时 -> completed
+        bike_recording_stmt = (
+            select(BikeTeam)
+            .where(
+                BikeTeam.status == TeamStatus.recording,
+                BikeTeam.start_date_real.is_not(None),
+                BikeTeam.start_date_real + two_hours < now,
+            )
+        )
+        running_recording_stmt = (
+            select(RunningTeam)
+            .where(
+                RunningTeam.status == TeamStatus.recording,
+                RunningTeam.start_date_real.is_not(None),
+                RunningTeam.start_date_real + two_hours < now,
+            )
+        )
+
+        bike_recording = (await db.execute(bike_recording_stmt)).scalars().all()
+        running_recording = (await db.execute(running_recording_stmt)).scalars().all()
+
+        for team in bike_recording:
+            await bike.update_team_crud(db, team, {"status": TeamStatus.completed})
+        for team in running_recording:
+            await running.update_team_crud(db, team, {"status": TeamStatus.completed})
+        
+        scheduler_logger.info("比赛队伍清理完成")
 
 async def generate_all_leaderboard_snapshots_service(db: AsyncSession):
     bike_track_ids = await get_bike_active_track_ids(db)
