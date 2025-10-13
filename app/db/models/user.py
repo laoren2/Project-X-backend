@@ -75,6 +75,9 @@ class UserRealNameHK(Base):
     name_code = Column(String, nullable=True)
     issued_code = Column(String, nullable=False)
 
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
+
 
 class UserBanHistory(Base):
     __tablename__ = "user_bans_history"

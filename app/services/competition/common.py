@@ -6,7 +6,7 @@ import app.crud.competition.running as running
 from app.core.errors import ErrorCode
 from app.schemas.base import BizException
 from app.schemas.user import Gender
-from app.schemas.competition.common import RegionCreate, RecordStatus, TeamStatus
+from app.schemas.competition.common import RegionCreate, RecordStatus, TeamStatus, PathPoint
 from app.schemas.common import SportType
 from app.db.models.competition import BikeSeason, Region, RunningSeason
 from typing import Optional, List
@@ -18,6 +18,7 @@ from app.db.models.competition import (
     BikeRaceRecord, RunningRaceRecord,
     BikeTrack, RunningTrack, BikeTeam, RunningTeam
 )
+from math import radians, sin, cos, sqrt, atan2
 import logging, json
 
 scheduler_logger = logging.getLogger("scheduler")
@@ -498,3 +499,23 @@ async def query_regions_with_events(db: AsyncSession, sport_type: str, country_c
                     result.append(region.name)
                     break
     return result
+
+def compute_distance(path: List[PathPoint]) -> float:
+    # 使用 Haversine 公式计算相邻点之间的球面距离，总和以公里返回
+    if not path or len(path) < 2:
+        return 0.0
+    R_km = 6371.0
+    total_km = 0.0
+    prev = path[0]
+    for curr in path[1:]:
+        lat1 = radians(prev.lat)
+        lon1 = radians(prev.lon)
+        lat2 = radians(curr.lat)
+        lon2 = radians(curr.lon)
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+        c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        total_km += R_km * c
+        prev = curr
+    return float(total_km)

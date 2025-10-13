@@ -4,6 +4,8 @@ from app.crud.user import (
     get_realname_info_by_card_id, get_settings_by_user_id, get_exist_user_by_phone,
     get_exist_user_by_apple_id, get_exist_user_by_id
 )
+import app.crud.competition.bike as bike_crud
+import app.crud.competition.running as running_crud
 from app.core.security import create_access_token
 from app.schemas.common import SportType
 from app.schemas.user import UserUpdateForm, UserBaseInfo, UserStatus, Gender
@@ -16,8 +18,9 @@ from alibabacloud_ocr_api20210707.client import Client as OcrClient
 from alibabacloud_ocr_api20210707.models import RecognizeHKIdcardRequest
 from alibabacloud_tea_openapi import models as open_api_models
 from alibabacloud_tea_util.client import Client as UtilClient
-import datetime, io, asyncio, jwt, json
+import io, asyncio, jwt, json
 from jwt import PyJWKClient
+from datetime import datetime, timedelta, timezone
 
 async def login_or_register(phone_number: str, db: AsyncSession):
     async with db.begin():
@@ -30,7 +33,7 @@ async def login_or_register(phone_number: str, db: AsyncSession):
         else:
             if user.status == UserStatus.banned:
                 ban_history = await get_banned_history_by_user_id(db, user.id)
-                now = datetime.datetime.now(datetime.timezone.utc)
+                now = datetime.now(timezone.utc)
                 if ban_history and ban_history.unban_time <= now:
                     # 自动解封
                     user.status = UserStatus.normal
@@ -67,7 +70,7 @@ async def login_or_register_apple(apple_id: str, email: str, db: AsyncSession):
         else:
             if user.status == UserStatus.banned:
                 ban_history = await get_banned_history_by_user_id(db, user.id)
-                now = datetime.datetime.now(datetime.timezone.utc)
+                now = datetime.now(timezone.utc)
                 if ban_history and ban_history.unban_time <= now:
                     # 自动解封
                     user.status = UserStatus.normal
@@ -210,8 +213,8 @@ async def realname_hk_service(user_id: str, front_bytes: bytes, db: AsyncSession
         if user is None:
             raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
         exist_info = await get_realname_info_by_user_id(db, user.id)
-        if exist_info:
-            raise BizException(code=ErrorCode.REALNAME_FAILED, message="请勿重复认证")
+        if exist_info and (datetime.now(timezone.utc) < (exist_info.updated_at + timedelta(days=30))):
+            raise BizException(code=ErrorCode.REALNAME_FAILED, message="暂时无法重新认证")
     
         result = await recognize_hk_idcard(front_bytes)
         raw_data = result.get("body", {}).get("Data", {})
@@ -255,6 +258,15 @@ async def realname_hk_service(user_id: str, front_bytes: bytes, db: AsyncSession
             issued_code=issued_code
         )
         db.add(realname_info)
+        if exist_info:
+            bike_score = await bike_crud.get_score_by_user_id(db, user.id)
+            if bike_score:
+                bike_score.gender = gender
+                bike_score.score = 0
+            running_score = await running_crud.get_score_by_user_id(db, user.id)
+            if running_score:
+                running_score.gender = gender
+                running_score.score = 0
 
 async def verify_apple_identity_token(identity_token: str):
     try:
