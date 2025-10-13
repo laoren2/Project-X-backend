@@ -480,6 +480,7 @@ class BikeCareerScore(Base):
     gender = Column(Enum(Gender), nullable=False)
     user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
     score = Column(Integer, default=0, nullable=False)
+    voucher_bonus = Column(Integer, default=0, nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
@@ -489,6 +490,23 @@ class BikeCareerScore(Base):
     )
 
     user = relationship("User", primaryjoin="foreign(BikeCareerScore.user_id)==User.id")
+
+class BikeCareerStatisticData(Base):
+    __tablename__ = "bike_career_statistic_data"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    season_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    total_distance = Column(Float, default=0, nullable=False)   # km
+    total_time = Column(Float, default=0, nullable=False)       # s
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('season_id', 'user_id', name='uq_bike_career_statistic_season_user'),
+    )
+
+    user = relationship("User", primaryjoin="foreign(BikeCareerStatisticData.user_id)==User.id")
 
 class RunningLeaderboard(Base):
     __tablename__ = "running_leaderboard"
@@ -524,6 +542,7 @@ class RunningCareerScore(Base):
     gender = Column(Enum(Gender), nullable=False)
     user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
     score = Column(Integer, default=0, nullable=False)
+    voucher_bonus = Column(Integer, default=0, nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
@@ -533,3 +552,20 @@ class RunningCareerScore(Base):
     )
 
     user = relationship("User", primaryjoin="foreign(RunningCareerScore.user_id)==User.id")
+
+class RunningCareerStatisticData(Base):
+    __tablename__ = "running_career_statistic_data"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    season_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    total_distance = Column(Float, default=0, nullable=False)
+    total_time = Column(Float, default=0, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('season_id', 'user_id', name='uq_running_career_statistic_season_user'),
+    )
+
+    user = relationship("User", primaryjoin="foreign(RunningCareerStatisticData.user_id)==User.id")

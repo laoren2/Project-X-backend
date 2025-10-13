@@ -45,6 +45,7 @@ class PathPoint(BaseModel):
     lat: float
     lon: float
     speed: float
+    altitude: float = -11034
     timestamp: float
 
 class MemberScoreInfo(BaseModel):

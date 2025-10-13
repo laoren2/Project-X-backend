@@ -258,6 +258,7 @@ class RunningBeginInfo(ORMBase):
     start_time: datetime
 
 class RunningFinishInfo(BaseModel):
+    validation_status: bool
     record_id: str
     end_time: datetime
     bonus_in_cards: List[CardBonusItem]
@@ -479,5 +480,8 @@ class RunningScoreLeaderboardResponse(ORMBase):
     entries: List[RunningScoreLeaderboardInfo]
 
 class RunningCareerDataInfo(ORMBase):
-    total_score: int | None
+    total_score: int
     total_rank: int | None
+    total_voucher: int
+    total_distance: float
+    total_time: float

@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func, and_, exists
 from app.db.models.competition import (
-    Region, BikeEvent, BikeSeason, 
+    BikeCareerStatisticData, Region, BikeEvent, BikeSeason, 
     BikeTrack, BikeRaceRecord, BikeTeam, BikeTeamMember, BikeTeamAppliedMember,
     CardBonusInBikeRecord, BikeLeaderboard, BikeCareerScore
 )
@@ -609,6 +609,15 @@ async def get_leaderboad_records_in_page(
     )
     return result.scalars().all()
 
+async def get_score_by_user_id(db: AsyncSession, user_id: uuid.UUID):
+    result = await db.execute(
+        select(BikeCareerScore)
+        .where(
+            BikeCareerScore.user_id == user_id
+        )
+    )
+    return result.scalar_one_or_none()
+
 async def get_scores_in_page(
     db: AsyncSession, 
     season_id: uuid.UUID,
@@ -631,12 +640,14 @@ async def get_scores_in_page(
     )
     return result.scalars().all()
 
-async def get_score_and_rank_by_season_id_and_user_id(
+async def get_score_and_rank_by_season_id_and_user(
     db: AsyncSession, 
     season_id: uuid.UUID,
-    user_id: uuid.UUID
-) -> tuple[int | None, int | None]:
+    user_id: uuid.UUID,
+    gender: Gender
+) -> tuple[int | None, int | None, int | None]:
     rank_col = func.rank().over(
+        partition_by=BikeCareerScore.gender,
         order_by=(BikeCareerScore.score.desc(), BikeCareerScore.updated_at.asc())
     )
     # 子查询：对整个赛季计算 rank
@@ -644,38 +655,80 @@ async def get_score_and_rank_by_season_id_and_user_id(
         select(
             BikeCareerScore.user_id,
             BikeCareerScore.score,
+            BikeCareerScore.voucher_bonus,
             rank_col.label("rank")
         )
-        .where(BikeCareerScore.season_id == season_id)
+        .where(
+            BikeCareerScore.season_id == season_id,
+            BikeCareerScore.gender == gender
+        )
         .subquery()
     )
     # 再查出目标用户
-    stmt = select(subq.c.score, subq.c.rank).where(subq.c.user_id == user_id)
+    stmt = select(subq.c.score, subq.c.rank, subq.c.voucher_bonus).where(subq.c.user_id == user_id)
     result = await db.execute(stmt)
     row = result.first()
 
     if row is None:
-        return None, None
-    score, rank = row
-    return score, rank
+        return None, None, None
+    score, rank, voucher_bonus = row
+    return score, rank, voucher_bonus
 
 async def add_or_update_career_score(
     db: AsyncSession, 
     season_id: uuid.UUID,
     gender: Gender, 
     user_id: uuid.UUID, 
-    score: int
+    score: int,
+    voucher: int
 ):
     stmt = insert(BikeCareerScore).values(
         season_id=season_id,
         gender=gender,
         user_id=user_id,
-        score=score
+        score=score,
+        voucher_bonus=voucher
     ).on_conflict_do_update(
         index_elements=[BikeCareerScore.season_id, BikeCareerScore.user_id],
         set_={
             "score": BikeCareerScore.score + score,
+            "voucher_bonus": BikeCareerScore.voucher_bonus + voucher,
             "gender": gender  # 冲突时强制更新为新 gender
         }
     )
     await db.execute(stmt)
+
+async def add_or_update_career_statistic_data(
+    db: AsyncSession, 
+    season_id: uuid.UUID,
+    user_id: uuid.UUID, 
+    distance: float,
+    time: float
+):
+    stmt = insert(BikeCareerStatisticData).values(
+        season_id=season_id,
+        user_id=user_id,
+        total_distance=distance,
+        total_time=time
+    ).on_conflict_do_update(
+        index_elements=[BikeCareerStatisticData.season_id, BikeCareerStatisticData.user_id],
+        set_={
+            "total_distance": BikeCareerStatisticData.total_distance + distance,
+            "total_time": BikeCareerStatisticData.total_time + time,
+        }
+    )
+    await db.execute(stmt)
+
+async def get_career_statistic_data(
+    db: AsyncSession, 
+    season_id: uuid.UUID,
+    user_id: uuid.UUID
+) -> BikeCareerStatisticData | None:
+    result = await db.execute(
+        select(BikeCareerStatisticData)
+        .where(
+            BikeCareerStatisticData.season_id == season_id,
+            BikeCareerStatisticData.user_id == user_id
+        )
+    )
+    return result.scalar_one_or_none()

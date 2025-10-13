@@ -248,6 +248,7 @@ class BikeBeginInfo(ORMBase):
 
 class BikeFinishInfo(BaseModel):
     record_id: str
+    validation_status: bool
     end_time: datetime
     bonus_in_cards: List[CardBonusItem]
     path: List[PathPoint]
@@ -468,6 +469,9 @@ class BikeScoreLeaderboardResponse(ORMBase):
     entries: List[BikeScoreLeaderboardInfo]
 
 class BikeCareerDataInfo(ORMBase):
-    total_score: int | None
+    total_score: int
     total_rank: int | None
+    total_voucher: int
+    total_distance: float
+    total_time: float
     
