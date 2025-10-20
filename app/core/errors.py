@@ -53,6 +53,7 @@ class ErrorCode:
     MAIL_NOT_FOUND = 4022
     MAIL_ERROR = 4023
     EVENT_ERROR = 4024
+    SIGN_IN_ERROR = 4025
 
     # 第三方服务
     SMS_SERVICE_ERROR = 5001
