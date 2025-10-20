@@ -9,7 +9,8 @@ from app.services.user import (
     get_user_role, update_user_default_sport_service, unbind_phone_service,
     update_user_location_service, verify_apple_identity_token,
     login_or_register_apple, realname_hk_service, bind_phone_service,
-    bind_apple_id_service, unbind_apple_id_service
+    bind_apple_id_service, unbind_apple_id_service, sign_in_status_service,
+    sign_in_today_service
 )
 from app.crud.user import get_exist_user_by_phone
 from app.services.user_follow import get_relation_count, get_relationship_service
@@ -18,6 +19,7 @@ from app.core.errors import ErrorCode
 from app.schemas import user as schemas_user
 from app.schemas.common import PersonInfoResponse
 from app.schemas.base import BaseResponse
+from app.schemas.asset import SignInStatusResponse, CCAssetBaseInfo
 from typing import Optional
 from pathlib import Path
 from datetime import datetime
@@ -222,3 +224,21 @@ async def unbind_apple_id(
 ):
     await unbind_apple_id_service(auth.payload["user_id"], db)
     return BaseResponse.success(token=auth.new_token, message="解除绑定成功")
+
+# 查询签到状态
+@router.get("/sign_in/status",response_model=BaseResponse[SignInStatusResponse], summary="查询签到状态")
+async def sign_in_status(
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await sign_in_status_service(db, auth.payload["user_id"])
+    return BaseResponse.success(token=auth.new_token, data=result)
+
+# 非会员签到
+@router.post("/sign_in/today",response_model=BaseResponse[CCAssetBaseInfo], summary="非会员签到")
+async def sign_in_today(
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await sign_in_today_service(db, auth.payload["user_id"])
+    return BaseResponse.success(token=auth.new_token, message="领取成功", data=result)

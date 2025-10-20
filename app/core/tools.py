@@ -2,6 +2,13 @@ from sqlalchemy import Boolean, Enum, Integer, Float, String
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from app.core.errors import ErrorCode
 from app.schemas.base import BizException
+from datetime import date, datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
+
+HK_TZ = ZoneInfo("Asia/Hong_Kong")
+
+def get_today_hk_date():
+    return datetime.now(HK_TZ).date()
 
 def str_to_bool(val):
     if isinstance(val, bool):

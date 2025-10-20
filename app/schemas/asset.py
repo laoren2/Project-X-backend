@@ -259,3 +259,16 @@ class AssetRewardsResponse(BaseModel):
     ccassets: List[CCAssetBaseInfo]
     cpassets: List[CPAssetResponse]
     equip_cards: List[EquipCardBaseInfo]
+
+class SignInItemInfo(BaseModel):
+    date: str                       # yyyy-MM-dd
+    ccasset_type: CCAssetType       # 非订阅奖励
+    ccasset_reward: int             # 非订阅奖励
+    ccasset_type_vip: CCAssetType   # 订阅奖励
+    ccasset_reward_vip: int         # 订阅奖励
+
+class SignInStatusResponse(BaseModel):
+    today_signed: bool              # 今天是否已签到
+    today_signed_vip: bool          # 今天是否已签到（会员）
+    #continuous_days: int            # 连续签到天数
+    items: List[SignInItemInfo]

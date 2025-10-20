@@ -2,8 +2,12 @@ from app.crud.user import (
     create_user, get_user_by_id, get_banned_history_by_user_id,
     get_user_by_apple_id, create_user_with_apple, get_realname_info_by_user_id,
     get_realname_info_by_card_id, get_settings_by_user_id, get_exist_user_by_phone,
-    get_exist_user_by_apple_id, get_exist_user_by_id
+    get_exist_user_by_apple_id, get_exist_user_by_id, get_sign_in_rewards, 
+    get_user_normal_sign_in_today, get_user_sign_in_history,
+    get_user_vip_sign_in_today, get_sign_in_reward_by_day
 )
+from app.crud.asset_manage import reward_ccasset
+from app.core.tools import get_today_hk_date
 import app.crud.competition.bike as bike_crud
 import app.crud.competition.running as running_crud
 from app.core.security import create_access_token
@@ -11,16 +15,18 @@ from app.schemas.common import SportType
 from app.schemas.user import UserUpdateForm, UserBaseInfo, UserStatus, Gender
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.base import BizException
-from app.db.models.user import UserRealNameHK, UserSetting
+from app.schemas.asset import SignInStatusResponse, CCAssetBaseInfo, AssetOperation, SignInItemInfo
+from app.db.models.user import UserRealNameHK, UserSetting, UserSignIn
 from app.core.errors import ErrorCode
 from app.core.config import settings
 from alibabacloud_ocr_api20210707.client import Client as OcrClient
 from alibabacloud_ocr_api20210707.models import RecognizeHKIdcardRequest
 from alibabacloud_tea_openapi import models as open_api_models
 from alibabacloud_tea_util.client import Client as UtilClient
-import io, asyncio, jwt, json
 from jwt import PyJWKClient
 from datetime import datetime, timedelta, timezone
+import io, asyncio, jwt, json, uuid
+
 
 async def login_or_register(phone_number: str, db: AsyncSession):
     async with db.begin():
@@ -340,3 +346,81 @@ async def unbind_apple_id_service(user_id: str, db: AsyncSession):
     user.apple_id = None
     user.apple_email = None
     await db.commit()
+
+
+# 计算连续签到天数
+async def compute_continuous_days(db: AsyncSession, user_id: uuid.UUID) -> int:
+    today = get_today_hk_date()
+    # 查询最近6天签到记录
+    sign_in_history = await get_user_sign_in_history(db, user_id, 6)
+    # 计算连续签到天数
+    continuous_days = 0
+    current_date = today - timedelta(days=1)
+    for sign_in in sign_in_history:
+        if sign_in.sign_in_date == current_date:
+            continuous_days += 1
+            current_date = current_date - timedelta(days=1)
+        else:
+            continue
+    return continuous_days
+
+# 签到状态查询服务
+async def sign_in_status_service(db: AsyncSession, user_id: str) -> SignInStatusResponse:
+    """查询用户签到状态"""
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+    
+    today = get_today_hk_date()
+    
+    # 查询今日签到状态
+    today_sign_in = await get_user_normal_sign_in_today(db, user.id, today)
+    today_vip_sign_in = await get_user_vip_sign_in_today(db, user.id, today)
+    today_signed = today_sign_in is not None
+    today_signed_vip = today_vip_sign_in is not None
+    
+    continuous_days = await compute_continuous_days(db, user.id)
+    
+    # 获取签到奖励配置
+    rewards = await get_sign_in_rewards(db)
+    
+    # 构建签到奖励信息
+    items = []
+    for i in range(7):
+        day_index = (continuous_days + i) if (continuous_days + i) < 7 else 6
+        if day_index < len(rewards):
+            reward = rewards[day_index]
+            items.append(SignInItemInfo(
+                date=(today + timedelta(days=i)).strftime("%Y-%m-%d"),
+                ccasset_type=reward.reward_type,
+                ccasset_reward=reward.reward_count,
+                ccasset_type_vip=reward.reward_type_vip,
+                ccasset_reward_vip=reward.reward_count_vip
+            ))
+    
+    return SignInStatusResponse(
+        today_signed=today_signed,
+        today_signed_vip=today_signed_vip,
+        items=items
+    )
+
+async def sign_in_today_service(db: AsyncSession, user_id: str) -> CCAssetBaseInfo:
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        today = get_today_hk_date()
+        today_sign_in = await get_user_normal_sign_in_today(db, user.id, today)
+        today_signed = today_sign_in is not None
+        if today_signed:
+            raise BizException(code=ErrorCode.SIGN_IN_ERROR, message="请勿重复签到")
+        sign_in = UserSignIn(
+            user_id=user.id,
+            sign_in_date=today,
+            is_vip=False
+        )
+        db.add(sign_in)
+        continuous_days = await compute_continuous_days(db, user.id)
+        reward = await get_sign_in_reward_by_day(db, continuous_days)
+        new_amount = await reward_ccasset(db, reward.reward_type, reward.reward_count, user.id, "签到奖励", AssetOperation.REWARD)
+        return CCAssetBaseInfo(ccasset_type=reward.reward_type, new_ccamount=new_amount)

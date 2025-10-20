@@ -1,6 +1,7 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, DateTime, func, UniqueConstraint, Integer, Enum, Index, CheckConstraint
+from sqlalchemy import Column, String, Boolean, DateTime, Date, func, UniqueConstraint, Integer, Enum, Index, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID
+from app.schemas.asset import CCAssetType
 from app.schemas.common import SportType
 from app.schemas.user import UserRole, Gender, UserStatus
 from app.db.base import Base
@@ -102,3 +103,28 @@ class UserFollow(Base):
     # 与users表建立关联关系，可以方便的获取关注者和被关注者的User对象
     follower = relationship("User", primaryjoin="foreign(UserFollow.follower_id)==User.id")
     followed = relationship("User", primaryjoin="foreign(UserFollow.followed_id)==User.id")
+
+# 用户签到记录表
+class UserSignIn(Base):
+    __tablename__ = "user_sign_in"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    is_vip = Column(Boolean, nullable=False)    # 是否是领取vip签到奖励
+    sign_in_date = Column(Date, nullable=False)     # 使用 Date 记录已签到的日期(注意暂时只支持香港地区，需要考虑存储为 UTC+8 时区)
+
+    # 添加user_id、is_vip和sign_in_date的唯一约束
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "is_vip", "sign_in_date", name="uq_user_vip_sign_in_date"),
+    )
+
+# 连续签到奖励表
+class SignInReward(Base):
+    __tablename__ = "sign_in_rewards"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    days = Column(Integer, nullable=False)      # 连续签到天数（0-7）
+    reward_type = Column(Enum(CCAssetType), nullable=False)
+    reward_count = Column(Integer, nullable=False)
+    reward_type_vip = Column(Enum(CCAssetType), nullable=False)
+    reward_count_vip = Column(Integer, nullable=False)
