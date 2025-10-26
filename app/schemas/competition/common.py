@@ -4,8 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 from pydantic import BaseModel
-from app.schemas.common import EquipCardBaseInfo, PersonInfoResponse
-
+from app.schemas.common import EquipCardBaseInfo, PersonInfoResponse, CCAssetType
 
 
 class RecordStatus(str, Enum):
@@ -26,6 +25,10 @@ class TeamRelationship(str, Enum):
     created = "created"     # 我创建的
     joined = "joined"       # 我加入的
     applied = "applied"     # 我申请的
+
+class DailyTaskType(str, Enum):
+    distance = "distance"
+    time = "time"
 
 class RegionCreate(ORMBase):
     name: str
@@ -52,3 +55,16 @@ class MemberScoreInfo(BaseModel):
     user_info: PersonInfoResponse
     status: RecordStatus
     final_time: Optional[float]
+
+class DailyTaskResponse(BaseModel):
+    type: DailyTaskType
+    total_progress: float
+    reward_stage1_type: CCAssetType
+    reward_stage1: int
+    is_reward1_received: bool
+    reward_stage2_type: CCAssetType
+    reward_stage2: int
+    is_reward2_received: bool
+    reward_stage3_url: str
+    is_reward3_received: bool
+    progress: float

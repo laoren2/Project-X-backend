@@ -4,7 +4,6 @@ from app.db.models.user import User, UserBanHistory, UserRealNameHK, UserSetting
 from typing import Optional, List
 from sqlalchemy.orm import selectinload
 from app.schemas.user import UserStatus
-from app.schemas.asset import CCAssetType
 from datetime import date, datetime, timezone, timedelta
 from app.core.tools import get_today_hk_date
 import uuid, random, time
@@ -168,11 +167,18 @@ async def get_settings_by_user_id(db: AsyncSession, user_id: uuid.UUID) -> UserS
     return result.scalar_one_or_none()
 
 
-async def get_sign_in_reward_by_day(db: AsyncSession, days: int) -> SignInReward | None:
+async def get_sign_in_reward_by_day(db: AsyncSession, day: date, days: int) -> SignInReward | None:
     """获取指定签到奖励信息"""
+    if 0 <= days <= 5:
+        query_days = days
+    elif days > 5:
+        index = day.day % 5
+        query_days = 6 + index
+    else:
+        return None
     result = await db.execute(
         select(SignInReward)
-        .where(SignInReward.days == days)
+        .where(SignInReward.days == query_days)
     )
     return result.scalar_one_or_none()
 
@@ -208,7 +214,7 @@ async def get_user_vip_sign_in_today(db: AsyncSession, user_id: uuid.UUID, sign_
 async def get_user_sign_in_history(db: AsyncSession, user_id: uuid.UUID, days: int = 6) -> List[UserSignIn]:
     """获取用户最近N天的签到记录"""
     end_date = get_today_hk_date() - timedelta(days=1)
-    start_date = end_date - timedelta(days=days)
+    start_date = end_date - timedelta(days=days-1)
     result = await db.execute(
         select(UserSignIn)
         .where(

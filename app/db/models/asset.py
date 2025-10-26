@@ -4,8 +4,8 @@ from sqlalchemy import (
     func, UniqueConstraint, Integer, Float, Enum, Text
 )
 from sqlalchemy.dialects.postgresql import UUID
-from app.schemas.asset import CCAssetType, CPAssetType, AssetOperation
-from app.schemas.common import SportType
+from app.schemas.asset import CPAssetType, AssetOperation
+from app.schemas.common import SportType, CCAssetType
 from app.db.base import Base
 from sqlalchemy.orm import relationship
 import hashlib

@@ -3,15 +3,17 @@ from sqlalchemy import select, update, func, and_, exists
 from app.db.models.competition import (
     Region, RunningEvent, RunningSeason, 
     RunningTrack, RunningRaceRecord, RunningTeam, RunningTeamMember, RunningTeamAppliedMember,
-    CardBonusInRunningRecord, RunningLeaderboard, RunningCareerScore, RunningCareerStatisticData
+    CardBonusInRunningRecord, RunningLeaderboard, RunningCareerScore, RunningCareerStatisticData,
+    RunningDailyTask, RunningDailyTaskRecord
 )
 from app.db.models.asset import UserEquipmentCard
-from app.schemas.competition.common import RecordStatus, TeamStatus
+from app.schemas.competition.common import RecordStatus, TeamStatus, DailyTaskType
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
-from datetime import timedelta
+from datetime import timedelta, date
 from sqlalchemy.dialects.postgresql import insert
 from app.schemas.user import Gender
+from app.core.tools import get_today_hk_date
 import uuid
 
 
@@ -731,3 +733,64 @@ async def get_career_statistic_data(
         )
     )
     return result.scalar_one_or_none()
+
+def decide_task_type_by_date(date: date) -> DailyTaskType:
+    return DailyTaskType.distance if date.day % 2 == 1 else DailyTaskType.time
+
+async def get_daily_task(db: AsyncSession) -> RunningDailyTask | None:
+    today = get_today_hk_date()
+    # 根据日期的奇偶决定 每日任务 的类型
+    # 奇数日：distance，偶数日：time
+    task_type = decide_task_type_by_date(today)
+    result = await db.execute(
+        select(RunningDailyTask)
+        .where(
+            RunningDailyTask.type == task_type
+        )
+    )
+    return result.scalar_one_or_none()
+
+async def get_today_task_record_by_user(
+    db: AsyncSession, 
+    user_id: uuid.UUID
+) -> RunningDailyTaskRecord | None:
+    today = get_today_hk_date()
+    task_type = decide_task_type_by_date(today)
+    result = await db.execute(
+        select(RunningDailyTaskRecord)
+        .where(
+            RunningDailyTaskRecord.user_id == user_id,
+            RunningDailyTaskRecord.date == today,
+            RunningDailyTaskRecord.type == task_type
+        )
+    )
+    return result.scalar_one_or_none()
+
+async def add_or_update_daily_task_record(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    distance_progress: float,
+    time_progress: float
+):
+    today = get_today_hk_date()
+    task_type = decide_task_type_by_date(today)
+    progress = distance_progress if task_type == DailyTaskType.distance else time_progress
+    result = await db.execute(
+        select(RunningDailyTaskRecord)
+        .where(
+            RunningDailyTaskRecord.user_id == user_id,
+            RunningDailyTaskRecord.date == today,
+            RunningDailyTaskRecord.type == task_type
+        )
+    )
+    record = result.scalar_one_or_none()
+    if record is None:
+        new_record = RunningDailyTaskRecord(
+            user_id=user_id,
+            type=task_type,
+            progress=progress,
+            date=today
+        )
+        db.add(new_record)
+    else:
+        record.progress += progress

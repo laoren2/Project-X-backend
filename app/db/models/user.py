@@ -1,8 +1,7 @@
 import uuid
 from sqlalchemy import Column, String, Boolean, DateTime, Date, func, UniqueConstraint, Integer, Enum, Index, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID
-from app.schemas.asset import CCAssetType
-from app.schemas.common import SportType
+from app.schemas.common import SportType, CCAssetType
 from app.schemas.user import UserRole, Gender, UserStatus
 from app.db.base import Base
 from sqlalchemy.orm import relationship

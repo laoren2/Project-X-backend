@@ -15,10 +15,11 @@ from app.crud.competition.bike import (
     track_has_settled, get_history_seasons, get_leaderboad_record, get_leaderboad_records_in_page,
     get_scores_in_page, add_or_update_career_score, get_score_and_rank_by_season_id_and_user,
     get_incompleted_records_by_user_id, get_completed_records_by_user_id, get_career_statistic_data,
-    add_or_update_career_statistic_data
+    add_or_update_career_statistic_data, get_daily_task, get_today_task_record_by_user,
+    add_or_update_daily_task_record
 )
 from app.crud.asset_manage import (
-    get_register_card_price, get_registration_card_def, consume_cpasset,
+    get_cpasset_def_by_id, get_register_card_price, get_registration_card_def, consume_cpasset, reward_ccasset,
     reward_cpasset, get_team_card_def, get_equip_card_by_card_id
 )
 from app.crud.user import get_user_by_id, get_users_by_ids, get_users_by_user_ids, get_exist_user_by_id
@@ -28,9 +29,12 @@ from app.schemas.base import BizException
 from app.schemas.common import PersonInfoResponse, EquipCardBaseInfo, SportType
 from app.services.mappers import equip_card_to_base_info
 from app.services.competition.common import _distribute_voucher_and_scores, compute_distance
-from app.schemas.asset import CPAssetResponse
+from app.schemas.asset import AssetOperation, CPAssetResponse, DailyTaskRewardResponse
 from app.schemas.mailbox import MailType
-from app.schemas.competition.common import TeamRelationship, RecordStatus, TeamStatus, CardBonusInfo, PathPoint, MemberScoreInfo
+from app.schemas.competition.common import (
+    TeamRelationship, RecordStatus, TeamStatus, CardBonusInfo, 
+    PathPoint, MemberScoreInfo, DailyTaskResponse
+)
 from app.schemas.competition.bike import (
     BikeEventCreateForm, BikeEventBaseInfo, BikeEventUpdateForm, BikeEventBaseInfoInternal,
     BikeTrackBaseInfo, BikeTrackCreateForm,
@@ -577,7 +581,7 @@ async def cancel_register_service(db: AsyncSession, record_id: str, user_id: str
                 raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍处于比赛状态,无法取消")
 
         cpasset_def = await get_registration_card_def(db, SportType.bike, is_team)
-        new_balance = await reward_cpasset(db, user.id, cpasset_def.id, 1, "取消报名")
+        new_balance = await reward_cpasset(db, user.id, cpasset_def.id, 1, "取消报名", AssetOperation.REFUND)
         if is_team:
             user_member = next((member for member in team.members if member.user_id == user.id), None)
             if user_member is None:
@@ -728,10 +732,11 @@ async def finish_single_competition_service(db: AsyncSession, info: BikeFinishIn
         if card_price:
             track.prize_pool += card_price.price
         db.add(track)
-        # 更新个人统计数据
+        # 更新个人统计数据 & 每日任务进度
         if record.status == RecordStatus.completed:
             distance = compute_distance(info.path)
             await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
+            await add_or_update_daily_task_record(db, user.id, distance, final_time)
 
     # 更新排行榜
     if final_time is not None and record.status == RecordStatus.completed:
@@ -829,10 +834,11 @@ async def finish_team_competition_service(db: AsyncSession, info: BikeFinishInfo
         if card_price:
             track.prize_pool += card_price.price
         db.add(track)
-        # 更新个人统计数据
+        # 更新个人统计数据 & 每日任务进度
         if record.status == RecordStatus.completed:
             distance = compute_distance(info.path)
             await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
+            await add_or_update_daily_task_record(db, user.id, distance, final_time)
 
     # 更新排行榜
     if final_time is not None and record.status == RecordStatus.completed:
@@ -1554,12 +1560,12 @@ async def disband_team_service(db: AsyncSession, user_id: str, team_id: str) -> 
         
         # 返回组队卡
         team_card_def = await get_team_card_def(db, SportType.bike)
-        new_balance = await reward_cpasset(db, user.id, team_card_def.id, 1, "解散队伍")
+        new_balance = await reward_cpasset(db, user.id, team_card_def.id, 1, "解散队伍", AssetOperation.REFUND)
         # 所有已报名成员取消报名
         register_card_def = await get_registration_card_def(db, SportType.bike, True)
         for member in team.members:
             if member.is_registered:
-                await reward_cpasset(db, member.user_id, register_card_def.id, 1, "取消报名")
+                await reward_cpasset(db, member.user_id, register_card_def.id, 1, "取消报名", AssetOperation.REFUND)
         await delete_records_by_team_id(db, team.id)
         await db.delete(team)
         return CPAssetResponse(
@@ -1598,7 +1604,7 @@ async def remove_team_member_service(db: AsyncSession, user_id: str, team_id: st
             if record is not None and record.status == RecordStatus.notStarted:
                 await delete_record_crud(db, record)
                 register_card_def = await get_registration_card_def(db, SportType.bike, True)
-                await reward_cpasset(db, member_need_delete.user_id, register_card_def.id, 1, "取消报名")
+                await reward_cpasset(db, member_need_delete.user_id, register_card_def.id, 1, "取消报名", AssetOperation.REFUND)
         await db.delete(member_need_delete)
         await db.flush()
         await db.refresh(team, attribute_names=["members"])
@@ -1786,7 +1792,7 @@ async def cancel_applied_join_team_service(db: AsyncSession, user_id: str, team_
         await db.delete(member)
 
 
-async def get_record_detail_service(db: AsyncSession, record_id: str, user_id: str) -> BikeRecordDetailInfo:
+async def get_record_detail_service(db: AsyncSession, record_id: str, user_id: str | None) -> BikeRecordDetailInfo:
     record = await get_record_by_record_id(db, record_id)
     if record is None:
         raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
@@ -1906,3 +1912,69 @@ async def get_career_data_service(db: AsyncSession, season_id: str, user_id: str
         total_distance=statistic_data.total_distance if statistic_data else 0,
         total_time=statistic_data.total_time if statistic_data else 0
     )
+
+async def query_daily_task_status_service(db: AsyncSession, user_id: str) -> DailyTaskResponse | None:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+    task = await get_daily_task(db)
+    task_record = await get_today_task_record_by_user(db, user.id)
+    if task:
+        cpasset_def = await get_cpasset_def_by_id(db, task.reward_stage3_id)
+        return DailyTaskResponse(
+            type=task.type,
+            total_progress=task.total_progress,
+            reward_stage1_type=task.reward_stage1_type,
+            reward_stage1=task.reward_stage1,
+            is_reward1_received=task_record.is_reward1_received if task_record else False,
+            reward_stage2_type=task.reward_stage2_type,
+            reward_stage2=task.reward_stage2,
+            is_reward2_received=task_record.is_reward2_received if task_record else False,
+            reward_stage3_url=cpasset_def.image_url,
+            is_reward3_received=task_record.is_reward3_received if task_record else False,
+            progress=task_record.progress if task_record else 0
+        ) if cpasset_def else None
+    else:
+        return None
+
+async def claimed_daily_task_reward_service(db: AsyncSession, user_id: str, stage: int) -> DailyTaskRewardResponse:
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        if stage < 1 or stage > 3:
+            raise BizException(code=ErrorCode.PROPERTY_ERROR, message="领取失败")
+        task = await get_daily_task(db)
+        task_record = await get_today_task_record_by_user(db, user.id)
+        if task is None or task_record is None:
+            raise BizException(code=ErrorCode.DAILY_TASK_NOT_FOUND, message="领取失败")
+        if stage == 1 and not task_record.is_reward1_received and (task_record.progress / task.total_progress > 1/3):
+            new_balance = await reward_ccasset(db, task.reward_stage1_type, task.reward_stage1, user.id, "每日任务奖励", AssetOperation.REWARD)
+            task_record.is_reward1_received = True
+            return DailyTaskRewardResponse(
+                ccasset_type=task.reward_stage1_type,
+                ccasset_amount=new_balance,
+                cpasset_id=None,
+                cpasset_amount=None
+            )
+        if stage == 2 and not task_record.is_reward2_received and (task_record.progress / task.total_progress > 2/3):
+            new_balance = await reward_ccasset(db, task.reward_stage2_type, task.reward_stage2, user.id, "每日任务奖励", AssetOperation.REWARD)
+            task_record.is_reward2_received = True
+            return DailyTaskRewardResponse(
+                ccasset_type=task.reward_stage2_type,
+                ccasset_amount=new_balance,
+                cpasset_id=None,
+                cpasset_amount=None
+            )
+        if stage == 3 and not task_record.is_reward3_received and task_record.progress > task.total_progress:
+            new_balance = await reward_cpasset(db, user.id, task.reward_stage3_id, 1, "每日任务奖励", AssetOperation.REWARD)
+            task_record.is_reward3_received = True
+            cpasset_def = await get_cpasset_def_by_id(db, task.reward_stage3_id)
+            return DailyTaskRewardResponse(
+                ccasset_type=None,
+                ccasset_amount=None,
+                cpasset_id=cpasset_def.asset_id if cpasset_def else None,
+                cpasset_amount=new_balance
+            )
+        raise BizException(code=ErrorCode.DAILY_TASK_ERROR, message="领取失败")
+    
