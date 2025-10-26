@@ -1,29 +1,10 @@
 from typing import Optional, List, Any
 from app.schemas.base import ORMBase
-from app.schemas.common import CPAssetBaseInfo, EquipCardBaseInfo, SportType
+from app.schemas.common import CPAssetBaseInfo, EquipCardBaseInfo, SportType, CCAssetType
 from enum import Enum
 from fastapi import Form
 from pydantic import BaseModel
 
-
-class CCAssetType(str, Enum):
-    COIN = "coin"        # 金币
-    COUPON = "coupon"    # 点券
-    VOUCHER = "voucher"  # 金券
-    STONE1 = "stone1"
-    STONE2 = "stone2"
-    STONE3 = "stone3"
-
-    def display_name(self) -> str:
-        names = {
-            CCAssetType.COIN: "金币",
-            CCAssetType.COUPON: "点券",
-            CCAssetType.VOUCHER: "金券",
-            CCAssetType.STONE1: "升级石1",
-            CCAssetType.STONE2: "升级石2",
-            CCAssetType.STONE3: "升级石3"
-        }
-        return names.get(self, "未知类型")
 
 class CPAssetType(str, Enum):
     registration_card = "registration_card"     # 报名卡
@@ -272,3 +253,9 @@ class SignInStatusResponse(BaseModel):
     today_signed_vip: bool          # 今天是否已签到（会员）
     #continuous_days: int            # 连续签到天数
     items: List[SignInItemInfo]
+
+class DailyTaskRewardResponse(BaseModel):
+    ccasset_type: CCAssetType | None
+    ccasset_amount: int | None
+    cpasset_id: str | None
+    cpasset_amount: int | None

@@ -4,6 +4,25 @@ from enum import Enum
 from pydantic import BaseModel
 
 
+class CCAssetType(str, Enum):
+    COIN = "coin"        # 金币
+    COUPON = "coupon"    # 点券
+    VOUCHER = "voucher"  # 金券
+    STONE1 = "stone1"
+    STONE2 = "stone2"
+    STONE3 = "stone3"
+
+    def display_name(self) -> str:
+        names = {
+            CCAssetType.COIN: "金币",
+            CCAssetType.COUPON: "点券",
+            CCAssetType.VOUCHER: "金券",
+            CCAssetType.STONE1: "升级石1",
+            CCAssetType.STONE2: "升级石2",
+            CCAssetType.STONE3: "升级石3"
+        }
+        return names.get(self, "未知类型")
+
 class SportType(str, Enum):
     running = "running"
     bike = "bike"

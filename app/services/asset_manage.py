@@ -14,7 +14,7 @@ from app.db.models.asset import CPRegistrationCardDef, CPTeamCardDef, CPAssetDef
 from app.core.errors import ErrorCode
 from app.schemas.base import BizException
 from app.schemas.asset import (
-    CCAssetsResponse, CCAssetType, AssetOperation, CPAssetType, CPAssetsResponse, 
+    CCAssetsResponse, AssetOperation, CPAssetType, CPAssetsResponse,
     CPAssetBaseInfo, CC_CP_PurchaseResultResponse, CC_CC_PurchaseResultResponse, CPAssetsShopResponse, CPAssetShopInfo,
     CPAssetDefCreateForm, CPAssetDefInfo, CPAssetDefResponse, CPAssetShopInfoCreateRequest, 
     CPAssetsShopInternalResponse, CPAssetShopInternalInfo, CCAssetRewardRequest,
@@ -24,7 +24,7 @@ from app.schemas.asset import (
     EquipCardUpgradeResponse, CCAssetBaseInfo, EquipCardUpgradePriceInfo,
     EquipCardSkillUpgradeResponse
 )
-from app.schemas.common import EquipCardBaseInfo, SportType
+from app.schemas.common import EquipCardBaseInfo, SportType, CCAssetType
 from app.services.mappers import equip_card_to_base_info
 from app.core.tools import auto_cast_fields
 from sqlalchemy.ext.asyncio import AsyncSession

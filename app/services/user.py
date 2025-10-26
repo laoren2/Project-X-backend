@@ -381,22 +381,20 @@ async def sign_in_status_service(db: AsyncSession, user_id: str) -> SignInStatus
     
     continuous_days = await compute_continuous_days(db, user.id)
     
-    # 获取签到奖励配置
-    rewards = await get_sign_in_rewards(db)
-    
     # 构建签到奖励信息
     items = []
     for i in range(7):
-        day_index = (continuous_days + i) if (continuous_days + i) < 7 else 6
-        if day_index < len(rewards):
-            reward = rewards[day_index]
-            items.append(SignInItemInfo(
-                date=(today + timedelta(days=i)).strftime("%Y-%m-%d"),
-                ccasset_type=reward.reward_type,
-                ccasset_reward=reward.reward_count,
-                ccasset_type_vip=reward.reward_type_vip,
-                ccasset_reward_vip=reward.reward_count_vip
-            ))
+        day_index = continuous_days + i
+        reward = await get_sign_in_reward_by_day(db, today + timedelta(days=i), day_index)
+        if not reward:
+            raise BizException(code=ErrorCode.SIGN_IN_ERROR, message="签到信息错误")
+        items.append(SignInItemInfo(
+            date=(today + timedelta(days=i)).strftime("%Y-%m-%d"),
+            ccasset_type=reward.reward_type,
+            ccasset_reward=reward.reward_count,
+            ccasset_type_vip=reward.reward_type_vip,
+            ccasset_reward_vip=reward.reward_count_vip
+        ))
     
     return SignInStatusResponse(
         today_signed=today_signed,
@@ -421,6 +419,6 @@ async def sign_in_today_service(db: AsyncSession, user_id: str) -> CCAssetBaseIn
         )
         db.add(sign_in)
         continuous_days = await compute_continuous_days(db, user.id)
-        reward = await get_sign_in_reward_by_day(db, continuous_days)
+        reward = await get_sign_in_reward_by_day(db, today, continuous_days)
         new_amount = await reward_ccasset(db, reward.reward_type, reward.reward_count, user.id, "签到奖励", AssetOperation.REWARD)
         return CCAssetBaseInfo(ccasset_type=reward.reward_type, new_ccamount=new_amount)

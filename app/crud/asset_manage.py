@@ -4,8 +4,8 @@ from app.db.models.asset import (
     CPAssetTransaction, CPAssetDef, CPRegistrationCardDef, CPAssetPrice, CPTeamCardDef,
     EquipmentCardDef, EquipCardPrice, UserEquipmentCard, EquipCardTransaction
 )
-from app.schemas.asset import CCAssetType, AssetOperation, CPAssetType, CCAssetBaseInfo
-from app.schemas.common import SportType
+from app.schemas.asset import AssetOperation, CPAssetType, CCAssetBaseInfo
+from app.schemas.common import SportType, CCAssetType
 from app.schemas.base import BizException
 from app.core.errors import ErrorCode
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,12 +51,12 @@ async def reward_ccasset(db: AsyncSession, asset_type: CCAssetType, amount: int,
     return new_balance
 
 # 奖励cp资产
-async def reward_cpasset(db: AsyncSession, user_id: uuid.UUID, asset_id: uuid.UUID, amount: int, comment: str) -> int:
+async def reward_cpasset(db: AsyncSession, user_id: uuid.UUID, asset_id: uuid.UUID, amount: int, comment: str, op: AssetOperation) -> int:
     asset = await get_or_create_user_cpasset(db, user_id, asset_id)
     new_balance = asset.balance + amount
     new_balance = await update_user_cpasset_balance(db, asset, new_balance)
     await create_cpasset_transaction(
-        db, user_id, asset_id, AssetOperation.REWARD, amount, new_balance, description=comment
+        db, user_id, asset_id, op, amount, new_balance, description=comment
     )
     return new_balance
 
@@ -135,6 +135,14 @@ async def create_ccasset_transaction(
         description=description
     )
     db.add(transaction)
+
+async def get_cpasset_def_by_id(db: AsyncSession, asset_id: uuid.UUID) -> CPAssetDef | None:
+    result = await db.execute(
+        select(CPAssetDef).where(
+            CPAssetDef.id == asset_id
+        )
+    )
+    return result.scalar_one_or_none()
 
 async def get_cpasset_def_by_asset_id(db: AsyncSession, asset_id: str) -> CPAssetDef | None:
     result = await db.execute(
@@ -244,6 +252,9 @@ async def create_user_cpasset(db: AsyncSession, user_id: uuid.UUID, asset_id: uu
 
 
 async def get_or_create_user_cpasset(db: AsyncSession, user_id: uuid.UUID, asset_id: uuid.UUID) -> CPUserAsset:
+    cpasset_def = await get_cpasset_def_by_id(db, asset_id)
+    if cpasset_def is None:
+        raise BizException(code=ErrorCode.ASSET_DEF_ERROR, message="资产定义不存在")
     result = await db.execute(
         select(CPUserAsset)
         .options(selectinload(CPUserAsset.prop_def))

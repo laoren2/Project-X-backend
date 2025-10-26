@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, File, UploadFile, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.schemas.base import BaseResponse
-from app.schemas.competition.common import TeamRelationship, RecordStatus
+from app.schemas.competition.common import TeamRelationship, RecordStatus, DailyTaskResponse
 from app.schemas.competition.running import (
     RunningEventListResponse, RunningTrackListResponse,
     RunningRecordResponse, RunningBeginInfo, RunningFinishInfo,
@@ -15,7 +15,7 @@ from app.schemas.competition.running import (
     RunningHistorySeasonResponse, RunningCareerRecordResponse, RunningScoreLeaderboardResponse,
     RunningCareerDataInfo
 )
-from app.schemas.asset import CPAssetResponse
+from app.schemas.asset import CPAssetResponse, DailyTaskRewardResponse
 from app.schemas.user import AuthContext, Gender
 from app.services.competition.running import (
     query_events_by_region, query_tracks_by_event, single_register_service, 
@@ -32,7 +32,8 @@ from app.services.competition.running import (
     get_team_expired_date_service, enter_team_competition_link_service, get_record_detail_service,
     get_current_best_records_service, get_history_seasons_service, get_career_records_service,
     query_leaderboard_history_in_page, get_score_leaderboard_service, get_career_data_service,
-    get_completed_records_all, get_incompleted_records_all
+    get_completed_records_all, get_incompleted_records_all, query_daily_task_status_service,
+    claimed_daily_task_reward_service
 )
 from app.api.deps import get_current_user
 from typing import Optional
@@ -444,7 +445,7 @@ async def cancel_applied_join_team(
 @router.get("/query_record_detail",response_model=BaseResponse[RunningRecordDetailInfo],summary="查询比赛记录详情")
 async def query_record_detail(
     record_id: str = Query(...),
-    user_id: str = Query(...),
+    user_id: str = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
     detail = await get_record_detail_service(db, record_id, user_id)
@@ -508,3 +509,22 @@ async def query_me_career_data(
 ):
     records = await get_career_data_service(db, season_id, auth.payload["user_id"])
     return BaseResponse.success(data=records)
+
+# 查询每日任务状态
+@router.get("/query_daily_task_status",response_model=BaseResponse[DailyTaskResponse],summary="查询每日任务状态")
+async def query_daily_task_status(
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_daily_task_status_service(db, auth.payload["user_id"])
+    return BaseResponse.success(token=auth.new_token, data=result)
+
+# 领取每日任务奖励
+@router.post("/claimed_daily_task_reward",response_model=BaseResponse[DailyTaskRewardResponse],summary="领取每日任务奖励")
+async def claimed_daily_task_reward(
+    stage: int = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await claimed_daily_task_reward_service(db, auth.payload["user_id"], stage)
+    return BaseResponse.success(token=auth.new_token, data=result)

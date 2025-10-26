@@ -1,11 +1,12 @@
-import uuid
-from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, func, UniqueConstraint, Integer, Float, Enum, Numeric
+from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, func, UniqueConstraint, Integer, Float, Enum, Date
 from sqlalchemy.dialects.postgresql import UUID
-from app.schemas.competition.common import RecordStatus, TeamStatus
+from app.schemas.competition.common import RecordStatus, TeamStatus, DailyTaskType
 from app.schemas.user import Gender
+from app.schemas.common import CCAssetType
 from app.db.base import Base
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
+import uuid
 
 
 
@@ -569,3 +570,60 @@ class RunningCareerStatisticData(Base):
     )
 
     user = relationship("User", primaryjoin="foreign(RunningCareerStatisticData.user_id)==User.id")
+
+# 记录各种每日活动类型
+class BikeDailyTask(Base):
+    __tablename__ = "bike_daily_task"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    type = Column(Enum(DailyTaskType), nullable=False)
+    total_progress = Column(Float, nullable=False)
+    reward_stage1_type = Column(Enum(CCAssetType), nullable=False)
+    reward_stage1 = Column(Integer, nullable=False)
+    reward_stage2_type = Column(Enum(CCAssetType), nullable=False)
+    reward_stage2 = Column(Integer, nullable=False)
+    reward_stage3_id = Column(UUID(as_uuid=True), nullable=False)       # cpasset_id
+
+# 用户每日活动完成记录
+class BikeDailyTaskRecord(Base):
+    __tablename__ = "bike_daily_task_records"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    type = Column(Enum(DailyTaskType), nullable=False)
+    progress = Column(Float, default=0, nullable=False)
+    is_reward1_received = Column(Boolean, default=False, nullable=False)
+    is_reward2_received = Column(Boolean, default=False, nullable=False)
+    is_reward3_received = Column(Boolean, default=False, nullable=False)
+    date = Column(Date, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'type', 'date', name='uq_bike_daily_task_user_type_date'),
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+class RunningDailyTask(Base):
+    __tablename__ = "running_daily_task"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    type = Column(Enum(DailyTaskType), nullable=False)
+    total_progress = Column(Float, nullable=False)
+    reward_stage1_type = Column(Enum(CCAssetType), nullable=False)
+    reward_stage1 = Column(Integer, nullable=False)
+    reward_stage2_type = Column(Enum(CCAssetType), nullable=False)
+    reward_stage2 = Column(Integer, nullable=False)
+    reward_stage3_id = Column(UUID(as_uuid=True), nullable=False)       # cpasset_id
+
+# 用户每日活动完成记录
+class RunningDailyTaskRecord(Base):
+    __tablename__ = "running_daily_task_records"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    type = Column(Enum(DailyTaskType), nullable=False)
+    progress = Column(Float, default=0, nullable=False)
+    is_reward1_received = Column(Boolean, default=False, nullable=False)
+    is_reward2_received = Column(Boolean, default=False, nullable=False)
+    is_reward3_received = Column(Boolean, default=False, nullable=False)
+    date = Column(Date, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'type', 'date', name='uq_running_daily_task_user_type_date'),
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
