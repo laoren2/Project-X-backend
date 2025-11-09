@@ -2,7 +2,7 @@ from fastapi import Form
 from app.schemas.base import ORMBase
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Protocol
 from pydantic import BaseModel
 from app.schemas.common import EquipCardBaseInfo, PersonInfoResponse, CCAssetType
 
@@ -44,11 +44,18 @@ class CardBonusInfo(BaseModel):
     card: EquipCardBaseInfo
     bonus_time: float
 
+# Protocol 接口：定义计算距离所需的最小属性
+class LocationPoint(Protocol):
+    """用于计算距离的坐标点接口，只需要 lat 和 lon"""
+    lat: float
+    lon: float
+
 class PathPoint(BaseModel):
     lat: float
     lon: float
     speed: float
-    altitude: float = -11034
+    altitude: float
+    heart_rate: float | None = None
     timestamp: float
 
 class MemberScoreInfo(BaseModel):

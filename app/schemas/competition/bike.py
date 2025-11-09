@@ -1,12 +1,19 @@
 from fastapi import Form
 from app.schemas.base import ORMBase
 from app.schemas.common import PersonInfoResponse, CPAssetBaseInfo
-from app.schemas.competition.common import TeamStatus, RecordStatus, CardBonusItem, CardBonusInfo, PathPoint, MemberScoreInfo
+from app.schemas.competition.common import TeamStatus, RecordStatus, CardBonusItem, CardBonusInfo, MemberScoreInfo, PathPoint
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 from pydantic import BaseModel
 
+
+class BikeTrackTerrainType(str, Enum):
+    road = "road"
+    crossCountry = "crossCountry"
+    enduro = "enduro"
+    downHill = "downHill"
+    other = "other"
 
 class BikeSeasonCreateForm:
     name: str
@@ -108,12 +115,15 @@ class BikeTrackCreateForm:
     region_name: str
     from_latitude: float
     from_longitude: float
+    from_radius: int
     to_latitude: float
     to_longitude: float
+    to_radius: int
     elevationDifference: int
     subRegioName: str
     prizePool: int
     score: int
+    terrain_type: BikeTrackTerrainType
 
     def __init__(
         self,
@@ -125,12 +135,15 @@ class BikeTrackCreateForm:
         region_name: str = Form(...),
         from_latitude: float = Form(...),
         from_longitude: float = Form(...),
+        from_radius: int = Form(...),
         to_latitude: float = Form(...),
         to_longitude: float = Form(...),
+        to_radius: int = Form(...),
         elevationDifference: int = Form(...),
         subRegioName: str = Form(...),
         prizePool: int = Form(...),
-        score: int = Form(...)
+        score: int = Form(...),
+        terrain_type: BikeTrackTerrainType = Form(...)
     ):
         self.name = name
         self.start_date = start_date
@@ -140,12 +153,15 @@ class BikeTrackCreateForm:
         self.region_name = region_name
         self.from_latitude = from_latitude
         self.from_longitude = from_longitude
+        self.from_radius = from_radius
         self.to_latitude = to_latitude
         self.to_longitude = to_longitude
+        self.to_radius = to_radius
         self.elevationDifference = elevationDifference
         self.subRegioName = subRegioName
         self.prizePool = prizePool
         self.score = score
+        self.terrain_type = terrain_type
 
 
 class BikeTrackUpdateForm:
@@ -155,12 +171,15 @@ class BikeTrackUpdateForm:
     end_date: datetime
     from_latitude: float
     from_longitude: float
+    from_radius: int
     to_latitude: float
     to_longitude: float
+    to_radius: int
     elevationDifference: int
     subRegioName: str
     prizePool: int
     score: int
+    terrain_type: BikeTrackTerrainType
 
     def __init__(
         self,
@@ -170,12 +189,15 @@ class BikeTrackUpdateForm:
         end_date: datetime = Form(...),
         from_latitude: float = Form(...),
         from_longitude: float = Form(...),
+        from_radius: int = Form(...),
         to_latitude: float = Form(...),
         to_longitude: float = Form(...),
+        to_radius: int = Form(...),
         elevationDifference: int = Form(...),
         subRegioName: str = Form(...),
         prizePool: int = Form(...),
-        score: int = Form(...)
+        score: int = Form(...),
+        terrain_type: BikeTrackTerrainType = Form(...)
     ):
         self.track_id = track_id
         self.name = name
@@ -183,12 +205,15 @@ class BikeTrackUpdateForm:
         self.end_date = end_date
         self.from_latitude = from_latitude
         self.from_longitude = from_longitude
+        self.from_radius = from_radius
         self.to_latitude = to_latitude
         self.to_longitude = to_longitude
+        self.to_radius = to_radius
         self.elevationDifference = elevationDifference
         self.subRegioName = subRegioName
         self.prizePool = prizePool
         self.score = score
+        self.terrain_type = terrain_type
 
 
 class BikeTrackBaseInfoInternal(ORMBase):
@@ -203,12 +228,15 @@ class BikeTrackBaseInfoInternal(ORMBase):
 
     from_latitude: str
     from_longitude: str
+    from_radius: int
     to_latitude: str
     to_longitude: str
+    to_radius: int
     elevation_difference: str
     sub_region_name: str
     prize_pool: str
     score: str
+    terrain_type: BikeTrackTerrainType
     is_settled: bool
 
 
@@ -224,13 +252,16 @@ class BikeTrackBaseInfo(ORMBase):
 
     from_latitude: float
     from_longitude: float
+    from_radius: int
     to_latitude: float
     to_longitude: float
+    to_radius: int
     elevation_difference: int
     sub_region_name: str
     prize_pool: int
     score: int
     totalParticipants: int
+    terrain_type: BikeTrackTerrainType
 
 class BikeTrackListResponse(ORMBase):
     tracks: List[BikeTrackBaseInfo]
@@ -246,12 +277,19 @@ class BikeBeginInfo(ORMBase):
     record_id: str
     start_time: datetime
 
+class BikePathPoint(BaseModel):
+    """自行车运动路径点"""
+    base: PathPoint
+    
+    power: float | None = None
+    pedal_cadence: float | None = None
+
 class BikeFinishInfo(BaseModel):
     record_id: str
     validation_status: bool
     end_time: datetime
     bonus_in_cards: List[CardBonusItem]
-    path: List[PathPoint]
+    path: List[BikePathPoint]
 
 class BikeRecordInfo(ORMBase):
     record_id: str
@@ -260,8 +298,10 @@ class BikeRecordInfo(ORMBase):
     track_name: str
     track_start_lat: float
     track_start_lng: float
+    track_start_radius: int
     track_end_lat: float
     track_end_lng: float
+    track_end_radius: int
     track_end_date: str
     status: RecordStatus
     start_date: Optional[str]
@@ -423,7 +463,7 @@ class BikeRecordDetailInfo(BaseModel):
     status: RecordStatus
     original_time: float
     final_time: float
-    path: List[PathPoint]
+    path: List[BikePathPoint]
     card_bonus: List[CardBonusInfo]
     team_member_scores: List[MemberScoreInfo]
 

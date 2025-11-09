@@ -6,7 +6,7 @@ import app.crud.competition.running as running
 from app.core.errors import ErrorCode
 from app.schemas.base import BizException
 from app.schemas.user import Gender
-from app.schemas.competition.common import RegionCreate, RecordStatus, TeamStatus, PathPoint
+from app.schemas.competition.common import RegionCreate, RecordStatus, TeamStatus, LocationPoint
 from app.schemas.common import SportType
 from app.db.models.competition import BikeSeason, Region, RunningSeason
 from typing import Optional, List
@@ -500,8 +500,14 @@ async def query_regions_with_events(db: AsyncSession, sport_type: str, country_c
                     break
     return result
 
-def compute_distance(path: List[PathPoint]) -> float:
-    # 使用 Haversine 公式计算相邻点之间的球面距离，总和以公里返回
+def compute_distance(path: List[LocationPoint]) -> float:
+    """
+    使用 Haversine 公式计算相邻点之间的球面距离，总和以公里返回
+    参数:
+        path: 包含 lat 和 lon 属性的路径点列表（可以是 BikePathPoint、RunningPathPoint 或任何实现了 LocationPoint Protocol 的对象）
+    返回:
+        总距离（公里）
+    """
     if not path or len(path) < 2:
         return 0.0
     R_km = 6371.0
