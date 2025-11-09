@@ -30,7 +30,7 @@ from app.schemas.common import PersonInfoResponse, EquipCardBaseInfo, SportType
 from app.schemas.mailbox import MailType
 from app.schemas.user import Gender
 from app.schemas.asset import CPAssetResponse, DailyTaskRewardResponse, AssetOperation
-from app.schemas.competition.common import TeamRelationship, TeamStatus, RecordStatus, CardBonusInfo, PathPoint, MemberScoreInfo, DailyTaskResponse
+from app.schemas.competition.common import TeamRelationship, TeamStatus, RecordStatus, CardBonusInfo, MemberScoreInfo, DailyTaskResponse
 from app.schemas.competition.running import (
     RunningEventCreateForm, RunningEventBaseInfo, RunningEventUpdateForm, RunningEventBaseInfoInternal,
     RunningTrackBaseInfo, RunningTrackCreateForm,
@@ -43,7 +43,7 @@ from app.schemas.competition.running import (
     RunningTeamStatusUpdateInfo, RunningTeamMembersResponse, RunningTeamAppliedRequest, RunningTeamExpiredResponse,
     RunningRecordDetailInfo, RunningSummaryRecordResponse, RunningSummaryRecordInfo, RunningHistorySeasonResponse, RunningHistorySeasonInfo,
     RunningCareerRecordResponse, RunningCareerRecordInfo, RunningScoreLeaderboardInfo, RunningScoreLeaderboardResponse,
-    RunningCareerDataInfo
+    RunningCareerDataInfo, RunningPathPoint
 )
 from app.db.models.competition import (
     RunningEvent, RunningTrack, RunningSeason, RunningRaceRecord, RunningTeam, 
@@ -262,13 +262,16 @@ async def create_track_service(db: AsyncSession, track_form: RunningTrackCreateF
         event_id = event.id,
         from_lat = track_form.from_latitude,
         from_lng = track_form.from_longitude,
+        from_radius = track_form.from_radius,
         to_lat = track_form.to_latitude,
         to_lng = track_form.to_longitude,
+        to_radius = track_form.to_radius,
         elevation_difference = track_form.elevationDifference,
         sub_region_name = track_form.subRegioName,
         prize_pool = track_form.prizePool,
         score = track_form.score,
         distance = track_form.distance,
+        terrain_type = track_form.terrain_type,
         image_url = image_url
     )
     res = await create_track_crud(db, new_track)
@@ -307,13 +310,16 @@ async def update_track_service(db: AsyncSession, track: RunningTrackUpdateForm, 
         "end_date": track.end_date,
         "from_lat": track.from_latitude,
         "from_lng": track.from_longitude,
+        "from_radius": track.from_radius,
         "to_lat": track.to_latitude,
         "to_lng": track.to_longitude,
+        "to_radius": track.to_radius,
         "elevation_difference": track.elevationDifference,
         "sub_region_name": track.subRegioName,
         "prize_pool": track.prizePool,
         "score": track.score,
         "distance": track.distance,
+        "terrain_type": track.terrain_type,
         "image_url": image_url
     }
     await update_track_crud(db, existing_track, update_data)
@@ -360,13 +366,16 @@ async def query_tracks_service(
         image_url=t.image_url,
         from_latitude=str(t.from_lat),
         from_longitude=str(t.from_lng),
+        from_radius=t.from_radius,
         to_latitude=str(t.to_lat),
         to_longitude=str(t.to_lng),
+        to_radius=t.to_radius,
         elevation_difference=str(t.elevation_difference),
         sub_region_name=t.sub_region_name,
         prize_pool=str(t.prize_pool),
         distance=str(t.distance),
         score=str(t.score),
+        terrain_type=t.terrain_type,
         is_settled=is_settled
     ) for t, is_settled in tracks]
 
@@ -393,14 +402,17 @@ async def query_tracks_by_event(db: AsyncSession, event_id: str) -> List[Running
             image_url=t.image_url,
             from_latitude=t.from_lat,
             from_longitude=t.from_lng,
+            from_radius=t.from_radius,
             to_latitude=t.to_lat,
             to_longitude=t.to_lng,
+            to_radius=t.to_radius,
             elevation_difference=t.elevation_difference,
             sub_region_name=t.sub_region_name,
             prize_pool=t.prize_pool,
             distance=t.distance,
             score=t.score,
-            totalParticipants=total_count
+            totalParticipants=total_count,
+            terrain_type=t.terrain_type
         ))
     return results
 
@@ -435,8 +447,10 @@ async def single_register_service(db: AsyncSession, track_id: str, user_id: str)
             track_name=record.track.name if record.track else "未知",
             track_start_lat=record.track.from_lat if record.track else -1,
             track_start_lng=record.track.from_lng if record.track else -1,
+            track_start_radius=record.track.from_radius if record.track else 10,
             track_end_lat=record.track.to_lat if record.track else -1,
             track_end_lng=record.track.to_lng if record.track else -1,
+            track_end_radius=record.track.to_radius if record.track else 10,
             track_end_date=record.track.end_date.isoformat(),
             status=record.status,
             start_date=record.start_time.isoformat() if record.start_time else None,
@@ -511,8 +525,10 @@ async def get_incompleted_records_all(
         track_name=r.track.name if r.track else "未知",
         track_start_lat=r.track.from_lat if r.track else -1,
         track_start_lng=r.track.from_lng if r.track else -1,
+        track_start_radius=r.track.from_radius if r.track else 10,
         track_end_lat=r.track.to_lat if r.track else -1,
         track_end_lng=r.track.to_lng if r.track else -1,
+        track_end_radius=r.track.to_radius if r.track else 10,
         track_end_date=r.track.end_date.isoformat(),
         status=r.status,
         start_date=r.start_time.isoformat() if r.start_time else None,
@@ -542,8 +558,10 @@ async def get_completed_records_all(
         track_name=r.track.name if r.track else "未知",
         track_start_lat=r.track.from_lat if r.track else -1,
         track_start_lng=r.track.from_lng if r.track else -1,
+        track_start_radius=r.track.from_radius if r.track else 10,
         track_end_lat=r.track.to_lat if r.track else -1,
         track_end_lng=r.track.to_lng if r.track else -1,
+        track_end_radius=r.track.to_radius if r.track else 10,
         track_end_date=r.track.end_date.isoformat(),
         status=r.status,
         start_date=r.start_time.isoformat() if r.start_time else None,
@@ -734,7 +752,7 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
         db.add(track)
         # 更新个人统计数据 & 每日任务进度
         if record.status == RecordStatus.completed:
-            distance = compute_distance(info.path)
+            distance = compute_distance([p.base for p in info.path])
             await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
             await add_or_update_daily_task_record(db, user.id, distance, final_time)
 
@@ -835,7 +853,7 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
         db.add(track)
         # 更新个人统计数据 & 每日任务进度
         if record.status == RecordStatus.completed:
-            distance = compute_distance(info.path)
+            distance = compute_distance([p.base for p in info.path])
             await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
             await add_or_update_daily_task_record(db, user.id, distance, final_time)
 
@@ -1834,7 +1852,35 @@ async def get_record_detail_service(db: AsyncSession, record_id: str, user_id: s
     path_points = []
     if record.path and record.path.path:
         try:
-            path_points = [PathPoint.model_validate(point_data) for point_data in record.path.path]
+            path_points = []
+            for point_data in record.path.path:
+                # 兼容新旧数据格式
+                # 新格式：{"base": {...}, "power": ..., "step_cadence": ..., ...}
+                # 旧格式：所有字段在同一层级
+                if "base" in point_data:
+                    # 新格式，直接验证
+                    path_points.append(RunningPathPoint.model_validate(point_data))
+                else:
+                    # 旧格式，转换为新格式
+                    # 提取 PathPoint 的字段
+                    base_data = {
+                        "lat": point_data.get("lat"),
+                        "lon": point_data.get("lon"),
+                        "speed": point_data.get("speed"),
+                        "altitude": point_data.get("altitude"),
+                        "heart_rate": point_data.get("heart_rate"),
+                        "timestamp": point_data.get("timestamp")
+                    }
+                    # 提取 RunningPathPoint 特有的字段
+                    running_path_point_data = {
+                        "base": base_data,
+                        "power": point_data.get("power"),
+                        "step_cadence": point_data.get("step_cadence"),
+                        "vertical_amplitude": point_data.get("vertical_amplitude"),
+                        "touchdown_time": point_data.get("touchdown_time"),
+                        "step_size": point_data.get("step_size")
+                    }
+                    path_points.append(RunningPathPoint.model_validate(running_path_point_data))
         except Exception:
             path_points = []
     
@@ -1858,7 +1904,8 @@ async def get_record_detail_service(db: AsyncSession, record_id: str, user_id: s
 async def get_current_best_records_service(db: AsyncSession, user_id: str) -> RunningSummaryRecordResponse:
     seasons = await get_season_now(db)
     if not seasons:
-        raise BizException(code=ErrorCode.SEASON_NOT_FOUND, message="当前没有进行中的Running赛季")
+        #raise BizException(code=ErrorCode.SEASON_NOT_FOUND, message="当前没有进行中的Running赛季")
+        return RunningSummaryRecordResponse(records=[])
     if len(seasons) > 1:
         raise BizException(code=ErrorCode.SEASON_NOT_UNIQUE, message="当前时间存在多个进行中的Running赛季")
     season: RunningSeason = seasons[0]

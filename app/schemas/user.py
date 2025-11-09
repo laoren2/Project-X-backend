@@ -20,6 +20,23 @@ class UserStatus(str, Enum):
     deleted = "deleted"
     banned = "banned"
 
+# 订阅相关（仅 Apple：按月/季/年）
+class SubscriptionPeriod(str, Enum):
+    monthly = "monthly"
+    quarterly = "quarterly"
+    yearly = "yearly"
+
+
+class SubscriptionEventType(str, Enum):
+    rewarded = "rewarded"               # 奖励
+    created = "created"                 # 新创建订阅
+    renewed = "renewed"                 # 续费
+    refunded = "refunded"               # 退订
+    auto_renew_off = "auto_renew_off"   # 开启自动续费
+    auto_renew_on = "auto_renew_on"     # 关闭自动续费
+    grace_started = "grace_started"     # Apple 扣款失败/待重试，进入宽限期
+    grace_ended = "grace_ended"         # 重试成功或超时，宽限期结束
+
 class AuthContext(BaseModel):
     payload: dict
     new_token: Optional[str] = None
@@ -43,6 +60,7 @@ class UserBaseInfo(ORMBase):
     is_display_identity: bool = False
     default_sport: SportType = SportType.bike
     status: UserStatus
+    is_vip: bool = False
 
 class UserRelationInfo(ORMBase):
     follower: int = 0

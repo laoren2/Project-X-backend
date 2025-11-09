@@ -10,7 +10,7 @@ from app.services.user import (
     update_user_location_service, verify_apple_identity_token,
     login_or_register_apple, realname_hk_service, bind_phone_service,
     bind_apple_id_service, unbind_apple_id_service, sign_in_status_service,
-    sign_in_today_service
+    sign_in_today_service, sign_in_today_vip_service
 )
 from app.crud.user import get_exist_user_by_phone
 from app.services.user_follow import get_relation_count, get_relationship_service
@@ -37,11 +37,10 @@ async def get_anyone_card(
     user = await get_exist_user_by_phone(db, phone_number)
     if user is None:
         return BaseResponse.error(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
-    userInfo = schemas_user.UserBaseInfo.model_validate(user)
     return BaseResponse.success(
         token=auth.new_token,
         message="成功获取用户信息卡片", 
-        data=PersonInfoResponse(user_id=userInfo.user_id, avatar_image_url=userInfo.avatar_image_url, nickname=userInfo.nickname)
+        data=PersonInfoResponse(user_id=user.user_id, avatar_image_url=user.avatar_image_url, nickname=user.nickname)
     )
 
 @router.post("/send_code", response_model=BaseResponse[schemas_user.SendCodeResponse], summary="发送验证码")
@@ -241,4 +240,13 @@ async def sign_in_today(
     db: AsyncSession = Depends(get_db)
 ):
     result = await sign_in_today_service(db, auth.payload["user_id"])
+    return BaseResponse.success(token=auth.new_token, message="领取成功", data=result)
+
+# 订阅会员签到
+@router.post("/sign_in_vip/today",response_model=BaseResponse[CCAssetBaseInfo], summary="订阅会员签到")
+async def sign_in_today_vip(
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await sign_in_today_vip_service(db, auth.payload["user_id"])
     return BaseResponse.success(token=auth.new_token, message="领取成功", data=result)

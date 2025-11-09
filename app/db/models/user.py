@@ -1,8 +1,8 @@
 import uuid
 from sqlalchemy import Column, String, Boolean, DateTime, Date, func, UniqueConstraint, Integer, Enum, Index, CheckConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.schemas.common import SportType, CCAssetType
-from app.schemas.user import UserRole, Gender, UserStatus
+from app.schemas.user import UserRole, Gender, UserStatus, SubscriptionEventType, SubscriptionPeriod
 from app.db.base import Base
 from sqlalchemy.orm import relationship
 
@@ -26,8 +26,9 @@ class User(Base):
     location = Column(String, nullable=True)
     identity_auth_name = Column(String, nullable=True)
 
-    settings = relationship("UserSetting", primaryjoin="foreign(User.id)==UserSetting.user_id", uselist=False)
-    real_name_info = relationship("UserRealNameHK", primaryjoin="foreign(User.id)==UserRealNameHK.user_id", uselist=False, overlaps="settings")
+    settings = relationship("UserSetting", primaryjoin="User.id==foreign(UserSetting.user_id)", uselist=False, back_populates="user")
+    real_name_info = relationship("UserRealNameHK", primaryjoin="User.id==foreign(UserRealNameHK.user_id)", uselist=False, back_populates="user")
+    subscription_info = relationship("UserSubscription", primaryjoin="User.id==foreign(UserSubscription.user_id)", uselist=False, back_populates="user")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -63,6 +64,9 @@ class UserSetting(Base):
     is_display_identity = Column(Boolean, default=False, nullable=False)
     default_sport = Column(Enum(SportType), default=SportType.bike, nullable=False)     # 用户主页默认展示运动
 
+    user = relationship("User", primaryjoin="foreign(UserSetting.user_id) == User.id", uselist=False, back_populates="settings")
+
+
 class UserRealNameHK(Base):
     __tablename__ = "user_real_name_hk"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -77,6 +81,8 @@ class UserRealNameHK(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
+
+    user = relationship("User", primaryjoin="foreign(UserRealNameHK.user_id) == User.id", uselist=False, back_populates="real_name_info")
 
 
 class UserBanHistory(Base):
@@ -127,3 +133,61 @@ class SignInReward(Base):
     reward_count = Column(Integer, nullable=False)
     reward_type_vip = Column(Enum(CCAssetType), nullable=False)
     reward_count_vip = Column(Integer, nullable=False)
+
+
+class SubscriptionPlan(Base):
+    __tablename__ = "subscription_plans"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    plan_code = Column(String, unique=True, nullable=False)
+    name = Column(String, nullable=False)
+    period = Column(Enum(SubscriptionPeriod), nullable=False)
+    price_cents = Column(Integer, nullable=False)
+    currency = Column(String, nullable=False, default="HKD")
+    # Apple 商品ID（仅支持 Apple）
+    apple_product_id = Column(String, unique=True, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
+
+    #user_subscription_infos = relationship("UserSubscription", uselist=True, primaryjoin="foreign(UserSubscription.plan_id)==SubscriptionPlan.id", back_populates="plan")
+
+
+class UserSubscription(Base):
+    __tablename__ = "user_subscriptions"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    user_id = Column(UUID(as_uuid=True), nullable=False, unique=True, index=True)
+    #plan_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+
+    is_active = Column(Boolean, default=False, nullable=False)
+    auto_renew = Column(Boolean, default=False, nullable=False)         # 是否开启了自动续费
+    start_at = Column(DateTime(timezone=True), nullable=True)       # 最近一段订阅的开始日期
+    end_at = Column(DateTime(timezone=True), nullable=True)         # 最近一段订阅的结束日期
+    grace_until = Column(DateTime(timezone=True), nullable=True)    # 当前的宽限期状态
+
+    # Apple 平台交易信息
+    apple_original_transaction_id = Column(String, nullable=True, index=True)
+    apple_latest_transaction_id = Column(String, nullable=True, index=True)
+    apple_environment = Column(String, nullable=True)  # Sandbox / Production
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
+
+    user = relationship("User", primaryjoin="foreign(UserSubscription.user_id) == User.id", uselist=False, back_populates="subscription_info")
+    #plan = relationship("SubscriptionPlan", uselist=False, primaryjoin="foreign(UserSubscription.plan_id)==SubscriptionPlan.id", back_populates="user_subscription_infos")
+    events = relationship("SubscriptionEvent", uselist=True, primaryjoin="foreign(SubscriptionEvent.subscription_id)==UserSubscription.id", back_populates="subscription")
+
+
+class SubscriptionEvent(Base):
+    __tablename__ = "subscription_events"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    subscription_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    event_type = Column(Enum(SubscriptionEventType), nullable=False)
+    payload = Column(JSONB, nullable=True)      # Apple回执
+    note = Column(String, nullable=True)        # 备注
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    subscription = relationship("UserSubscription", uselist=False, primaryjoin="foreign(SubscriptionEvent.subscription_id)==UserSubscription.id", back_populates="events")

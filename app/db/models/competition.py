@@ -1,6 +1,8 @@
 from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, func, UniqueConstraint, Integer, Float, Enum, Date
 from sqlalchemy.dialects.postgresql import UUID
 from app.schemas.competition.common import RecordStatus, TeamStatus, DailyTaskType
+from app.schemas.competition.bike import BikeTrackTerrainType
+from app.schemas.competition.running import RunningTrackTerrainType
 from app.schemas.user import Gender
 from app.schemas.common import CCAssetType
 from app.db.base import Base
@@ -78,13 +80,16 @@ class BikeTrack(Base):
     event_id = Column(UUID(as_uuid=True), nullable=False)
     from_lat = Column(Float, nullable=False)
     from_lng = Column(Float, nullable=False)
+    from_radius = Column(Integer, default=10, nullable=False)
     to_lat = Column(Float, nullable=False)
     to_lng = Column(Float, nullable=False)
+    to_radius = Column(Integer, default=10, nullable=False)
 
     elevation_difference = Column(Integer, default=0, nullable=False)
     sub_region_name = Column(String, nullable=False)
     prize_pool = Column(Integer, default=0, nullable=False)     # 暂只支持金券
     score = Column(Integer, default=0, nullable=False)          # 赛道冠军对应积分
+    terrain_type = Column(Enum(BikeTrackTerrainType), nullable=False)
 
     image_url = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -122,14 +127,17 @@ class RunningTrack(Base):
     event_id = Column(UUID(as_uuid=True), nullable=False)
     from_lat = Column(Float, nullable=False)
     from_lng = Column(Float, nullable=False)
+    from_radius = Column(Integer, default=10, nullable=False)
     to_lat = Column(Float, nullable=False)
     to_lng = Column(Float, nullable=False)
+    to_radius = Column(Integer, default=10, nullable=False)
 
     elevation_difference = Column(Integer, default=0, nullable=False)
     sub_region_name = Column(String, nullable=False)
     prize_pool = Column(Integer, default=0, nullable=False)
     score = Column(Integer, default=0, nullable=False)          # 赛道冠军对应积分
     distance = Column(Float, nullable=False)
+    terrain_type = Column(Enum(RunningTrackTerrainType), nullable=False)
 
     image_url = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

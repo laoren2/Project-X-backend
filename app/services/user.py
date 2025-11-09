@@ -62,6 +62,7 @@ async def login_or_register(phone_number: str, db: AsyncSession):
                 user_info.enable_auto_location = user.settings.enable_auto_location
                 user_info.is_display_identity = user.settings.is_display_identity
                 user_info.default_sport = user.settings.default_sport
+            user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
         token = create_access_token({"user_id": user.user_id})
         return token, user_info, isRegister, user.role
 
@@ -99,6 +100,7 @@ async def login_or_register_apple(apple_id: str, email: str, db: AsyncSession):
                 user_info.enable_auto_location = user.settings.enable_auto_location
                 user_info.is_display_identity = user.settings.is_display_identity
                 user_info.default_sport = user.settings.default_sport
+            user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
         token = create_access_token({"user_id": user.user_id})
         return token, user_info, is_register, user.role
 
@@ -112,20 +114,19 @@ async def get_user_info(user_id: str, db: AsyncSession):
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+    if not user.settings:
+        raise BizException(code=ErrorCode.USER_INFO_ERROR, message="用户信息错误")
     user_info = UserBaseInfo.model_validate(user)
     if user.real_name_info:
         user_info.gender = user.real_name_info.gender
         user_info.birthday = user.real_name_info.birth_date
-    if user.settings:
-        user_info.is_display_gender = user.settings.is_display_gender
-        user_info.is_display_age = user.settings.is_display_age
-        user_info.is_display_location = user.settings.is_display_location
-        user_info.enable_auto_location = user.settings.enable_auto_location
-        user_info.is_display_identity = user.settings.is_display_identity
-        user_info.default_sport = user.settings.default_sport
-    else:
-        db.add(UserSetting(user_id=user.id))  # 手动添加
-        await db.commit()
+    user_info.is_display_gender = user.settings.is_display_gender
+    user_info.is_display_age = user.settings.is_display_age
+    user_info.is_display_location = user.settings.is_display_location
+    user_info.enable_auto_location = user.settings.enable_auto_location
+    user_info.is_display_identity = user.settings.is_display_identity
+    user_info.default_sport = user.settings.default_sport
+    user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
     return user_info
 
 async def update_user_info(user_id: str, form: UserUpdateForm, avatar_url: str, background_url: str, db: AsyncSession):
@@ -134,9 +135,7 @@ async def update_user_info(user_id: str, form: UserUpdateForm, avatar_url: str, 
         if user is None:
             raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
         if not user.settings:
-            user_setting = UserSetting(user_id=user.id)
-            user.settings = user_setting
-            db.add(user_setting)
+            raise BizException(code=ErrorCode.USER_INFO_ERROR, message="用户信息错误")
         user.nickname = form.nickname
         user.introduction = form.introduction
         user.location = form.location
@@ -422,3 +421,26 @@ async def sign_in_today_service(db: AsyncSession, user_id: str) -> CCAssetBaseIn
         reward = await get_sign_in_reward_by_day(db, today, continuous_days)
         new_amount = await reward_ccasset(db, reward.reward_type, reward.reward_count, user.id, "签到奖励", AssetOperation.REWARD)
         return CCAssetBaseInfo(ccasset_type=reward.reward_type, new_ccamount=new_amount)
+
+async def sign_in_today_vip_service(db: AsyncSession, user_id: str) -> CCAssetBaseInfo:
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        if not user.subscription_info or not user.subscription_info.is_active:
+            raise BizException(code=ErrorCode.SIGN_IN_ERROR, message="您还不是订阅会员哦")
+        today = get_today_hk_date()
+        today_sign_in = await get_user_vip_sign_in_today(db, user.id, today)
+        today_signed = today_sign_in is not None
+        if today_signed:
+            raise BizException(code=ErrorCode.SIGN_IN_ERROR, message="请勿重复签到")
+        sign_in = UserSignIn(
+            user_id=user.id,
+            sign_in_date=today,
+            is_vip=True
+        )
+        db.add(sign_in)
+        continuous_days = await compute_continuous_days(db, user.id)
+        reward = await get_sign_in_reward_by_day(db, today, continuous_days)
+        new_amount = await reward_ccasset(db, reward.reward_type_vip, reward.reward_count_vip, user.id, "签到奖励", AssetOperation.REWARD)
+        return CCAssetBaseInfo(ccasset_type=reward.reward_type_vip, new_ccamount=new_amount)
