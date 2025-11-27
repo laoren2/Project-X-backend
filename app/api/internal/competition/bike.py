@@ -6,11 +6,11 @@ from app.schemas.user import AuthContext
 from app.schemas.competition.bike import (
     BikeEventCreateForm, BikeTrackCreateForm, BikeEventUpdateForm, 
     BikeTrackUpdateForm, BikeEventListInternalResponse, BikeTrackListInternalResponse,
-    BikeSeasonCreateForm
+    BikeSeasonCreateForm, BikeUnverifiedRecordResponse
 )
 from app.services.competition.bike import (
-    create_event_service, create_track_service,
-    update_event_service, update_track_service,
+    create_event_service, create_track_service, query_unverified_records_service,
+    update_event_service, update_track_service, handle_record_verified_service,
     update_event_image_url, update_track_image_url,
     query_events_service, query_tracks_service,
     create_season_service, update_season_image_url, settle_bike_leaderboard_service
@@ -214,3 +214,25 @@ async def settle_leaderboard(
 ):
     male_settled, male_sum, female_settled, female_sum, voucher = await settle_bike_leaderboard_service(db, track_id)
     return BaseResponse.success(token=auth.new_token, message=f"结算完成，共结算男{male_settled}/{male_sum}人，女{female_settled}/{female_sum}人，金券{voucher}张")
+
+# 查询待校验记录
+@router.get("/query_unverified_records", response_model=BaseResponse[BikeUnverifiedRecordResponse], summary="查询待校验记录")
+async def query_unverified_records(
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1),
+    auth: AuthContext = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_unverified_records_service(db, page, size)
+    return BaseResponse.success(token=auth.new_token, data=result)
+
+# 手动校验record数据
+@router.post("/handle_unverified_record", response_model=BaseResponse[None], summary="手动校验record数据")
+async def handle_unverified_record(
+    record_id: str = Query(...),
+    result: bool = Query(...),
+    auth: AuthContext = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    await handle_record_verified_service(db, record_id, result)
+    return BaseResponse.success(token=auth.new_token, message="success")

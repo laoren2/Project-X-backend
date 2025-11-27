@@ -1,7 +1,10 @@
 from fastapi import Form
 from app.schemas.base import ORMBase
 from app.schemas.common import PersonInfoResponse, CPAssetBaseInfo
-from app.schemas.competition.common import TeamStatus, RecordStatus, CardBonusItem, CardBonusInfo, MemberScoreInfo, PathPoint
+from app.schemas.competition.common import(
+    TeamStatus, RecordStatus, CardBonusItem, CardBonusInfo, 
+    MemberScoreInfo, PathPoint, TeamMagicCardBonusInfo
+)
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
@@ -294,12 +297,14 @@ class RunningPathPoint(BaseModel):
     vertical_amplitude: float | None = None
     touchdown_time: float | None = None
     step_size: float | None = None
+    estimate_step_count: float = 0
 
 class RunningFinishInfo(BaseModel):
-    validation_status: bool
     record_id: str
+    validation_score: float
     end_time: datetime
     bonus_in_cards: List[CardBonusItem]
+    team_bonus: TeamMagicCardBonusInfo | None = None      # 每人只允许使用一张组队卡牌
     path: List[RunningPathPoint]
 
 class RunningRecordInfo(ORMBase):
@@ -474,9 +479,20 @@ class RunningRecordDetailInfo(BaseModel):
     status: RecordStatus
     original_time: float
     final_time: float
+    is_finish_computed: bool
     path: List[RunningPathPoint]
     card_bonus: List[CardBonusInfo]
     team_member_scores: List[MemberScoreInfo]
+
+class RunningUnverifiedRecordInfo(ORMBase):
+    is_vip: bool
+    record_id: str
+    validation_score: float | None
+    path: List[RunningPathPoint]
+    finished_at: str | None
+
+class RunningUnverifiedRecordResponse(ORMBase):
+    records: List[RunningUnverifiedRecordInfo]
 
 class RunningSummaryRecordInfo(BaseModel):
     record_id: str

@@ -16,7 +16,8 @@ from app.crud.competition.running import (
     get_scores_in_page, add_or_update_career_score, get_score_and_rank_by_season_id_and_user,
     get_incompleted_records_by_user_id, get_completed_records_by_user_id, get_career_statistic_data,
     add_or_update_career_statistic_data, get_daily_task, get_today_task_record_by_user,
-    add_or_update_daily_task_record
+    add_or_update_daily_task_record, get_unverified_records, get_bonus_record_with_team_magic_card_for_update,
+    get_team_id_by_record_id
 )
 from app.crud.asset_manage import (
     get_registration_card_def, consume_cpasset, get_register_card_price,
@@ -30,7 +31,10 @@ from app.schemas.common import PersonInfoResponse, EquipCardBaseInfo, SportType
 from app.schemas.mailbox import MailType
 from app.schemas.user import Gender
 from app.schemas.asset import CPAssetResponse, DailyTaskRewardResponse, AssetOperation
-from app.schemas.competition.common import TeamRelationship, TeamStatus, RecordStatus, CardBonusInfo, MemberScoreInfo, DailyTaskResponse
+from app.schemas.competition.common import (
+    TeamRelationship, TeamStatus, RecordStatus,
+    CardBonusInfo, MemberScoreInfo, DailyTaskResponse, TeamMagicCardBonusInfo
+)
 from app.schemas.competition.running import (
     RunningEventCreateForm, RunningEventBaseInfo, RunningEventUpdateForm, RunningEventBaseInfoInternal,
     RunningTrackBaseInfo, RunningTrackCreateForm,
@@ -43,12 +47,12 @@ from app.schemas.competition.running import (
     RunningTeamStatusUpdateInfo, RunningTeamMembersResponse, RunningTeamAppliedRequest, RunningTeamExpiredResponse,
     RunningRecordDetailInfo, RunningSummaryRecordResponse, RunningSummaryRecordInfo, RunningHistorySeasonResponse, RunningHistorySeasonInfo,
     RunningCareerRecordResponse, RunningCareerRecordInfo, RunningScoreLeaderboardInfo, RunningScoreLeaderboardResponse,
-    RunningCareerDataInfo, RunningPathPoint
+    RunningCareerDataInfo, RunningPathPoint, RunningUnverifiedRecordInfo, RunningUnverifiedRecordResponse
 )
 from app.db.models.competition import (
     RunningEvent, RunningTrack, RunningSeason, RunningRaceRecord, RunningTeam, 
     RunningTeamMember, RunningTeamAppliedMember, RunningRacePath, CardBonusInRunningRecord,
-    RunningLeaderboard
+    RunningLeaderboard, RunningBonusByTeamMember
 )
 from app.db.models.mailbox import Mailbox
 from app.services.mappers import equip_card_to_base_info
@@ -59,6 +63,7 @@ from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 import uuid, json, logging
 
+competition_logger = logging.getLogger("competition")
 leaderboard_logger = logging.getLogger("leaderboard")
 
 
@@ -694,71 +699,18 @@ async def start_team_competition_service(db: AsyncSession, user_id: str, info: R
         }
         await update_record_crud(db, record, update_data)
 
-async def finish_single_competition_service(db: AsyncSession, info: RunningFinishInfo, user_id: str):
-    async with db.begin():
-        user = await get_user_by_id(db, user_id)
-        if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
-        gender = user.real_name_info.gender if user.real_name_info else Gender.male
-        record = await get_record_by_record_id(db, info.record_id)
-        if record is None:
-            raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+# 插入新记录更新排行榜
+async def update_leaderboard_for_record(
+    record: RunningRaceRecord,
+    user_id: str,
+    gender: Gender
+):
+    try:
+        key = f"leaderboard:running:{record.track.track_id}:{gender.value}"
+        if record.status != RecordStatus.completed or record.duration_seconds is None:
+            raise BizException(code=ErrorCode.RECORD_ERROR, message="记录数据错误")
         if record.track is None:
             raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
-        if record.start_time is None or record.start_time > info.end_time:
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛时间错误")
-        if record.status != RecordStatus.recording and record.status != RecordStatus.expired:
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛状态错误")
-        final_time = (info.end_time - record.start_time).total_seconds()
-        bonus_time = 0
-        for item in info.bonus_in_cards:
-            bonus_time += item.bonus_time
-            card = await get_equip_card_by_card_id(db, item.card_id)
-            if card is not None:
-                db.add(CardBonusInRunningRecord(
-                    record_id=record.id,
-                    card_id=card.id,
-                    bonus_time=item.bonus_time
-                ))
-        # 奖励时间上限为20%
-        if bonus_time / final_time > 0.2:
-            final_time = final_time * 0.8
-        else:
-            final_time -= bonus_time
-        path_data = [p.model_dump() for p in info.path]
-        path = RunningRacePath(
-            path_id=f"path_{uuid.uuid4()}",
-            record_id=record.id,
-            path=path_data
-        )
-        db.add(path)
-        await db.flush()  # 先flush，让对象持久化
-        await db.refresh(path)  # 再refresh，获取数据库生成的值
-        update_data = {
-            "path_id": path.id,
-            "end_time": info.end_time,
-            "duration_seconds": final_time
-        }
-        if record.status == RecordStatus.recording:
-            update_data["status"] = RecordStatus.completed if info.validation_status else RecordStatus.invalid
-        await update_record_crud(db, record, update_data)
-        # 更新奖金池
-        track = await get_track_by_track_id_for_update(db, record.track.track_id)
-        if track is None or track.event is None or track.event.season is None:
-            raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
-        card_price = await get_register_card_price(db, SportType.running, False)
-        if card_price:
-            track.prize_pool += card_price.price
-        db.add(track)
-        # 更新个人统计数据 & 每日任务进度
-        if record.status == RecordStatus.completed:
-            distance = compute_distance([p.base for p in info.path])
-            await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
-            await add_or_update_daily_task_record(db, user.id, distance, final_time)
-
-    # 更新排行榜
-    if final_time is not None and record.status == RecordStatus.completed:
-        key = f"leaderboard:running:{record.track.track_id}:{gender.value}"
         # 1. 查找旧成绩
         best_score = None
         best_member = None
@@ -769,116 +721,251 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
                 best_member = m
                 break  # 只会有一条
         # 2. 比较成绩
-        if best_score is None or final_time < best_score:
+        if best_score is None or record.duration_seconds < best_score:
             if best_member:
                 await redis_client.zrem(key, best_member)
-            member = f"{user_id}:{info.record_id}"
-            try:
-                await redis_client.zadd(key, {member: final_time})
-            except Exception as e:
-                # todo: 记录错误日志，后续由定时任务补偿
-                leaderboard_logger.error(f"Failed to update leaderboard {key} for record {info.record_id}: {e}")
+            member = f"{user_id}:{record.record_id}"
+            await redis_client.zadd(key, {member: record.duration_seconds})
+    except Exception as e:
+        # todo: 记录错误日志，后续由定时任务补偿
+        leaderboard_logger.error(f"Failed to update leaderboard {key} for record {record.record_id}: {e}")
+
+async def finish_single_competition_service(db: AsyncSession, info: RunningFinishInfo, user_id: str):
+    try:
+        async with db.begin():
+            user = await get_user_by_id(db, user_id)
+            if user is None:
+                raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            gender = user.real_name_info.gender if user.real_name_info else Gender.male
+            record = await get_record_by_record_id(db, info.record_id)
+            if record is None:
+                raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+            if record.track is None:
+                raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+            if record.start_time is None or record.start_time > info.end_time:
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛时间错误")
+            if record.status != RecordStatus.recording and record.status != RecordStatus.expired:
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛状态错误")
+            final_time = (info.end_time - record.start_time).total_seconds()
+            bonus_time = 0
+
+            for item in info.bonus_in_cards:
+                bonus_time += item.bonus_time
+                card = await get_equip_card_by_card_id(db, item.card_id)
+                if card is not None:
+                    db.add(CardBonusInRunningRecord(
+                        record_id=record.id,
+                        card_id=card.id,
+                        bonus_time=item.bonus_time
+                    ))
+            # 奖励时间上限为20%
+            if bonus_time / final_time > 0.2:
+                final_time = final_time * 0.8
+            else:
+                final_time -= bonus_time
+            path_data = [p.model_dump() for p in info.path]
+            path = RunningRacePath(
+                path_id=f"path_{uuid.uuid4()}",
+                record_id=record.id,
+                path=path_data
+            )
+            db.add(path)
+            await db.flush()  # 先flush，让对象持久化
+            await db.refresh(path)  # 再refresh，获取数据库生成的值
+            update_data = {
+                "path_id": path.id,
+                "end_time": info.end_time,
+                "duration_seconds": final_time,
+                "validation_score": info.validation_score,
+                "is_finish_bonus_computing": True
+            }
+            if record.status == RecordStatus.recording:
+                if info.validation_score >= 80:
+                    update_data["status"] = RecordStatus.completed
+                elif info.validation_score >= 50:
+                    update_data["status"] = RecordStatus.toBeVerified
+                else:
+                    update_data["status"] = RecordStatus.invalid
+            await update_record_crud(db, record, update_data)
+            # 更新奖金池
+            track = await get_track_by_track_id_for_update(db, record.track.track_id)
+            if track is None or track.event is None or track.event.season is None:
+                raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+            card_price = await get_register_card_price(db, SportType.running, False)
+            if card_price:
+                track.prize_pool += card_price.price
+            db.add(track)
+            # 更新个人统计数据 & 每日任务进度
+            if record.status == RecordStatus.completed:
+                distance = compute_distance([p.base for p in info.path])
+                await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
+                await add_or_update_daily_task_record(db, user.id, distance, final_time)
+    except Exception as e:
+        competition_logger.error(f"finish single running competition failed: {e}")
+        return
+    # 更新排行榜
+    if record.duration_seconds is not None and record.status == RecordStatus.completed:
+        await update_leaderboard_for_record(record, user_id, gender)
 
 
 async def finish_team_competition_service(db: AsyncSession, info: RunningFinishInfo, user_id: str):
+    try:
+        async with db.begin():
+            user = await get_user_by_id(db, user_id)
+            if user is None:
+                raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            gender = user.real_name_info.gender if user.real_name_info else Gender.male
+            
+            # 先对 team 上锁
+            team_id = await get_team_id_by_record_id(db, info.record_id)
+            if not team_id:
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="您不在队伍中")
+            team = await get_team_by_id_for_update(db, team_id)
+            if team is None:
+                raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+            
+            record = None
+            records_in_team = await get_records_by_team_id_for_update(db, team_id)
+            for r in records_in_team:
+                if r.user_id == user.id:
+                    record = r
+
+            if record is None:
+                raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+            if record.track is None:
+                raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+            if record.start_time is None or record.start_time > info.end_time:
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛时间错误")
+            if record.status != RecordStatus.recording and record.status != RecordStatus.expired:
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛状态错误")
+            
+            final_time = (info.end_time - record.start_time).total_seconds()
+            bonus_time = 0
+
+            # 待应用的 team bonus
+            for bonus_info in record.card_bonus:
+                #print(f"applied bonus: {bonus_info.bonus_time}")
+                bonus_time += bonus_info.bonus_time
+                if bonus_info.bonus_ratio:
+                    bonus_time += final_time * bonus_info.bonus_ratio
+
+            for item in info.bonus_in_cards:
+                bonus_time += item.bonus_time
+                card = await get_equip_card_by_card_id(db, item.card_id)
+                if card is not None:
+                    db.add(CardBonusInRunningRecord(
+                        record_id=record.id,
+                        card_id=card.id,
+                        bonus_time=item.bonus_time
+                    ))
+            # 奖励时间上限为20%
+            if bonus_time / final_time > 0.2:
+                final_time = final_time * 0.8
+            else:
+                final_time -= bonus_time
+            path_data = [p.model_dump() for p in info.path]
+            path = RunningRacePath(
+                path_id=f"path_{uuid.uuid4()}",
+                record_id=record.id,
+                path=path_data
+            )
+            db.add(path)
+            await db.flush()
+            await db.refresh(path)
+            update_data = {
+                "path_id": path.id,
+                "end_time": info.end_time,
+                "duration_seconds": final_time,
+                "validation_score": info.validation_score
+            }
+            if record.status == RecordStatus.recording:
+                if info.validation_score >= 80:
+                    update_data["status"] = RecordStatus.completed
+                elif info.validation_score >= 50:
+                    update_data["status"] = RecordStatus.toBeVerified
+                else:
+                    update_data["status"] = RecordStatus.invalid
+            await update_record_crud(db, record, update_data)
+
+            # 如果其他队员都完成比赛则修改team状态
+            all_completed = True if record.status != RecordStatus.notStarted and record.status != RecordStatus.recording else False
+            for r in records_in_team:
+                if r.user_id != user.id and (r.status == RecordStatus.notStarted or r.status == RecordStatus.recording):
+                    all_completed = False
+                    break
+            if all_completed:
+                team.status = TeamStatus.completed
+
+            # 更新奖金池
+            track = await get_track_by_track_id_for_update(db, record.track.track_id)
+            if track is None or track.event is None or track.event.season is None:
+                raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+            
+            card_price = await get_register_card_price(db, SportType.running, True)
+            if card_price:
+                track.prize_pool += card_price.price
+            db.add(track)
+            # 应用团队收益 & 更新个人统计数据 & 更新每日任务进度
+            if record.status == RecordStatus.completed:
+                if info.team_bonus:
+                    await finish_competition_with_team_bonus_card_service(db, user.id, team_id, info.team_bonus)
+                distance = compute_distance([p.base for p in info.path])
+                await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
+                await add_or_update_daily_task_record(db, user.id, distance, final_time)
+    except Exception as e:
+        competition_logger.error(f"finish team running competition failed: {e}")
+        return
+    # 更新排行榜
+    if record.duration_seconds is not None and record.status == RecordStatus.completed:
+        await update_leaderboard_for_record(record, user_id, gender)
+
+
+async def query_unverified_records_service(
+    db: AsyncSession,
+    page: int = 1,
+    size: int = 10
+) -> List[RunningUnverifiedRecordResponse]:
+    records = await get_unverified_records(db, page, size)
+    if not records:
+        return RunningUnverifiedRecordResponse(records=[])
+    infos = [RunningUnverifiedRecordInfo(
+        is_vip=r.user.subscription_info.is_active if r.user.subscription_info else False,
+        record_id=r.record_id,
+        validation_score=r.validation_score,
+        path=[RunningPathPoint.model_validate(p) for p in r.path.path],
+        finished_at=r.end_time.isoformat() if r.end_time else None
+    ) for r in records if r.user and r.path]
+    return RunningUnverifiedRecordResponse(records=infos)
+
+
+async def handle_record_verified_service(db: AsyncSession, record_id: str, result: bool):
     async with db.begin():
-        user = await get_user_by_id(db, user_id)
-        if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
-        gender = user.real_name_info.gender if user.real_name_info else Gender.male
-        record = await get_record_by_record_id(db, info.record_id)
+        record = await get_record_by_record_id(db, record_id)
         if record is None:
             raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
-        if record.track is None:
-            raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
-        if record.start_time is None or record.start_time > info.end_time:
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛时间错误")
-        if record.status != RecordStatus.recording and record.status != RecordStatus.expired:
+        if record.status != RecordStatus.toBeVerified:
             raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛状态错误")
-        final_time = (info.end_time - record.start_time).total_seconds()
-        bonus_time = 0
-        for item in info.bonus_in_cards:
-            bonus_time += item.bonus_time
-            card = await get_equip_card_by_card_id(db, item.card_id)
-            if card is not None:
-                db.add(CardBonusInRunningRecord(
-                    record_id=record.id,
-                    card_id=card.id,
-                    bonus_time=item.bonus_time
-                ))
-        # 奖励时间上限为20%
-        if bonus_time / final_time > 0.2:
-            final_time = final_time * 0.8
+        if record.user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        if result:
+            record.status = RecordStatus.completed
+            points = []
+            if record.path and record.path.path:
+                points = [RunningPathPoint.model_validate(p) for p in record.path.path]
+            distance = compute_distance([p.base for p in points])
+            if record.duration_seconds is None:
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="找不到比赛成绩")
+            track = await get_track_by_track_id(db, record.track.track_id)
+            if track is None or track.event is None or track.event.season is None:
+                raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+            await add_or_update_career_statistic_data(db, track.event.season.id, record.user.id, distance, record.duration_seconds)
+            await add_or_update_daily_task_record(db, record.user.id, distance, record.duration_seconds)
+            # 更新排行榜
+            gender = record.user.real_name_info.gender if record.user.real_name_info else Gender.male
+            await update_leaderboard_for_record(record, record.user.user_id, gender)
+            # team 的状态交给定时清理
         else:
-            final_time -= bonus_time
-        path_data = [p.model_dump() for p in info.path]
-        path = RunningRacePath(
-            path_id=f"path_{uuid.uuid4()}",
-            record_id=record.id,
-            path=path_data
-        )
-        db.add(path)
-        await db.flush()
-        await db.refresh(path)
-        update_data = {
-            "path_id": path.id,
-            "end_time": info.end_time,
-            "duration_seconds": final_time
-        }
-        if record.status == RecordStatus.recording:
-            update_data["status"] = RecordStatus.completed if info.validation_status else RecordStatus.invalid
-        await update_record_crud(db, record, update_data)
-
-        # 如果其他队员都完成比赛则修改team状态
-        if record.team_id is None:
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="您不在队伍中")
-        team = await get_team_by_id_for_update(db, record.team_id)
-        if team is None:
-            raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
-        team_records = await get_records_by_team_id_for_update(db, record.team_id)
-        all_completed = True
-        for r in team_records:
-            if r.user_id != user.id and r.status != RecordStatus.completed:
-                all_completed = False
-                break
-        if all_completed:
-            team.status = TeamStatus.completed
-        # 更新奖金池
-        track = await get_track_by_track_id_for_update(db, record.track.track_id)
-        if track is None or track.event is None or track.event.season is None:
-            raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
-        card_price = await get_register_card_price(db, SportType.running, True)
-        if card_price:
-            track.prize_pool += card_price.price
-        db.add(track)
-        # 更新个人统计数据 & 每日任务进度
-        if record.status == RecordStatus.completed:
-            distance = compute_distance([p.base for p in info.path])
-            await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
-            await add_or_update_daily_task_record(db, user.id, distance, final_time)
-
-    # 更新排行榜
-    if final_time is not None and record.status == RecordStatus.completed:
-        key = f"leaderboard:running:{record.track.track_id}:{gender.value}"
-        # 1. 查找旧成绩
-        best_score = None
-        best_member = None
-        members = await redis_client.zrange(key, 0, -1, withscores=True)
-        for m, score in members:
-            if m.startswith(f"{user_id}:"):
-                best_score = score
-                best_member = m
-                break  # 只会有一条
-        # 2. 比较成绩
-        if best_score is None or final_time < best_score:
-            if best_member:
-                await redis_client.zrem(key, best_member)
-            member = f"{user_id}:{info.record_id}"
-            try:
-                await redis_client.zadd(key, {member: final_time})
-            except Exception as e:
-                # todo: 记录错误日志，后续由定时任务补偿
-                leaderboard_logger.error(f"Failed to update leaderboard {key} for record {info.record_id}: {e}")
+            record.status = RecordStatus.invalid
 
 
 async def get_team_expired_date_service(db: AsyncSession, record_id: str) -> RunningTeamExpiredResponse:
@@ -1555,6 +1642,9 @@ async def update_team_ready_status_service(db: AsyncSession, user_id: str, team_
     # 确认队伍已锁定
     if team.status == TeamStatus.prepared:
         raise BizException(code=ErrorCode.TEAM_ERROR, message="请先锁定队伍")
+    # 禁止1人进行组队比赛
+    if len(team.members) == 1:
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍至少需要有2名成员哦")
     
     update_data = {
         "status": TeamStatus.ready
@@ -1836,17 +1926,19 @@ async def get_record_detail_service(db: AsyncSession, record_id: str, user_id: s
     
     # 构建CardBonusInfo列表
     card_bonus_list = []
-    if record.card_bonus:
-        for card_bonus in record.card_bonus:
-            if card_bonus.card:
-                card_info = equip_card_to_base_info(card_bonus.card)
-                if card_info is not None:
-                    card_bonus_list.append(
-                        CardBonusInfo(
-                            card=card_info,
-                            bonus_time=float(card_bonus.bonus_time)
-                        )
+    raw_duration = (record.end_time - record.start_time).total_seconds() if record.end_time and record.start_time else 0
+    for card_bonus in record.card_bonus:
+        if card_bonus.card and card_bonus.card.user:
+            card_info = equip_card_to_base_info(card_bonus.card)
+            ratio_bonus = card_bonus.bonus_ratio * raw_duration if card_bonus.bonus_ratio else 0
+            if card_info is not None:
+                card_bonus_list.append(
+                    CardBonusInfo(
+                        card=card_info,
+                        bonus_time=card_bonus.bonus_time + ratio_bonus,
+                        user_id=card_bonus.card.user.user_id
                     )
+                )
     
     # 构建路径点列表
     path_points = []
@@ -1878,7 +1970,8 @@ async def get_record_detail_service(db: AsyncSession, record_id: str, user_id: s
                         "step_cadence": point_data.get("step_cadence"),
                         "vertical_amplitude": point_data.get("vertical_amplitude"),
                         "touchdown_time": point_data.get("touchdown_time"),
-                        "step_size": point_data.get("step_size")
+                        "step_size": point_data.get("step_size"),
+                        "estimate_step_count": point_data.get("estimate_step_count")
                     }
                     path_points.append(RunningPathPoint.model_validate(running_path_point_data))
         except Exception:
@@ -1896,6 +1989,7 @@ async def get_record_detail_service(db: AsyncSession, record_id: str, user_id: s
         status=record.status,
         original_time=original_time,
         final_time=final_time,
+        is_finish_computed=record.is_finish_bonus_computing if record.is_finish_bonus_computing else False,
         path=path_points,
         card_bonus=card_bonus_list,
         team_member_scores=team_member_scores_list
@@ -2034,3 +2128,58 @@ async def claimed_daily_task_reward_service(db: AsyncSession, user_id: str, stag
                 cpasset_amount=new_balance
             )
         raise BizException(code=ErrorCode.DAILY_TASK_ERROR, message="领取失败")
+
+async def start_competition_with_team_bonus_card_service(db: AsyncSession, user_id: str, record_id: str):
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+    record = await get_record_by_record_id(db, record_id)
+    if record is None:
+        raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+    if record.team_id is None:
+        raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+    new_bonus_record = RunningBonusByTeamMember(
+        team_id=record.team_id,
+        user_id=user.id
+    )
+    db.add(new_bonus_record)
+    await db.commit()
+
+async def finish_competition_with_team_bonus_card_service(db: AsyncSession, user_id: uuid.UUID, team_id: uuid.UUID, info: TeamMagicCardBonusInfo):
+    bonus_records = await get_bonus_record_with_team_magic_card_for_update(db, team_id)
+    is_all_completed = True
+    for br in bonus_records:
+        if br.user_id == user_id:
+            br.bonus_in_ratio = info.bonus_ratio
+            br.bonus_in_seconds = info.bonus_seconds
+            br.is_applied = True
+        if br.user_id != user_id and not br.is_applied:
+            is_all_completed = False
+            
+    records = await get_records_by_team_id_for_update(db, team_id)
+    for r in records:
+        if r.user_id != user_id:
+            # 已结束需要手动应用 bonus
+            if r.duration_seconds and r.start_time and r.end_time:
+                raw_duration = (r.end_time - r.start_time).total_seconds()
+                if info.bonus_ratio:
+                    r.duration_seconds -= info.bonus_ratio * raw_duration
+                r.duration_seconds -= info.bonus_seconds if info.bonus_seconds else 0
+                r.duration_seconds = max(raw_duration * 0.8, r.duration_seconds)
+                #print(f"update duration_seconds to: {r.duration_seconds}")
+            if is_all_completed:
+                r.is_finish_bonus_computing = True
+                #print(f"update record {r.record_id} is_completed to: {r.is_finish_bonus_computing}")
+            card = await get_equip_card_by_card_id(db, info.card_id)
+            if card is not None:
+                #print("add card bonus!")
+                db.add(CardBonusInRunningRecord(
+                    record_id=r.id,
+                    card_id=card.id,
+                    bonus_ratio=info.bonus_ratio,
+                    bonus_time=info.bonus_seconds if info.bonus_seconds else 0
+                ))
+        else:
+            if is_all_completed:
+                r.is_finish_bonus_computing = True
+                #print(f"update record {r.record_id} is_completed to: {r.is_finish_bonus_computing}")

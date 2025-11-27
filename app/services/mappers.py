@@ -29,7 +29,7 @@ def equip_card_to_base_info(card: UserEquipmentCard) -> EquipCardBaseInfo | None
         multiplier_skill2=card.multiplier_skill2,
         multiplier_skill3=card.multiplier_skill3,
         version=card_def.version,
-        type_name=card_def.type_name,
+        #type_name=card_def.type_name,
         tags=card_def.tags,
         effect_def=card_def.effect_config
     )

@@ -61,6 +61,6 @@ class EquipCardBaseInfo(ORMBase):
     multiplier_skill3: float | None
     version: str
     
-    type_name: str
+    #type_name: str
     tags: List[str]
     effect_def: dict[str, Any]

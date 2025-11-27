@@ -157,9 +157,11 @@ class BikeRaceRecord(Base):
     path_id = Column(UUID(as_uuid=True), nullable=True)
 
     status = Column(Enum(RecordStatus), default=RecordStatus.notStarted, nullable=False)
+    validation_score = Column(Float, nullable=True)
     start_time = Column(DateTime(timezone=True), nullable=True)
     end_time = Column(DateTime(timezone=True), nullable=True)
-    duration_seconds = Column(Float, nullable=True)         # 有效成绩
+    duration_seconds = Column(Float, nullable=True)                 # 有效成绩
+    is_finish_bonus_computing = Column(Boolean, nullable=True)      # 是否完成有效成绩计算
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -206,9 +208,11 @@ class RunningRaceRecord(Base):
     path_id = Column(UUID(as_uuid=True), nullable=True)
 
     status = Column(Enum(RecordStatus), default=RecordStatus.notStarted, nullable=False)
+    validation_score = Column(Float, nullable=True)
     start_time = Column(DateTime(timezone=True), nullable=True)
     end_time = Column(DateTime(timezone=True), nullable=True)
     duration_seconds = Column(Float, nullable=True)
+    is_finish_bonus_computing = Column(Boolean, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -418,12 +422,13 @@ class RunningRacePath(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)'''
 
-
+# 奖励总和需要将 ratio 部分和 time 加起来
 class CardBonusInBikeRecord(Base):
     __tablename__ = "card_bonus_in_bike_records"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     record_id = Column(UUID(as_uuid=True), nullable=False)
     card_id = Column(UUID(as_uuid=True), nullable=False)
+    bonus_ratio = Column(Float, nullable=True)
     bonus_time = Column(Float, default=0, nullable=False)
 
     card = relationship("UserEquipmentCard", primaryjoin="foreign(CardBonusInBikeRecord.card_id)==UserEquipmentCard.id")
@@ -436,6 +441,7 @@ class CardBonusInRunningRecord(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     record_id = Column(UUID(as_uuid=True), nullable=False)
     card_id = Column(UUID(as_uuid=True), nullable=False)
+    bonus_ratio = Column(Float, nullable=True)
     bonus_time = Column(Float, default=0, nullable=False)
 
     card = relationship("UserEquipmentCard", primaryjoin="foreign(CardBonusInRunningRecord.card_id)==UserEquipmentCard.id")
@@ -633,5 +639,34 @@ class RunningDailyTaskRecord(Base):
 
     __table_args__ = (
         UniqueConstraint('user_id', 'type', 'date', name='uq_running_daily_task_user_type_date'),
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+# 组队型卡牌的收益记录(作用于队友)
+class BikeBonusByTeamMember(Base):
+    __tablename__ = "bike_bonus_by_team_members"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    team_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    bonus_in_ratio = Column(Float, nullable=True)
+    bonus_in_seconds = Column(Float, nullable=True)
+    is_applied = Column(Boolean, default=False, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'team_id', name='uq_bike_bonus_by_team_members_user_team'),
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+class RunningBonusByTeamMember(Base):
+    __tablename__ = "running_bonus_by_team_members"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    team_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    bonus_in_ratio = Column(Float, nullable=True)
+    bonus_in_seconds = Column(Float, nullable=True)
+    is_applied = Column(Boolean, default=False, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'team_id', name='uq_running_bonus_by_team_members_user_team'),
     )
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

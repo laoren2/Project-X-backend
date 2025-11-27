@@ -1,11 +1,12 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, func, and_, exists
+from sqlalchemy import select, update, func, and_, exists, case
 from app.db.models.competition import (
     BikeCareerStatisticData, Region, BikeEvent, BikeSeason, 
     BikeTrack, BikeRaceRecord, BikeTeam, BikeTeamMember, BikeTeamAppliedMember,
     CardBonusInBikeRecord, BikeLeaderboard, BikeCareerScore, BikeDailyTask,
-    BikeDailyTaskRecord
+    BikeDailyTaskRecord, BikeBonusByTeamMember
 )
+from app.db.models.user import UserSubscription, User
 from app.db.models.asset import EquipmentCardDef, UserEquipmentCard
 from app.schemas.competition.common import RecordStatus, TeamStatus, DailyTaskType
 from sqlalchemy.orm import selectinload
@@ -324,7 +325,7 @@ async def get_completed_records_by_user_id(
         select(BikeRaceRecord)
         .where(
             BikeRaceRecord.user_id == user_id, 
-            BikeRaceRecord.status.in_([RecordStatus.completed, RecordStatus.expired, RecordStatus.invalid])
+            BikeRaceRecord.status.in_([RecordStatus.completed, RecordStatus.expired, RecordStatus.toBeVerified, RecordStatus.invalid])
         )
         .options(
             selectinload(BikeRaceRecord.track).selectinload(BikeTrack.event).selectinload(BikeEvent.region),
@@ -335,12 +336,65 @@ async def get_completed_records_by_user_id(
     result = await db.execute(stmt)
     return result.scalars().all()
 
+async def get_unverified_records(
+    db: AsyncSession,
+    page: int,
+    size: int
+) -> List[BikeRaceRecord]:
+    subscription_priority = case(
+        (UserSubscription.is_active == True, 1),
+        else_=0
+    )
+    stmt = (
+        select(BikeRaceRecord)
+        .outerjoin(UserSubscription, UserSubscription.user_id == BikeRaceRecord.user_id)
+        .where(
+            BikeRaceRecord.status == RecordStatus.toBeVerified,
+            BikeRaceRecord.end_time.is_not(None)
+        )
+        .options(
+            selectinload(BikeRaceRecord.user).selectinload(User.subscription_info),
+            selectinload(BikeRaceRecord.path)
+        )
+        .order_by(
+            subscription_priority.desc(),
+            BikeRaceRecord.end_time.desc()
+        )
+        .offset((page - 1) * size)
+        .limit(size)
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
 async def get_record_by_record_id(db: AsyncSession, record_id: str) -> BikeRaceRecord | None:
     record = await db.execute(
         select(BikeRaceRecord)
         .where(BikeRaceRecord.record_id == record_id)
         .options(
             selectinload(BikeRaceRecord.track),
+            selectinload(BikeRaceRecord.user)
+                .selectinload(User.real_name_info),
+            selectinload(BikeRaceRecord.team)
+                .selectinload(BikeTeam.members),
+            selectinload(BikeRaceRecord.path),
+            selectinload(BikeRaceRecord.card_bonus)
+                .selectinload(CardBonusInBikeRecord.card)
+                .selectinload(UserEquipmentCard.equipment_def),
+            selectinload(BikeRaceRecord.card_bonus)
+                .selectinload(CardBonusInBikeRecord.card)
+                .selectinload(UserEquipmentCard.user)
+        )
+    )
+    return record.scalar_one_or_none()
+
+async def get_record_by_record_id_for_update(db: AsyncSession, record_id: str) -> BikeRaceRecord | None:
+    record = await db.execute(
+        select(BikeRaceRecord)
+        .where(BikeRaceRecord.record_id == record_id)
+        .options(
+            selectinload(BikeRaceRecord.track),
+            selectinload(BikeRaceRecord.user)
+                .selectinload(User.real_name_info),
             selectinload(BikeRaceRecord.team)
                 .selectinload(BikeTeam.members),
             selectinload(BikeRaceRecord.path),
@@ -348,6 +402,7 @@ async def get_record_by_record_id(db: AsyncSession, record_id: str) -> BikeRaceR
                 .selectinload(CardBonusInBikeRecord.card)
                 .selectinload(UserEquipmentCard.equipment_def)
         )
+        .with_for_update()
     )
     return record.scalar_one_or_none()
 
@@ -365,6 +420,18 @@ async def get_records_by_team_id_for_update(db: AsyncSession, team_id: uuid.UUID
     result = await db.execute(
         select(BikeRaceRecord)
         .where(BikeRaceRecord.team_id == team_id)
+        .options(
+            selectinload(BikeRaceRecord.track),
+            selectinload(BikeRaceRecord.user)
+                .selectinload(User.real_name_info),
+            selectinload(BikeRaceRecord.team)
+                .selectinload(BikeTeam.members),
+            selectinload(BikeRaceRecord.path),
+            selectinload(BikeRaceRecord.card_bonus)
+                .selectinload(CardBonusInBikeRecord.card)
+                .selectinload(UserEquipmentCard.equipment_def)
+        )
+        .order_by(BikeRaceRecord.id)        # 保证上锁顺序防止死锁
         .with_for_update()
     )
     return result.scalars().all()
@@ -405,6 +472,13 @@ async def create_team_member_crud(db: AsyncSession, member: BikeTeamMember):
     db.add(member)
     await db.flush()
 
+async def get_team_id_by_record_id(db: AsyncSession, record_id: str) -> uuid.UUID | None:
+    result = await db.execute(
+        select(BikeRaceRecord)
+        .where(BikeRaceRecord.record_id == record_id)
+    )
+    record = result.scalar_one_or_none()
+    return record.team_id if record else None
 
 async def get_team_by_code(db: AsyncSession, team_code: str) -> BikeTeam | None:
     team = await db.execute(
@@ -795,3 +869,14 @@ async def add_or_update_daily_task_record(
         db.add(new_record)
     else:
         record.progress += progress
+
+async def get_bonus_record_with_team_magic_card_for_update(db: AsyncSession, team_id: uuid.UUID) -> List[BikeBonusByTeamMember]:
+    result = await db.execute(
+        select(BikeBonusByTeamMember)
+        .where(
+            BikeBonusByTeamMember.team_id == team_id
+        )
+        .order_by(BikeBonusByTeamMember.id)
+        .with_for_update()
+    )
+    return result.scalars().all()

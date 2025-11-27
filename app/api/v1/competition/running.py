@@ -33,7 +33,7 @@ from app.services.competition.running import (
     get_current_best_records_service, get_history_seasons_service, get_career_records_service,
     query_leaderboard_history_in_page, get_score_leaderboard_service, get_career_data_service,
     get_completed_records_all, get_incompleted_records_all, query_daily_task_status_service,
-    claimed_daily_task_reward_service
+    claimed_daily_task_reward_service, start_competition_with_team_bonus_card_service
 )
 from app.api.deps import get_current_user
 from typing import Optional
@@ -528,3 +528,13 @@ async def claimed_daily_task_reward(
 ):
     result = await claimed_daily_task_reward_service(db, auth.payload["user_id"], stage)
     return BaseResponse.success(token=auth.new_token, data=result)
+
+# 使用队伍奖励的卡牌开始比赛时的装备逻辑
+@router.post("/start_competition_with_team_bonus_card",response_model=BaseResponse[None],summary="使用队伍奖励的卡牌开始比赛时的装备逻辑")
+async def start_competition_with_team_bonus_card(
+    record_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    await start_competition_with_team_bonus_card_service(db, auth.payload["user_id"], record_id)
+    return BaseResponse.success(token=auth.new_token)
