@@ -322,7 +322,7 @@ async def create_equip_card_def_service(
         skill3_description=form.skill3_description,
         image_url=url,
         version=form.version,
-        type_name=form.type_name,
+        #type_name=form.type_name,
         tags=tags_data,
         effect_config=effect_data,
     )
@@ -460,7 +460,7 @@ async def buy_equip_card_use_ccasset(
             multiplier_skill2=equip_card.multiplier_skill2,
             multiplier_skill3=equip_card.multiplier_skill3,
             version=card_def.version,
-            type_name=card_def.type_name,
+            #type_name=card_def.type_name,
             tags=card_def.tags,
             effect_def=card_def.effect_config
         )

@@ -140,7 +140,7 @@ class EquipCardDefCreateForm(ORMBase):
     skill2_description: str | None
     skill3_description: str | None
     version: str
-    type_name: str
+    #type_name: str
     tags: str           # 后续手动json.loads
     effect_config: str  # 后续手动json.loads
 
@@ -155,7 +155,7 @@ class EquipCardDefCreateForm(ORMBase):
         skill2_description: str | None = Form(None),
         skill3_description: str | None = Form(None),
         version: str = Form(...),
-        type_name: str = Form(...),
+        #type_name: str = Form(...),
         tags: str = Form("[]"),
         effect_config: str = Form(...)
     ):
@@ -168,7 +168,7 @@ class EquipCardDefCreateForm(ORMBase):
             skill2_description=skill2_description,
             skill3_description=skill3_description,
             version=version,
-            type_name=type_name,
+            #type_name=type_name,
             tags=tags,
             effect_config=effect_config
         )
@@ -184,7 +184,7 @@ class EquipCardDefInfo(ORMBase):
     skill2_description: str | None
     skill3_description: str | None
     version: str
-    type_name: str
+    #type_name: str
     tags: List[str]
     effect_config: dict[str, Any]
 

@@ -11,8 +11,9 @@ class RecordStatus(str, Enum):
     notStarted = "notStarted"
     recording = "recording"
     completed = "completed"
-    expired = "expired"         # 被系统定时清理的过期记录
-    invalid = "invalid"         # 成绩无效的记录
+    expired = "expired"             # 被系统定时清理的过期记录
+    toBeVerified = "toBeVerified"   # 待人工审核的记录
+    invalid = "invalid"             # 成绩无效的记录
 
 class TeamStatus(str, Enum):
     prepared = "prepared"
@@ -43,6 +44,7 @@ class CardBonusItem(BaseModel):
 class CardBonusInfo(BaseModel):
     card: EquipCardBaseInfo
     bonus_time: float
+    user_id: str
 
 # Protocol 接口：定义计算距离所需的最小属性
 class LocationPoint(Protocol):
@@ -75,3 +77,8 @@ class DailyTaskResponse(BaseModel):
     reward_stage3_url: str
     is_reward3_received: bool
     progress: float
+
+class TeamMagicCardBonusInfo(BaseModel):
+    card_id: str
+    bonus_ratio: float | None = None
+    bonus_seconds: float | None = None

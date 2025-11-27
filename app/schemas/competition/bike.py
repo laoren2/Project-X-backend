@@ -1,7 +1,10 @@
 from fastapi import Form
 from app.schemas.base import ORMBase
 from app.schemas.common import PersonInfoResponse, CPAssetBaseInfo
-from app.schemas.competition.common import TeamStatus, RecordStatus, CardBonusItem, CardBonusInfo, MemberScoreInfo, PathPoint
+from app.schemas.competition.common import (
+    TeamStatus, RecordStatus, CardBonusItem, CardBonusInfo, 
+    MemberScoreInfo, PathPoint, TeamMagicCardBonusInfo
+)
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
@@ -283,12 +286,14 @@ class BikePathPoint(BaseModel):
     
     power: float | None = None
     pedal_cadence: float | None = None
+    estimate_pedal_count: float = 0
 
 class BikeFinishInfo(BaseModel):
     record_id: str
-    validation_status: bool
+    validation_score: float
     end_time: datetime
     bonus_in_cards: List[CardBonusItem]
+    team_bonus: TeamMagicCardBonusInfo | None = None      # 每人只允许使用一张组队卡牌
     path: List[BikePathPoint]
 
 class BikeRecordInfo(ORMBase):
@@ -463,9 +468,20 @@ class BikeRecordDetailInfo(BaseModel):
     status: RecordStatus
     original_time: float
     final_time: float
+    is_finish_computed: bool
     path: List[BikePathPoint]
     card_bonus: List[CardBonusInfo]
     team_member_scores: List[MemberScoreInfo]
+
+class BikeUnverifiedRecordInfo(ORMBase):
+    is_vip: bool
+    record_id: str
+    validation_score: float | None
+    path: List[BikePathPoint]
+    finished_at: str | None
+
+class BikeUnverifiedRecordResponse(ORMBase):
+    records: List[BikeUnverifiedRecordInfo]
 
 class BikeSummaryRecordInfo(BaseModel):
     record_id: str

@@ -168,7 +168,7 @@ class EquipmentCardDef(Base):
     image_url = Column(String, nullable=False)
     version = Column(String, nullable=False)
 
-    type_name = Column(String, nullable=False)           # 唯一的标识一个effect
+    #type_name = Column(String, nullable=False)           # 唯一的标识一个effect
     tags = Column(JSONB, nullable=False, default=list)   # 过滤标签，string数组
     effect_config = Column(JSONB, nullable=False)        # 包含基本使用方法/收益等配置
 
