@@ -27,7 +27,8 @@ class Settings(BaseSettings):
     GEOIP_DB_PATH: str = "app/resources/CN_ip.mmdb"
     ALIYUN_ACCESS_KEY_ID: str
     ALIYUN_ACCESS_KEY_SECRET: str
-    ALIYUN_ENDPOINT: str
+    ALIYUN_OCR_ENDPOINT: str
+    ALIYUN_SMS_ENDPOINT: str
     APPLE_KEYS_URL: str
 
     class Config:

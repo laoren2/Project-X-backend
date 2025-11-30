@@ -194,7 +194,7 @@ def create_ocr_client() -> OcrClient:
         access_key_id=settings.ALIYUN_ACCESS_KEY_ID,
         access_key_secret=settings.ALIYUN_ACCESS_KEY_SECRET
     )
-    config.endpoint = settings.ALIYUN_ENDPOINT
+    config.endpoint = settings.ALIYUN_OCR_ENDPOINT
     return OcrClient(config)
 
 async def recognize_hk_idcard(image_bytes: bytes) -> dict:
