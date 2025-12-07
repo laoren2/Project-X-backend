@@ -259,3 +259,11 @@ class DailyTaskRewardResponse(BaseModel):
     ccasset_amount: int | None
     cpasset_id: str | None
     cpasset_amount: int | None
+
+class CouponShopInfo(BaseModel):
+    product_id: str
+    coupon: int
+    coupon_gift: int | None
+
+class CouponShopResponse(BaseModel):
+    coupons: List[CouponShopInfo]

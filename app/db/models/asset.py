@@ -57,7 +57,7 @@ class CCUserAsset(Base):
     balance = Column(Integer, default=0, nullable=False)
     can_recharge = Column(Boolean, default=False, nullable=False)
     can_withdraw = Column(Boolean, default=False, nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     user = relationship("User", primaryjoin="foreign(CCUserAsset.user_id)==User.id")
 
@@ -125,7 +125,7 @@ class CPUserAsset(Base):
     user_id = Column(UUID(as_uuid=True), nullable=False)
     prop_def_id = Column(UUID(as_uuid=True), nullable=False)
     balance = Column(Integer, default=0, nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     user = relationship("User", primaryjoin="foreign(CPUserAsset.user_id)==User.id")
     prop_def = relationship("CPAssetDef", primaryjoin="foreign(CPUserAsset.prop_def_id)==CPAssetDef.id")
@@ -209,7 +209,7 @@ class UserEquipmentCard(Base):
     multiplier_skill2 = Column(Float, nullable=True)
     multiplier_skill3 = Column(Float, nullable=True)
     
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     user = relationship("User", primaryjoin="foreign(UserEquipmentCard.user_id)==User.id")
     equipment_def = relationship("EquipmentCardDef", primaryjoin="foreign(UserEquipmentCard.equipment_def_id)==EquipmentCardDef.id")
@@ -230,3 +230,27 @@ class EquipCardTransaction(Base):
     user = relationship("User", primaryjoin="foreign(EquipCardTransaction.user_id)==User.id")
     card = relationship("UserEquipmentCard", primaryjoin="foreign(EquipCardTransaction.card_id)==UserEquipmentCard.id")
     card_def = relationship("EquipmentCardDef", primaryjoin="foreign(EquipCardTransaction.card_def_id)==EquipmentCardDef.id")
+
+# coupon 价格表
+class CouponPrice(Base):
+    __tablename__ = "coupon_prices"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    product_id = Column(String, unique=True, nullable=False)
+    price = Column(Integer, nullable=False)
+    gift_price = Column(Integer, nullable=True)    # 赠送的部分
+
+# coupon 充值交易信息记录表
+class CouponRechargeTransaction(Base):
+    __tablename__ = "coupon_recharge_transaction"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    product_id = Column(String, nullable=False)
+    original_transaction_id = Column(String, nullable=True)
+    quantity = Column(Integer, nullable=True)
+    type = Column(String, nullable=True)
+    app_account_token = Column(String, nullable=True)
+    price = Column(Integer, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -66,6 +66,13 @@ async def get_exist_user_by_apple_id(db: AsyncSession,  apple_id: str) -> User |
     )
     return result.scalar_one_or_none()
 
+async def get_user_by_iap_token(db: AsyncSession,  iap_token: str) -> User | None:
+    result = await db.execute(
+        select(User)
+        .where(User.apple_iap_token == iap_token)
+    )
+    return result.scalar_one_or_none()
+
 async def get_user_by_id(db: AsyncSession, user_id: str) -> Optional[User]:
     result = await db.execute(
         select(User)

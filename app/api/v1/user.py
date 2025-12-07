@@ -5,7 +5,7 @@ from app.db.session import get_db
 from app.schemas.common import SportType
 from app.services.sms import send_sms_code, verify_sms_code
 from app.services.user import (
-    login_or_register, get_user_info, update_user_info, delete_user_info, 
+    login_or_register, get_me_info, get_user_info, update_user_info, delete_user_info, 
     get_user_role, update_user_default_sport_service, unbind_phone_service,
     update_user_location_service, verify_apple_identity_token,
     login_or_register_apple, realname_hk_service, bind_phone_service,
@@ -61,9 +61,9 @@ async def get_me(
     auth: schemas_user.AuthContext=Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    user = await get_user_info(auth.payload["user_id"], db)
+    user, o_id = await get_me_info(auth.payload["user_id"], db)
     relation = await get_relation_count(db, auth.payload["user_id"])
-    return BaseResponse.success(token=auth.new_token, message="成功获取我的信息", data=schemas_user.UserMeResponse(user=user, relation=relation))
+    return BaseResponse.success(token=auth.new_token, message="成功获取我的信息", data=schemas_user.UserMeResponse(user=user, relation=relation, origin_transaction_id=o_id))
 
 @router.get("/me/role", response_model=BaseResponse[schemas_user.UserRole], summary="获取当前用户权限")
 async def get_me_role(
