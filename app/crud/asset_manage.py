@@ -2,7 +2,7 @@ from sqlalchemy import select, func
 from app.db.models.asset import (
     CCUserAsset, CCAssetTransaction, CPUserAsset, 
     CPAssetTransaction, CPAssetDef, CPRegistrationCardDef, CPAssetPrice, CPTeamCardDef,
-    EquipmentCardDef, EquipCardPrice, UserEquipmentCard, EquipCardTransaction
+    EquipmentCardDef, EquipCardPrice, UserEquipmentCard, EquipCardTransaction, CouponPrice
 )
 from app.schemas.asset import AssetOperation, CPAssetType, CCAssetBaseInfo
 from app.schemas.common import SportType, CCAssetType
@@ -59,6 +59,20 @@ async def reward_cpasset(db: AsyncSession, user_id: uuid.UUID, asset_id: uuid.UU
         db, user_id, asset_id, op, amount, new_balance, description=comment
     )
     return new_balance
+
+async def get_coupon_price(db: AsyncSession, product_id: str) -> CouponPrice | None:
+    result = await db.execute(
+        select(CouponPrice).where(
+            CouponPrice.product_id == product_id
+        )
+    )
+    return result.scalar_one_or_none()
+
+async def get_coupon_prices_all(db: AsyncSession) -> List[CouponPrice]:
+    result = await db.execute(
+        select(CouponPrice)
+    )
+    return result.scalars().all()
 
 async def get_cpasset_price_on_shelves(db: AsyncSession, asset_id: uuid.UUID) -> CPAssetPrice | None:
     result = await db.execute(

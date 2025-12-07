@@ -1,8 +1,9 @@
 from fastapi import Form
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, field_validator
+from typing import Optional, Any
 from app.schemas.base import ORMBase
 from enum import Enum
+import uuid
 
 from app.schemas.common import SportType
 
@@ -43,6 +44,7 @@ class AuthContext(BaseModel):
 
 class UserBaseInfo(ORMBase):
     user_id: str
+    apple_iap_token: str
     nickname: str
     phone_number: Optional[str] = None
     apple_email: Optional[str] = None
@@ -61,6 +63,15 @@ class UserBaseInfo(ORMBase):
     default_sport: SportType = SportType.bike
     status: UserStatus
     is_vip: bool = False
+
+    @field_validator('apple_iap_token', mode='before')
+    @classmethod
+    def convert_uuid_to_str(cls, v: Any) -> str:
+        """将 UUID 对象转换为字符串"""
+        if isinstance(v, uuid.UUID):
+            return str(v)
+        # 如果已经是字符串，直接返回
+        return v
 
 class UserRelationInfo(ORMBase):
     follower: int = 0
@@ -120,8 +131,11 @@ class UserBaseInfoResponse(ORMBase):
 class UserMeResponse(ORMBase):
     user: UserBaseInfo
     relation: UserRelationInfo
+    origin_transaction_id: str | None
 
-class UserAnyResponse(UserMeResponse):
+class UserAnyResponse(ORMBase):
+    user: UserBaseInfo
+    relation: UserRelationInfo
     relationship: RelationshipStatus
 
 class SMSCodeRequest(ORMBase):
@@ -136,3 +150,16 @@ class SMSCodeVerify(ORMBase):
 
 class GetAnyUserRequest(ORMBase):
     user_id: str
+
+class SubscriptionStatusResponse(BaseModel):
+    is_active: bool
+    auto_renew: Optional[bool] = None
+    started_at: Optional[str] = None
+    expired_at: Optional[str] = None
+    #grace_until: Optional[str] = None
+
+class IAPJWSRequest(BaseModel):
+    jws: str
+
+class IAPTransactionRequest(BaseModel):
+    transaction_id: str

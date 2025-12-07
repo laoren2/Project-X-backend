@@ -16,13 +16,14 @@ from app.schemas.user import UserUpdateForm, UserBaseInfo, UserStatus, Gender
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.base import BizException
 from app.schemas.asset import SignInStatusResponse, CCAssetBaseInfo, AssetOperation, SignInItemInfo
-from app.db.models.user import UserRealNameHK, UserSetting, UserSignIn
+from app.db.models.user import UserRealNameHK, UserSetting, UserSignIn, UserSubscription
 from app.core.errors import ErrorCode
 from app.core.config import settings
 from alibabacloud_ocr_api20210707.client import Client as OcrClient
 from alibabacloud_ocr_api20210707.models import RecognizeHKIdcardRequest
 from alibabacloud_tea_openapi import models as open_api_models
 from alibabacloud_tea_util.client import Client as UtilClient
+from app.services.app_store_api_tool import query_user_subscroption_status
 from jwt import PyJWKClient
 from datetime import datetime, timedelta, timezone
 import io, asyncio, jwt, json, uuid
@@ -128,6 +129,54 @@ async def get_user_info(user_id: str, db: AsyncSession):
     user_info.default_sport = user.settings.default_sport
     user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
     return user_info
+
+async def get_me_info(user_id: str, db: AsyncSession) -> tuple[UserBaseInfo, str | None]:
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        if not user.settings:
+            raise BizException(code=ErrorCode.USER_INFO_ERROR, message="用户信息错误")
+        user_info = UserBaseInfo.model_validate(user)
+        if user.real_name_info:
+            user_info.gender = user.real_name_info.gender
+            user_info.birthday = user.real_name_info.birth_date
+        user_info.is_display_gender = user.settings.is_display_gender
+        user_info.is_display_age = user.settings.is_display_age
+        user_info.is_display_location = user.settings.is_display_location
+        user_info.enable_auto_location = user.settings.enable_auto_location
+        user_info.is_display_identity = user.settings.is_display_identity
+        user_info.default_sport = user.settings.default_sport
+
+        subscription_status = user.subscription_info.is_active if user.subscription_info else False
+        if user.subscription_info and user.subscription_info.apple_original_transaction_id and datetime.now(timezone.utc) > user.subscription_info.updated_at + timedelta(days=1):
+            transaction, transaction_payload, renew_payload = await query_user_subscroption_status(user.subscription_info.apple_original_transaction_id)
+            #print(transaction.status, renew_payload)
+            if transaction and transaction_payload and renew_payload and transaction_payload.appAccountToken == str(user.apple_iap_token):
+                subscription_status = (transaction.status == 1 or transaction.status == 4)
+                auto_renew = renew_payload.autoRenewStatus == 1
+                started_at = (
+                    datetime.fromtimestamp(renew_payload.recentSubscriptionStartDate / 1000, tz=timezone.utc)
+                    if renew_payload.recentSubscriptionStartDate
+                    else None
+                )
+                expired_at = (
+                    datetime.fromtimestamp(renew_payload.renewalDate / 1000, tz=timezone.utc)
+                    if renew_payload.renewalDate
+                    else None
+                )
+                user.subscription_info.product_id = renew_payload.productId
+                user.subscription_info.is_active = subscription_status
+                user.subscription_info.auto_renew = auto_renew
+                user.subscription_info.start_at = started_at
+                user.subscription_info.end_at = expired_at
+                user.subscription_info.apple_original_transaction_id = renew_payload.originalTransactionId
+                user.subscription_info.apple_latest_transaction_id = transaction_payload.transactionId
+                # 强制更新 updated_at
+                user.subscription_info.updated_at = datetime.now(timezone.utc)
+        user_info.is_vip = subscription_status
+        return user_info, user.subscription_info.apple_original_transaction_id if user.subscription_info else None
+
 
 async def update_user_info(user_id: str, form: UserUpdateForm, avatar_url: str, background_url: str, db: AsyncSession):
     async with db.begin():

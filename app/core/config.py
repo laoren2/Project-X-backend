@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     ALIYUN_OCR_ENDPOINT: str
     ALIYUN_SMS_ENDPOINT: str
     APPLE_KEYS_URL: str
+    APPLE_IAP_ISSUER_ID: str
 
     class Config:
         env_file = ".env"  # 默认从项目根目录的 .env 文件中读取

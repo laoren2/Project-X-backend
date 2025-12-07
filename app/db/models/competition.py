@@ -498,7 +498,7 @@ class BikeCareerScore(Base):
     voucher_bonus = Column(Integer, default=0, nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
         UniqueConstraint('season_id', 'user_id', name='uq_bike_career_score_season_user'),
@@ -515,7 +515,7 @@ class BikeCareerStatisticData(Base):
     total_time = Column(Float, default=0, nullable=False)       # s
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
         UniqueConstraint('season_id', 'user_id', name='uq_bike_career_statistic_season_user'),
@@ -560,7 +560,7 @@ class RunningCareerScore(Base):
     voucher_bonus = Column(Integer, default=0, nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
         UniqueConstraint('season_id', 'user_id', name='uq_running_career_score_season_user'),
@@ -577,7 +577,7 @@ class RunningCareerStatisticData(Base):
     total_time = Column(Float, default=0, nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), server_onupdate=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
         UniqueConstraint('season_id', 'user_id', name='uq_running_career_statistic_season_user'),
