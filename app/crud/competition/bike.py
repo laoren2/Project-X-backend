@@ -174,7 +174,9 @@ async def get_track_by_track_id(db: AsyncSession, track_id: str) -> BikeTrack | 
         select(BikeTrack)
         .where(BikeTrack.track_id == track_id)
         .options(
-            selectinload(BikeTrack.event).selectinload(BikeEvent.season)
+            selectinload(BikeTrack.event).selectinload(BikeEvent.season),
+            selectinload(BikeTrack.single_register_card_def),
+            selectinload(BikeTrack.team_register_card_def)
         )
     )
     return result.scalar_one_or_none()
@@ -184,7 +186,9 @@ async def get_track_by_track_id_for_update(db: AsyncSession, track_id: str) -> B
         select(BikeTrack)
         .where(BikeTrack.track_id == track_id)
         .options(
-            selectinload(BikeTrack.event).selectinload(BikeEvent.season)
+            selectinload(BikeTrack.event).selectinload(BikeEvent.season),
+            selectinload(BikeTrack.single_register_card_def),
+            selectinload(BikeTrack.team_register_card_def)
         )
         .with_for_update()
     )
@@ -203,6 +207,10 @@ async def get_track_by_event_id(db: AsyncSession, event_id: uuid.UUID) -> List[B
             BikeTrack.event_id == event_id,
             BikeTrack.start_date <= func.now() + timedelta(days=3),
             BikeTrack.end_date >= func.now()
+        )
+        .options(
+            selectinload(BikeTrack.single_register_card_def),
+            selectinload(BikeTrack.team_register_card_def)
         )
         .order_by(BikeTrack.start_date.desc())
     )
@@ -371,7 +379,10 @@ async def get_record_by_record_id(db: AsyncSession, record_id: str) -> BikeRaceR
         select(BikeRaceRecord)
         .where(BikeRaceRecord.record_id == record_id)
         .options(
-            selectinload(BikeRaceRecord.track),
+            selectinload(BikeRaceRecord.track)
+                .selectinload(BikeTrack.single_register_card_def),
+            selectinload(BikeRaceRecord.track)
+                .selectinload(BikeTrack.team_register_card_def),
             selectinload(BikeRaceRecord.user)
                 .selectinload(User.real_name_info),
             selectinload(BikeRaceRecord.team)
@@ -497,7 +508,8 @@ async def get_team_by_code_for_update(db: AsyncSession, team_code: str) -> BikeT
         .where(BikeTeam.team_code == team_code)
         .with_for_update()
         .options(
-            selectinload(BikeTeam.track),
+            selectinload(BikeTeam.track)
+                .selectinload(BikeTrack.team_register_card_def),
             selectinload(BikeTeam.members)
         )
     )
@@ -528,6 +540,8 @@ async def get_team_by_team_id_for_update(db: AsyncSession, team_id: str) -> Bike
             selectinload(BikeTeam.track)
                 .selectinload(BikeTrack.event)
                 .selectinload(BikeEvent.region),
+            selectinload(BikeTeam.track)
+                .selectinload(BikeTrack.team_register_card_def),
             selectinload(BikeTeam.members)
                 .selectinload(BikeTeamMember.user),
             selectinload(BikeTeam.applied_members)

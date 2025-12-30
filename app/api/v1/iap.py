@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime
 from app.db.session import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_language
 from app.schemas.base import BaseResponse
 from app.schemas.user import AuthContext, SubscriptionStatusResponse, IAPJWSRequest, IAPTransactionRequest
 from app.schemas.asset import CouponShopResponse
@@ -12,7 +12,8 @@ from app.services.iap import (
     query_subscription_status_service, query_subscription_account_service,
     query_coupon_shop_infos_service
 )
-router = APIRouter()
+
+router = APIRouter(dependencies=[Depends(get_language)])
 
 
 # 查询用户订阅状态

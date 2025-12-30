@@ -17,9 +17,9 @@ class CCAssetType(str, Enum):
             CCAssetType.COIN: "金币",
             CCAssetType.COUPON: "点券",
             CCAssetType.VOUCHER: "金券",
-            CCAssetType.STONE1: "升级石1",
-            CCAssetType.STONE2: "升级石2",
-            CCAssetType.STONE3: "升级石3"
+            CCAssetType.STONE1: "升级材料1",
+            CCAssetType.STONE2: "升级材料2",
+            CCAssetType.STONE3: "升级材料3"
         }
         return names.get(self, "未知类型")
 
@@ -31,6 +31,16 @@ class PersonInfoResponse(ORMBase):
     user_id: str
     avatar_image_url: str
     nickname: str
+
+class PersonInfoResponseList(BaseModel):
+    users: List[PersonInfoResponse]
+
+class CCAssetBaseInfo(BaseModel):
+    ccasset_type: CCAssetType
+    new_ccamount: int
+
+class CCAssetRewardResponse(CCAssetBaseInfo):
+    reward_amount: int
 
 class CPAssetBaseInfo(ORMBase):
     asset_id: str

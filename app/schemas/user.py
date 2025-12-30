@@ -48,6 +48,7 @@ class UserBaseInfo(ORMBase):
     nickname: str
     phone_number: Optional[str] = None
     apple_email: Optional[str] = None
+    email: Optional[str] = None
     avatar_image_url: str
     background_image_url: str
     introduction: Optional[str] = None
@@ -146,6 +147,13 @@ class SendCodeResponse(ORMBase):
 
 class SMSCodeVerify(ORMBase):
     phone_number: str
+    code: str
+
+class EmailCodeRequest(BaseModel):
+    email_address: str
+
+class EmailCodeVerify(ORMBase):
+    email_address: str
     code: str
 
 class GetAnyUserRequest(ORMBase):

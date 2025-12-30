@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime
 from app.db.session import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_language
 from app.services.asset_manage import (
     get_user_ccassets, get_user_cpassets, buy_cpassets_use_ccasset, get_cpassets_on_shelves,
     get_user_cpasset, get_equip_cards_on_shelves, get_user_equip_cards, buy_equip_card_use_ccasset,
@@ -16,16 +16,15 @@ from app.schemas.asset import (
     CCAssetsResponse, CPAssetsResponse, CPAssetBuyRequest, 
     CC_CP_PurchaseResultResponse, CPAssetsShopResponse, CPAssetBaseInfo,
     EquipCardShopResponse, EquipCardsResponse, CC_ECARD_PurchaseResultResponse,
-    EquipCardUpgradeResponse, EquipCardUpgradePriceInfo, EquipCardSkillUpgradeResponse,
-    CCAssetBaseInfo
+    EquipCardUpgradeResponse, EquipCardUpgradePriceInfo, EquipCardSkillUpgradeResponse
 )
-from app.schemas.common import EquipCardBaseInfo
+from app.schemas.common import EquipCardBaseInfo, CCAssetBaseInfo
 from app.schemas.base import BaseResponse
 from app.schemas.user import AuthContext
 import uuid
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_language)])
 
 
 

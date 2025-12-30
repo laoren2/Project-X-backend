@@ -1,6 +1,5 @@
-from sqlalchemy import select, func
-from app.db.models.mailbox import Mailbox
-from app.schemas.mailbox import MailDetailResponse
+from sqlalchemy import select, func, case
+from app.db.models.mailbox import Mailbox, FeedbackMailbox
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 import uuid
@@ -38,5 +37,29 @@ async def get_mail_by_mail_id(db: AsyncSession, mail_id: str) -> Mailbox | None:
     mail = await db.execute(
         select(Mailbox)
         .where(Mailbox.mail_id == mail_id)
+    )
+    return mail.scalar_one_or_none()
+
+async def get_feedback_mails_curd(db: AsyncSession, page: int, size: int) -> List[FeedbackMailbox]:
+    subscription_priority = case(
+        (FeedbackMailbox.is_handled == False, 1),
+        else_=0
+    )
+    stmt = (
+        select(FeedbackMailbox)
+        .order_by(
+            subscription_priority.desc(),
+            FeedbackMailbox.created_at.desc()
+        )
+        .offset((page - 1) * size)
+        .limit(size)
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+async def get_feedback_mail_by_mail_id(db: AsyncSession, mail_id: str) -> FeedbackMailbox | None:
+    mail = await db.execute(
+        select(FeedbackMailbox)
+        .where(FeedbackMailbox.mail_id == mail_id)
     )
     return mail.scalar_one_or_none()

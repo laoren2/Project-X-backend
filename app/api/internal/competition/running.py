@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, File, UploadFile, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
-from app.schemas.base import BaseResponse
+from app.schemas.base import BaseResponse, BizException
 from app.schemas.user import AuthContext
 from app.schemas.competition.running import (
     RunningEventCreateForm, RunningTrackCreateForm, RunningEventUpdateForm, 
@@ -45,7 +45,7 @@ async def create_season(
         background_path = season_folder / f"background_{int(datetime.now().timestamp())}.jpg"
         contents = await season_image.read()
         if len(contents) > 2 * 1024 * 1024:  # 超过 2MB
-            return BaseResponse.error(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="上传图片体积超过限制")
+            raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
         with background_path.open("wb") as f:
             f.write(contents)
         new_url = f"/resources/competition/running/season/{new_season.season_id}/{background_path.name}"
@@ -72,7 +72,7 @@ async def create_event(
         background_path = event_folder / f"background_{int(datetime.now().timestamp())}.jpg"
         contents = await event_image.read()
         if len(contents) > 2 * 1024 * 1024:  # 超过 2MB
-            return BaseResponse.error(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="上传图片体积超过限制")
+            raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
         with background_path.open("wb") as f:
             f.write(contents)
         new_url = f"/resources/competition/running/event/{new_event.event_id}/{background_path.name}"
@@ -98,7 +98,7 @@ async def update_event(
         bg_path = event_folder / f"background_{int(datetime.now().timestamp())}.jpg"
         contents = await event_image.read()
         if len(contents) > 2 * 1024 * 1024:  # 超过 2MB
-            return BaseResponse.error(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="上传图片体积超过限制")
+            raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
         with bg_path.open("wb") as f:
             f.write(contents)
         image_url = f"/resources/competition/running/event/{event.event_id}/{bg_path.name}"
@@ -148,7 +148,7 @@ async def create_track(
         background_path = track_folder / f"background_{int(datetime.now().timestamp())}.jpg"
         contents = await track_image.read()
         if len(contents) > 2 * 1024 * 1024:  # 超过 2MB
-            return BaseResponse.error(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="上传图片体积超过限制")
+            raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
         with background_path.open("wb") as f:
             f.write(contents)
         new_url = f"/resources/competition/running/track/{new_track.track_id}/{background_path.name}"
@@ -174,7 +174,7 @@ async def update_track(
         bg_path = track_folder / f"background_{int(datetime.now().timestamp())}.jpg"
         contents = await track_image.read()
         if len(contents) > 2 * 1024 * 1024:  # 超过 2MB
-            return BaseResponse.error(messagecode=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="上传图片体积超过限制")
+            raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
         with bg_path.open("wb") as f:
             f.write(contents)
         image_url = f"/resources/competition/running/track/{track.track_id}/{bg_path.name}"

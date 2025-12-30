@@ -1,6 +1,6 @@
 # app/api/v1/__init__.py
 from fastapi import APIRouter
-from app.api.v1 import user, user_follow, asset, common, mailbox, iap
+from app.api.v1 import user, user_follow, asset, common, mailbox, iap, homepage
 from app.api.v1.competition import bike, running, competition
 
 router = APIRouter()
@@ -13,3 +13,4 @@ router.include_router(asset.router, prefix="/asset", tags=["资产"])
 router.include_router(mailbox.router, prefix="/mailbox", tags=["邮箱"])
 router.include_router(common.router, prefix="/common", tags=["通用API"])
 router.include_router(iap.router, prefix="/iap", tags=["IAP"])
+router.include_router(homepage.router, prefix="/homepage", tags="首页")

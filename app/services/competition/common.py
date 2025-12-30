@@ -1,12 +1,13 @@
 from app.crud.competition.common import (
-    get_region_by_name, create_region_crud, get_regions_by_country_code
+    get_region_by_name, create_region_crud, get_regions_by_country_code,
+    get_region_by_coordinate
 )
 import app.crud.competition.bike as bike
 import app.crud.competition.running as running
 from app.core.errors import ErrorCode
 from app.schemas.base import BizException
 from app.schemas.user import Gender
-from app.schemas.competition.common import RegionCreate, RecordStatus, TeamStatus, LocationPoint
+from app.schemas.competition.common import RegionCreate, RecordStatus, TeamStatus, LocationPoint, RegionResponse
 from app.schemas.common import SportType
 from app.db.models.competition import BikeSeason, Region, RunningSeason
 from typing import Optional, List
@@ -316,7 +317,7 @@ async def get_running_active_track_ids(db: AsyncSession) -> List[str]:
 async def generate_bike_leaderboard_snapshot(db: AsyncSession, track_id: str) -> str:
     track = await bike.get_track_by_track_id(db, track_id)
     if not track:
-        raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="赛道不存在")
     now = datetime.now(timezone.utc)
     timestamp = now.strftime("%Y%m%d%H%M")
     male_src_key = f"leaderboard:bike:{track_id}:male"
@@ -394,7 +395,7 @@ async def generate_bike_leaderboard_snapshot(db: AsyncSession, track_id: str) ->
 async def generate_running_leaderboard_snapshot(db: AsyncSession, track_id: str) -> str:
     track = await running.get_track_by_track_id(db, track_id)
     if not track:
-        raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="赛道不存在")
     now = datetime.now(timezone.utc)
     timestamp = now.strftime("%Y%m%d%H%M")
     male_src_key = f"leaderboard:running:{track_id}:male"
@@ -473,7 +474,7 @@ async def generate_running_leaderboard_snapshot(db: AsyncSession, track_id: str)
 async def create_region_service(db: AsyncSession, region_create: RegionCreate):
     region = await get_region_by_name(db, region_create.name)
     if region is not None:
-        raise BizException(code=ErrorCode.REGION_ALREADY_EXIST, message="地理区域已存在，不可重复创建")
+        raise BizException(code=ErrorCode.REGION_ERROR, message="region.data_error")
     new_region = Region(
         name=region_create.name
     )
@@ -481,24 +482,34 @@ async def create_region_service(db: AsyncSession, region_create: RegionCreate):
     await db.commit()
 
 
-async def query_regions_with_events(db: AsyncSession, sport_type: str, country_code: str) -> List[str]:
+async def query_regions_with_events_service(db: AsyncSession, sport_type: str, country_code: str) -> List[str]:
     regions = await get_regions_by_country_code(db, country_code)
     if not regions:
-        raise BizException(code=ErrorCode.REGION_NOT_FOUND, message="该国家地区暂无赛事")
+        raise BizException(code=ErrorCode.REGION_ERROR, message="region.no_events")
     result = []
     now = datetime.now(timezone.utc)
     for region in regions:
         if sport_type == "bike":
             for event in region.bike_events:
                 if event.start_date <= now <= event.end_date:
-                    result.append(region.name)
+                    result.append(region.region_id)
                     break
         elif sport_type == "running":
             for event in region.running_events:
                 if event.start_date <= now <= event.end_date:
-                    result.append(region.name)
+                    result.append(region.region_id)
                     break
     return result
+
+
+async def query_region_with_coordinate_service(db: AsyncSession, lat: float, lon: float) -> RegionResponse:
+    region = await get_region_by_coordinate(db, lat, lon)
+    result = RegionResponse(
+        region_id=region.region_id if region else None,
+        country_code=region.country_code if region else None
+    )
+    return result
+
 
 def compute_distance(path: List[LocationPoint]) -> float:
     """

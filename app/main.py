@@ -1,15 +1,14 @@
-import asyncio
 from fastapi import FastAPI, APIRouter
 from app.core.config import CustomStaticFiles
-from fastapi.staticfiles import StaticFiles
-from app.api.v1 import user
-from app.schemas.base import BizException
+from app.core.errors import ERROR_MESSAGES
+from app.schemas.base import BizException, pick_i18n_text
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from app.scheduler.task import start_scheduler, stop_scheduler
 from app.api.internal import router as internal_router
 from app.api.v1 import router as v1_router
+from app.api.deps import Language, DEFAULT_LANGUAGE
 from app.db.init_db import init_db, keep_event_loop_alive
 from app.db.session import test_redis_connection, close_redis_connection, close_database_connection
 from app.core.logging_config import setup_logging
@@ -78,7 +77,40 @@ app.mount("/resources", CustomStaticFiles(directory="resources"), name="resource
 # BizException处理器
 @app.exception_handler(BizException)
 async def biz_exception_handler(request: Request, exc: BizException):
+    detail = exc.detail
+    lang: Language = getattr(request.state, "lang", DEFAULT_LANGUAGE)
+    raw_message = detail.get("message", "")
+    params = detail.get("params", {})
+    params = {
+        k: render_param(v, lang)
+        for k, v in params.items()
+    }
+    message = raw_message
+
+    # 如果 message 是 i18n key，就翻译
+    if raw_message in ERROR_MESSAGES:
+        template = pick_i18n_text(
+            ERROR_MESSAGES[raw_message],
+            lang,
+        )
+        try:
+            message = template.format(**params)
+        except Exception:
+            message = template
+
     return JSONResponse(
         status_code=exc.status_code,
-        content=exc.detail
+        content={
+            "access_token": None,
+            "code": detail["code"],
+            "message": message,
+            "data": None,
+        },
     )
+
+def render_param(value: str, lang: str) -> str:
+    # 如果是 i18n key
+    if value in ERROR_MESSAGES:
+        return pick_i18n_text(ERROR_MESSAGES[value], lang)
+    # 普通字符串
+    return value

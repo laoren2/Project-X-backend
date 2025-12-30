@@ -87,7 +87,7 @@ async def query_user_subscroption_status(
                         latest_tx = last_transaction
                 return latest_tx, latest_transaction_payload, latest_renew_payload
     except VerificationException as e:
-        print(e)
+        #print(e)
         return None, None, None
 
 
@@ -98,6 +98,6 @@ async def verify_and_decode_transaction_service(
         payload = signed_data_verifier.verify_and_decode_signed_transaction(jws)
         #print(payload)
     except VerificationException as e:
-        print(e)
+        #print(e)
         return None
     return payload

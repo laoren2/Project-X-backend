@@ -1,58 +1,74 @@
 from fastapi import APIRouter, Depends, File, UploadFile, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.crud.user import get_user_by_id, get_user_by_phone
 from app.db.session import get_db
 from app.schemas.common import SportType
-from app.services.sms import send_sms_code, verify_sms_code
+from app.services.sms import send_sms_code_service, verify_sms_code
 from app.services.user import (
     login_or_register, get_me_info, get_user_info, update_user_info, delete_user_info, 
     get_user_role, update_user_default_sport_service, unbind_phone_service,
     update_user_location_service, verify_apple_identity_token,
     login_or_register_apple, realname_hk_service, bind_phone_service,
     bind_apple_id_service, unbind_apple_id_service, sign_in_status_service,
-    sign_in_today_service, sign_in_today_vip_service
+    sign_in_today_service, sign_in_today_vip_service, send_email_code_service,
+    verify_email_code, login_or_register_email, bind_email_service, unbind_email_service
 )
-from app.crud.user import get_exist_user_by_phone
+from app.crud.user import get_users_by_name
 from app.services.user_follow import get_relation_count, get_relationship_service
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_language, Language
 from app.core.errors import ErrorCode
 from app.schemas import user as schemas_user
-from app.schemas.common import PersonInfoResponse
-from app.schemas.base import BaseResponse
-from app.schemas.asset import SignInStatusResponse, CCAssetBaseInfo
+from app.schemas.common import PersonInfoResponse, CCAssetBaseInfo, PersonInfoResponseList
+from app.schemas.base import BaseResponse, BizException
+from app.schemas.asset import SignInStatusResponse
 from typing import Optional
 from pathlib import Path
 from datetime import datetime
 import json
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_language)])
 
 
-@router.get("/user_card/phone", response_model=BaseResponse[PersonInfoResponse], summary="根据手机号查询用户")
+@router.get("/user_card/nick_name", response_model=BaseResponse[PersonInfoResponseList], summary="根据用户名查询用户")
 async def get_anyone_card(
-    phone_number: str,
-    auth: schemas_user.AuthContext = Depends(get_current_user),
+    nick_name: str = Query(...),
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1),
     db: AsyncSession = Depends(get_db)
 ):
-    user = await get_exist_user_by_phone(db, phone_number)
-    if user is None:
-        return BaseResponse.error(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
-    return BaseResponse.success(
-        token=auth.new_token,
-        message="成功获取用户信息卡片", 
-        data=PersonInfoResponse(user_id=user.user_id, avatar_image_url=user.avatar_image_url, nickname=user.nickname)
-    )
+    users = await get_users_by_name(db, nick_name, page, size)
+    result = [PersonInfoResponse(
+        user_id=user.user_id,
+        avatar_image_url=user.avatar_image_url,
+        nickname=user.nickname
+    ) for user in users]
+    return BaseResponse.success(message="成功获取用户信息卡片", data=PersonInfoResponseList(users=result))
 
-@router.post("/send_code", response_model=BaseResponse[schemas_user.SendCodeResponse], summary="发送验证码")
-async def send_code(data: schemas_user.SMSCodeRequest):
-    code = await send_sms_code(data.phone_number)
+@router.post("/send_sms_code", response_model=BaseResponse[schemas_user.SendCodeResponse], summary="发送短信验证码")
+async def send_sms_code(data: schemas_user.SMSCodeRequest):
+    code = await send_sms_code_service(data.phone_number)
     return BaseResponse.success(message="验证码已发送", data=schemas_user.SendCodeResponse(code=code))
 
-@router.post("/login", response_model=BaseResponse[schemas_user.LoginResponse], summary="手机号+验证码登录/注册")
-async def login(data: schemas_user.SMSCodeVerify, db: AsyncSession = Depends(get_db)):
+@router.post("/login/sms", response_model=BaseResponse[schemas_user.LoginResponse], summary="短信验证码登录/注册")
+async def login_sms(data: schemas_user.SMSCodeVerify, db: AsyncSession = Depends(get_db)):
     if not await verify_sms_code(data.phone_number, data.code):
-        return BaseResponse.error(code=ErrorCode.SMS_CODE_WRONG, message="验证码错误")
+        raise BizException(code=ErrorCode.SMS_VERIFY_FAILED, message="identity.verify_failed.sms")
     token, user, isRegister, role = await login_or_register(data.phone_number, db)
+    relation = await get_relation_count(db, user.user_id)
+    return BaseResponse.success(token=token, message="登录成功", data=schemas_user.LoginResponse(user=user, relation=relation, role=role, isRegister=isRegister))
+
+@router.post("/send_email_code", response_model=BaseResponse[None], summary="发送验证码邮件")
+async def send_email_code(
+    data: schemas_user.EmailCodeRequest,
+    lang: Language = Depends(get_language)
+):
+    await send_email_code_service(data.email_address, lang)
+    return BaseResponse.success(message="发送成功", data=None)
+
+@router.post("/login/email", response_model=BaseResponse[schemas_user.LoginResponse], summary="邮箱验证码登录/注册")
+async def login_email(data: schemas_user.EmailCodeVerify, db: AsyncSession = Depends(get_db)):
+    if not await verify_email_code(data.email_address, data.code):
+        raise BizException(code=ErrorCode.EMAIL_VERIFY_FAILED, message="identity.verify_failed.sms")
+    token, user, isRegister, role = await login_or_register_email(data.email_address, db)
     relation = await get_relation_count(db, user.user_id)
     return BaseResponse.success(token=token, message="登录成功", data=schemas_user.LoginResponse(user=user, relation=relation, role=role, isRegister=isRegister))
 
@@ -109,7 +125,7 @@ async def update_me(
         avatar_path = user_folder / f"avatar_{int(datetime.now().timestamp())}.jpg"
         contents = await avatar_image.read()
         if len(contents) > 1 * 1024 * 1024:  # 超过 1MB
-            return BaseResponse.error(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="上传图片体积超过限制")
+            raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
         with avatar_path.open("wb") as f:
             f.write(contents)
         avatar_url = f"/resources/user/{user_id}/{avatar_path.name}"
@@ -120,7 +136,7 @@ async def update_me(
         bg_path = user_folder / f"background_{int(datetime.now().timestamp())}.jpg"
         contents = await background_image.read()
         if len(contents) > 1 * 1024 * 1024:  # 超过 1MB
-            return BaseResponse.error(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="上传图片体积超过限制")
+            raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
         with bg_path.open("wb") as f:
             f.write(contents)
         background_url = f"/resources/user/{user_id}/{bg_path.name}"
@@ -166,18 +182,18 @@ async def realname_hk(
 
 @router.post("/login/apple", response_model=BaseResponse[schemas_user.LoginResponse], summary="Apple ID 登录/注册")
 async def login_with_apple(
-    token: str = Query(...),   # identityToken
+    jws: schemas_user.IAPJWSRequest,   # identityToken
     db: AsyncSession = Depends(get_db)
 ):
     # 验证并解码 ID Token
-    payload = await verify_apple_identity_token(token)
+    payload = await verify_apple_identity_token(jws.jws)
     if not payload:
-        return BaseResponse.error(code=ErrorCode.OAUTH_FAILED, message="Apple 登录验证失败")
+        raise BizException(code=ErrorCode.APPLE_ID_ERROR, message="identity.verify_failed.apple")
 
     apple_sub = payload.get("sub")  # Apple 提供的唯一用户 ID
     email = payload.get("email", "")
     if not apple_sub:
-        return BaseResponse.error(code=ErrorCode.OAUTH_FAILED, message="Apple 登录验证失败")
+        raise BizException(code=ErrorCode.APPLE_ID_ERROR, message="identity.verify_failed.apple")
     new_token, user, is_register, role = await login_or_register_apple(apple_sub, email, db)
     relation = await get_relation_count(db, user.user_id)
     
@@ -189,14 +205,13 @@ async def login_with_apple(
 
 @router.post("/account/bind_phone", response_model=BaseResponse[None], summary="绑定手机号")
 async def bind_phone(
-    phone: str = Query(...),
-    code: str = Query(...),
+    request: schemas_user.SMSCodeVerify,
     auth: schemas_user.AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    if not await verify_sms_code(phone, code):
-        return BaseResponse.error(code=ErrorCode.SMS_CODE_WRONG, message="验证码错误")
-    await bind_phone_service(phone, auth.payload["user_id"], db)
+    if not await verify_sms_code(request.phone_number, request.code):
+        raise BizException(code=ErrorCode.SMS_VERIFY_FAILED, message="identity.verify_failed.sms")
+    await bind_phone_service(request.phone_number, auth.payload["user_id"], db)
     return BaseResponse.success(token=auth.new_token, message="绑定成功")
 
 @router.post("/account/unbind_phone", response_model=BaseResponse[None], summary="解除绑定手机号")
@@ -209,11 +224,11 @@ async def unbind_phone(
 
 @router.post("/account/bind_apple_id", response_model=BaseResponse[str], summary="绑定appleid")
 async def bind_apple_id(
-    token: str = Query(...),
+    jws: schemas_user.IAPJWSRequest,
     auth: schemas_user.AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    email = await bind_apple_id_service(token, auth.payload["user_id"], db)
+    email = await bind_apple_id_service(jws.jws, auth.payload["user_id"], db)
     return BaseResponse.success(token=auth.new_token, message="绑定成功", data=email)
 
 @router.post("/account/unbind_apple_id", response_model=BaseResponse[None], summary="解除绑定appleid")
@@ -222,6 +237,25 @@ async def unbind_apple_id(
     db: AsyncSession = Depends(get_db)
 ):
     await unbind_apple_id_service(auth.payload["user_id"], db)
+    return BaseResponse.success(token=auth.new_token, message="解除绑定成功")
+
+@router.post("/account/bind_email", response_model=BaseResponse[None], summary="绑定邮箱")
+async def bind_email(
+    request: schemas_user.EmailCodeVerify,
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if not await verify_email_code(request.email_address, request.code):
+        raise BizException(code=ErrorCode.SMS_VERIFY_FAILED, message="identity.verify_failed.sms")
+    await bind_email_service(request.email_address, auth.payload["user_id"], db)
+    return BaseResponse.success(token=auth.new_token, message="绑定成功")
+
+@router.post("/account/unbind_email", response_model=BaseResponse[None], summary="解除绑定邮箱")
+async def unbind_email(
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    await unbind_email_service(auth.payload["user_id"], db)
     return BaseResponse.success(token=auth.new_token, message="解除绑定成功")
 
 # 查询签到状态

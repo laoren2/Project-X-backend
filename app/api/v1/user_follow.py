@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime
 from app.db.session import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_language
 from app.services.user_follow import get_following_list, get_follower_list, get_friend_list, follow_user, cancel_follow_user, get_relationship_service, get_relation_count
 from app.schemas.user_follow import RelationListResponse, PersonInfoResponse
 from app.schemas.base import BaseResponse
@@ -11,7 +11,7 @@ from app.schemas.user import AuthContext, UserRelationInfo, RelationshipStatus
 import uuid
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_language)])
 
 @router.get("/relationship", response_model=BaseResponse[RelationshipStatus], summary="关注某用户")
 async def get_relationship(

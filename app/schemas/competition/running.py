@@ -257,6 +257,8 @@ class RunningTrackBaseInfo(ORMBase):
     start_date: str
     end_date: str
     image_url: str
+    single_register_card_url: str
+    team_register_card_url: str
 
     from_latitude: float
     from_longitude: float

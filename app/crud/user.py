@@ -16,13 +16,39 @@ async def get_user_by_phone(db: AsyncSession, phone_number: str) -> List[User]:
     )
     return result.scalars().all()
 
-# todo: 模糊匹配
-async def get_user_by_name(db: AsyncSession, name: str) -> List[User]:
+async def get_users_by_name(db: AsyncSession, name: str, page: int, size: int) -> List[User]:
+    """
+    根据用户昵称进行模糊查询（大小写不敏感）
+    例如传入 'tom'，可以匹配到 'Tom', 'tommy', 'atome' 等
+    """
+    # 防止空字符串导致全表扫描
+    keyword = name.strip()
+    if not keyword:
+        return []
+
     result = await db.execute(
         select(User)
-        .where(User.nickname == name)
+        .where(User.nickname.ilike(f"%{keyword}%"))
+        .order_by(User.created_at.desc())
+        .offset((page - 1) * size)
+        .limit(size)
     )
     return result.scalars().all()
+
+async def get_exist_user_by_name(db: AsyncSession, nickname: str) -> User | None:
+    result = await db.execute(
+        select(User)
+        .where(
+            User.nickname == nickname,
+            User.status != UserStatus.deleted
+        )
+        .options(
+            selectinload(User.settings),
+            selectinload(User.real_name_info),
+            selectinload(User.subscription_info)
+        )
+    )
+    return result.scalar_one_or_none()
 
 async def get_exist_user_by_phone(db: AsyncSession, phone_number: str) -> User | None:
     result = await db.execute(
@@ -56,6 +82,33 @@ async def get_exist_user_by_apple_id(db: AsyncSession,  apple_id: str) -> User |
         select(User)
         .where(
             User.apple_id == apple_id,
+            User.status != UserStatus.deleted
+        )
+        .options(
+            selectinload(User.settings),
+            selectinload(User.real_name_info),
+            selectinload(User.subscription_info)
+        )
+    )
+    return result.scalar_one_or_none()
+
+async def get_user_by_email(db: AsyncSession, email_address: str) -> List[User]:
+    result = await db.execute(
+        select(User)
+        .where(User.email == email_address)
+        .options(
+            selectinload(User.settings),
+            selectinload(User.real_name_info),
+            selectinload(User.subscription_info)
+        )
+    )
+    return result.scalars().all()
+
+async def get_exist_user_by_email(db: AsyncSession, email_address: str) -> User | None:
+    result = await db.execute(
+        select(User)
+        .where(
+            User.email == email_address,
             User.status != UserStatus.deleted
         )
         .options(
@@ -119,11 +172,19 @@ async def generate_unique_user_id(db: AsyncSession) -> str:
         if not existing_user:
             return user_id
 
+async def generate_unique_user_nickname(db: AsyncSession) -> str:
+    while True:
+        nickname = f"新用户_{random.randint(10000, 99999)}"
+        existing_user = await get_exist_user_by_name(db, nickname)
+        if not existing_user:
+            return nickname
+
 async def create_user(db: AsyncSession, phone_number: str):
     user_id = await generate_unique_user_id(db)
+    nickname = await generate_unique_user_nickname(db)
     user = User(
         user_id=user_id,
-        nickname=f"新用户_{user_id[-5:]}",
+        nickname=nickname,
         phone_number=phone_number,
         avatar_image_url="/resources/placeholder/avatar.png",
         background_image_url="/resources/placeholder/background.png"
@@ -137,11 +198,29 @@ async def create_user(db: AsyncSession, phone_number: str):
 
 async def create_user_with_apple(db: AsyncSession, apple_id: str, email: str) -> User:
     user_id = await generate_unique_user_id(db)
+    nickname = await generate_unique_user_nickname(db)
     user = User(
         user_id=user_id,
-        nickname=f"新用户_{user_id[-5:]}",
+        nickname=nickname,
         apple_id=apple_id,
         apple_email=email,
+        avatar_image_url="/resources/placeholder/avatar.png",
+        background_image_url="/resources/placeholder/background.png"
+    )
+    db.add(user)
+    await db.flush()
+    await db.refresh(user)
+    user_setting = UserSetting(user_id=user.id)
+    db.add(user_setting)
+    return user
+
+async def create_user_with_email(db: AsyncSession, email_address: str) -> User:
+    user_id = await generate_unique_user_id(db)
+    nickname = await generate_unique_user_nickname(db)
+    user = User(
+        user_id=user_id,
+        nickname=nickname,
+        email=email_address,
         avatar_image_url="/resources/placeholder/avatar.png",
         background_image_url="/resources/placeholder/background.png"
     )

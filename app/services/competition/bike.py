@@ -1,5 +1,5 @@
 from curses import raw
-from app.crud.competition.common import get_region_by_name
+from app.crud.competition.common import get_region_by_name, get_region_by_region_id
 from app.crud.competition.bike import (
     get_event_by_event_id, get_event_by_name, get_event_by_season_id_and_region_id,
     get_track_by_name, get_track_by_track_id, get_track_by_event_id,
@@ -21,7 +21,7 @@ from app.crud.competition.bike import (
     get_record_by_record_id_for_update, get_team_id_by_record_id
 )
 from app.crud.asset_manage import (
-    get_cpasset_def_by_id, get_register_card_price, get_registration_card_def, consume_cpasset, reward_ccasset,
+    get_cpasset_def_by_id, get_register_card_price, consume_cpasset, reward_ccasset,
     reward_cpasset, get_team_card_def, get_equip_card_by_card_id
 )
 from app.crud.user import get_user_by_id, get_users_by_ids, get_users_by_user_ids, get_exist_user_by_id
@@ -33,9 +33,11 @@ from app.services.mappers import equip_card_to_base_info
 from app.services.competition.common import _distribute_voucher_and_scores, compute_distance
 from app.schemas.asset import AssetOperation, CPAssetResponse, DailyTaskRewardResponse
 from app.schemas.mailbox import MailType
+from app.schemas.common import CCAssetType, CCAssetRewardResponse
 from app.schemas.competition.common import (
     TeamRelationship, RecordStatus, TeamStatus, CardBonusInfo, 
-    MemberScoreInfo, DailyTaskResponse, TeamMagicCardBonusInfo
+    MemberScoreInfo, DailyTaskResponse, TeamMagicCardBonusInfo,
+    MatchFinishResponse, MatchFinishInfo
 )
 from app.schemas.competition.bike import (
     BikeEventCreateForm, BikeEventBaseInfo, BikeEventUpdateForm, BikeEventBaseInfoInternal,
@@ -58,10 +60,11 @@ from app.db.models.competition import (
 from app.db.session import redis_client
 from sqlalchemy import select
 from app.db.models.mailbox import Mailbox
+from app.db.models.user import User
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
-import uuid, json, logging
+import uuid, json, logging, random
 
 competition_logger = logging.getLogger("competition")
 leaderboard_logger = logging.getLogger("leaderboard")
@@ -69,7 +72,7 @@ leaderboard_logger = logging.getLogger("leaderboard")
 async def create_season_service(db: AsyncSession, season_create: BikeSeasonCreateForm, image_url: str) -> BikeSeasonBaseInfo:
     season = await get_season_by_name(db, season_create.name)
     if season is not None:
-        raise BizException(code=ErrorCode.SEASON_ALREADY_EXIST, message="Bike赛季已存在,不可重复创建")
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.data_error")
     season_id = f"season_{str(uuid.uuid4())[:8]}"
     new_season = BikeSeason(
         season_id=season_id,
@@ -92,7 +95,7 @@ async def create_season_service(db: AsyncSession, season_create: BikeSeasonCreat
 async def update_season_image_url(db: AsyncSession, season_id: str, image_url: str):
     existing_season = await get_season_by_season_id(db, season_id)
     if existing_season is None:
-        raise BizException(code=ErrorCode.SEASON_NOT_FOUND, message="Bike赛季不存在")
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
     update_data = {
         "image_url": image_url
     }
@@ -103,9 +106,9 @@ async def update_season_image_url(db: AsyncSession, season_id: str, image_url: s
 async def query_current_season_service(db: AsyncSession) -> BikeSeasonBaseInfo:
     seasons = await get_season_now(db)
     if not seasons:
-        raise BizException(code=ErrorCode.SEASON_NOT_FOUND, message="当前没有进行中的Bike赛季")
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.out_of_season")
     if len(seasons) > 1:
-        raise BizException(code=ErrorCode.SEASON_NOT_UNIQUE, message="当前时间存在多个进行中的Bike赛季")
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.data_error")
     season: BikeSeason = seasons[0]
     return BikeSeasonBaseInfo(
         season_id=season.season_id,
@@ -128,11 +131,11 @@ async def get_history_seasons_service(db: AsyncSession) -> BikeHistorySeasonResp
 async def create_event_service(db: AsyncSession, event_form: BikeEventCreateForm, image_url: str) -> BikeEventBaseInfoInternal:
     region = await get_region_by_name(db, event_form.region_name)
     if region is None:
-        raise BizException(code=ErrorCode.REGION_NOT_FOUND, message="地理区域不存在")
+        raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
 
     season = await get_season_by_name(db, event_form.season_name)
     if season is None:
-        raise BizException(code=ErrorCode.SEASON_NOT_FOUND, message="赛季不存在")
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
     if event_form.start_date < season.start_date or event_form.end_date > season.end_date or event_form.start_date > event_form.end_date:
         raise BizException(code=ErrorCode.EVENT_EEROR, message="赛事时间非法")
 
@@ -164,9 +167,9 @@ async def create_event_service(db: AsyncSession, event_form: BikeEventCreateForm
 async def update_event_service(db: AsyncSession, event: BikeEventUpdateForm, image_url: str):
     existing_event = await get_event_by_event_id(db, event.event_id)
     if existing_event is None:
-        raise BizException(code=ErrorCode.EVENT_NOT_FOUND, message="赛事不存在")
+        raise BizException(code=ErrorCode.EVENT_ERROR, message="event.not_found")
     if event.start_date < existing_event.season.start_date or event.end_date > existing_event.season.end_date or event.start_date > event.end_date:
-        raise BizException(code=ErrorCode.EVENT_ERROR, message="赛事时间非法")
+        raise BizException(code=ErrorCode.EVENT_ERROR, message="event.invalid_time")
     update_data = {
         "name": event.name,
         "description": event.description,
@@ -181,7 +184,7 @@ async def update_event_service(db: AsyncSession, event: BikeEventUpdateForm, ima
 async def update_event_image_url(db: AsyncSession, event_id: str, image_url: str):
     existing_event = await get_event_by_event_id(db, event_id)
     if existing_event is None:
-        raise BizException(code=ErrorCode.EVENT_NOT_FOUND, message="赛事不存在")
+        raise BizException(code=ErrorCode.EVENT_ERROR, message="event.not_found")
     update_data = {
         "image_url": image_url
     }
@@ -217,21 +220,21 @@ async def query_events_service(
     ) for e in events]
 
 
-async def query_events_by_region(db: AsyncSession, region_name: str) -> List[BikeEventBaseInfo]:
+async def query_events_by_region(db: AsyncSession, region_id: str) -> List[BikeEventBaseInfo]:
     seasons = await get_season_now(db)
     if not seasons:
-        raise BizException(code=ErrorCode.SEASON_NOT_FOUND, message="当前没有进行中的赛季")
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.out_of_season")
     if len(seasons) > 1:
-        raise BizException(code=ErrorCode.SEASON_NOT_UNIQUE, message="当前时间存在多个进行中的赛季")
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.data_error")
     
     season = seasons[0]
-    region = await get_region_by_name(db, region_name)
+    region = await get_region_by_region_id(db, region_id)
     if region is None:
-        raise BizException(code=ErrorCode.REGION_NOT_FOUND, message="当前区域无赛事")
+        raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
     
     events = await get_event_by_season_id_and_region_id(db, season_id=season.id, region_id=region.id)
     if not events:
-        raise BizException(code=ErrorCode.REGION_NOT_FOUND, message="当前区域无赛事")
+        raise BizException(code=ErrorCode.REGION_ERROR, message="region.no_events")
     return [BikeEventBaseInfo(
         event_id=e.event_id,
         name=e.name,
@@ -245,17 +248,17 @@ async def query_events_by_region(db: AsyncSession, region_name: str) -> List[Bik
 async def create_track_service(db: AsyncSession, track_form: BikeTrackCreateForm, image_url: str) -> BikeTrackBaseInfoInternal:
     event = await get_event_by_name(db, track_form.event_name)
     if event is None:
-        raise BizException(code=ErrorCode.EVENT_NOT_FOUND, message="Bike赛事不存在")
+        raise BizException(code=ErrorCode.EVENT_ERROR, message="event.not_found")
     if track_form.start_date < event.start_date or track_form.end_date > event.end_date or track_form.start_date > track_form.end_date:
-        raise BizException(code=ErrorCode.TRACK_ERROR, message="赛道时间非法")
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.invalid_time")
 
     region = await get_region_by_name(db, track_form.region_name)
     if region is None:
-        raise BizException(code=ErrorCode.REGION_NOT_FOUND, message="地理区域不存在")
+        raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
 
     season = await get_season_by_name(db, track_form.season_name)
     if season is None:
-        raise BizException(code=ErrorCode.SEASON_NOT_FOUND, message="Bike赛季不存在")
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
 
     track_id = f"track_{str(uuid.uuid4())[-12:]}"
     new_track = BikeTrack(
@@ -304,9 +307,9 @@ async def create_track_service(db: AsyncSession, track_form: BikeTrackCreateForm
 async def update_track_service(db: AsyncSession, track: BikeTrackUpdateForm, image_url: str):
     existing_track = await get_track_by_track_id(db, track.track_id)
     if existing_track is None:
-        raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
     if track.start_date < existing_track.event.start_date or track.end_date > existing_track.event.end_date or track.start_date > track.end_date:
-        raise BizException(code=ErrorCode.TRACK_ERROR, message="赛道时间非法")
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.invalid_time")
     update_data = {
         "name": track.name,
         "start_date": track.start_date,
@@ -331,7 +334,7 @@ async def update_track_service(db: AsyncSession, track: BikeTrackUpdateForm, ima
 async def update_track_image_url(db: AsyncSession, track_id: str, image_url: str):
     existing_track = await get_track_by_track_id(db, track_id)
     if existing_track is None:
-        raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
     update_data = {
         "image_url": image_url
     }
@@ -384,7 +387,7 @@ async def query_tracks_service(
 async def query_tracks_by_event(db: AsyncSession, event_id: str) -> List[BikeTrackBaseInfo]:
     event = await get_event_by_event_id(db, event_id)
     if event is None:
-        raise BizException(code=ErrorCode.EVENT_NOT_FOUND, message="赛事不存在")
+        raise BizException(code=ErrorCode.EVENT_ERROR, message="event.not_found")
     tracks = await get_track_by_event_id(db, event.id)
     results = []
     for t in tracks:
@@ -395,12 +398,17 @@ async def query_tracks_by_event(db: AsyncSession, event_id: str) -> List[BikeTra
         female_count = await redis_client.zcard(female_key)
         total_count = male_count + female_count
 
+        if not t.single_register_card_def or not t.team_register_card_def:
+            continue
+
         results.append(BikeTrackBaseInfo(
             track_id=t.track_id,
             name=t.name,
             start_date=t.start_date.isoformat(),
             end_date=t.end_date.isoformat(),
             image_url=t.image_url,
+            single_register_card_url=t.single_register_card_def.image_url,
+            team_register_card_url=t.team_register_card_def.image_url,
             from_latitude=t.from_lat,
             from_longitude=t.from_lng,
             from_radius=t.from_radius,
@@ -421,17 +429,18 @@ async def single_register_service(db: AsyncSession, track_id: str, user_id: str)
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         track = await get_track_by_track_id(db, track_id)
         if track is None:
-            raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
         if track.start_date > datetime.now(timezone.utc):
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛未开始")
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_started")
         if track.end_date < datetime.now(timezone.utc):
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛已结束")
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.is_finished")
+        if track.single_register_card_def is None:
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.data_error")
         # 消费报名卡
-        registrarion_card_def = await get_registration_card_def(db, SportType.bike, False)
-        new_balance = await consume_cpasset(db, user.id, registrarion_card_def.id, 1, "自行车赛事报名")
+        new_balance = await consume_cpasset(db, user.id, track.single_register_card_id, 1, "自行车赛事报名")
         # 创建record
         record_id = f"record_{uuid.uuid4()}"
         new_record = BikeRaceRecord (
@@ -463,7 +472,7 @@ async def single_register_service(db: AsyncSession, track_id: str, user_id: str)
         )
         return BikeSingleRegisterResponse(
             record=record_info,
-            asset_id=registrarion_card_def.asset_id,
+            asset_id=track.single_register_card_def.asset_id,
             new_balance=new_balance
         )
 
@@ -472,26 +481,27 @@ async def team_register_service(db: AsyncSession, team_code: str, user_id: str) 
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         team = await get_team_by_code_for_update(db, team_code)
         if team is None:
-            raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
         if team.track is None:
-            raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
         if team.track.start_date > datetime.now(timezone.utc):
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛未开始")
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_started")
         if team.track.end_date < datetime.now(timezone.utc):
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛已结束")
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.is_finished")
+        if team.track.team_register_card_def is None:
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.data_error")
         
         user_member = next((member for member in team.members if member.user_id == user.id), None)
         if user_member is None:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="您不在队伍中")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_in_members")
         if user_member.is_registered:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="请勿重复报名")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.repeat_register")
 
         # 消费报名卡
-        registrarion_card_def = await get_registration_card_def(db, SportType.bike, True)
-        new_balance = await consume_cpasset(db, user.id, registrarion_card_def.id, 1, "自行车赛事报名")
+        new_balance = await consume_cpasset(db, user.id, team.track.team_register_card_id, 1, "自行车赛事报名")
 
         record_id = f"record_{uuid.uuid4()}"
         new_record = BikeRaceRecord (
@@ -503,7 +513,7 @@ async def team_register_service(db: AsyncSession, team_code: str, user_id: str) 
         await create_record_crud(db, new_record)
         user_member.is_registered = True
         return CPAssetResponse(
-            asset_id=registrarion_card_def.asset_id,
+            asset_id=team.track.team_register_card_def.asset_id,
             new_balance=new_balance
         )
 
@@ -516,7 +526,7 @@ async def get_incompleted_records_all(
 ) -> List[BikeRecordInfo]:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     records = await get_incompleted_records_by_user_id(db, user.id, page, size)
     return [BikeRecordInfo(
         record_id=r.record_id,
@@ -549,7 +559,7 @@ async def get_completed_records_all(
 ) -> List[BikeRecordInfo]:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     records = await get_completed_records_by_user_id(db, user.id, page, size)
     return [BikeRecordInfo(
         record_id=r.record_id,
@@ -578,40 +588,40 @@ async def cancel_register_service(db: AsyncSession, record_id: str, user_id: str
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         record = await get_record_by_record_id(db, record_id)
         if record is None:
-            raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+            raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
         if record.user_id != user.id:
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="无权限,取消失败")
-        if record.status == RecordStatus.recording:
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛在进行中,无法取消")
-        if record.status == RecordStatus.completed:
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛已结束,无法取消")
+            raise BizException(code=ErrorCode.RECORD_ERROR, message="record.op_failed")
+        if record.status != RecordStatus.notStarted:
+            raise BizException(code=ErrorCode.RECORD_ERROR, message="record.status_error.cancel_register")
         if record.track is None:
-            raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
         if record.track.end_date < datetime.now(timezone.utc):
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛已结束,无法取消")
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.is_finished.cancel_register")
+        if not record.track.single_register_card_def or not record.track.team_register_card_def:
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.data_error")
         
         is_team = record.team_id is not None
         team = None
         if is_team:
             team = await get_team_by_id_for_update(db, record.team_id)
             if team.status in [TeamStatus.ready, TeamStatus.recording, TeamStatus.completed]:
-                raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍处于比赛状态,无法取消")
+                raise BizException(code=ErrorCode.TEAM_ERROR, message="team.match_recording.cancel_register")
 
-        cpasset_def = await get_registration_card_def(db, SportType.bike, is_team)
-        new_balance = await reward_cpasset(db, user.id, cpasset_def.id, 1, "取消报名", AssetOperation.REFUND)
+        register_card_def = record.track.team_register_card_def if is_team else record.track.single_register_card_def
+        new_balance = await reward_cpasset(db, user.id, register_card_def.id, 1, "取消报名", AssetOperation.REFUND)
         if is_team:
             user_member = next((member for member in team.members if member.user_id == user.id), None)
             if user_member is None:
-                raise BizException(code=ErrorCode.TEAM_ERROR, message="您不在队伍中")
+                raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_in_members")
             if not user_member.is_registered:
-                raise BizException(code=ErrorCode.RECORD_ERROR, message="请勿重复取消")
+                raise BizException(code=ErrorCode.TEAM_ERROR, message="team.repeat_cancel_register")
             user_member.is_registered = False
         await delete_record_crud(db, record)
         return CPAssetResponse(
-            asset_id=cpasset_def.asset_id,
+            asset_id=register_card_def.asset_id,
             new_balance=new_balance
         )
 
@@ -619,34 +629,34 @@ async def cancel_register_service(db: AsyncSession, record_id: str, user_id: str
 async def enter_team_competition_link_service(db: AsyncSession, record_id: str):
     record = await get_record_by_record_id(db, record_id)
     if record is None:
-        raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+        raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
     if record.track is None:
-        raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
     if record.track.end_date < datetime.now(timezone.utc):
-        raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛已结束")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_expired")
     if record.team is None:
-        raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
     if record.team.status != TeamStatus.ready and record.team.status != TeamStatus.recording:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍不在比赛状态")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_error.enter_match")
     if record.team.start_date > datetime.now(timezone.utc) or datetime.now(timezone.utc) > record.team.start_date + timedelta(hours=2):
-        raise BizException(code=ErrorCode.RECORD_ERROR, message="不在比赛有效时间内")
+        raise BizException(code=ErrorCode.RECORD_ERROR, message="team.out_of_match_time")
 
 
 async def start_single_competition_service(db: AsyncSession, user_id: str, info: BikeBeginInfo):
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     record = await get_record_by_record_id(db, info.record_id)
     if record is None:
-        raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+        raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
     if record.user_id != user.id:
-        raise BizException(code=ErrorCode.RECORD_ERROR, message="无权限,无法开始比赛")
+        raise BizException(code=ErrorCode.RECORD_ERROR, message="record.op_failed")
     if record.status != RecordStatus.notStarted:
-        raise BizException(code=ErrorCode.RECORD_ERROR, message="状态错误,无法开始比赛")
+        raise BizException(code=ErrorCode.RECORD_ERROR, message="record.status_error.start_match")
     if record.track is None:
-        raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
     if record.track.end_date < info.start_time:
-        raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛已结束")
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.is_finished")
     update_data = {
         "status": RecordStatus.recording,
         "start_time": info.start_time
@@ -659,36 +669,36 @@ async def start_team_competition_service(db: AsyncSession, user_id: str, info: B
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         record = await get_record_by_record_id(db, info.record_id)
         if record is None:
-            raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+            raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
         if record.user_id != user.id:
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="无权限,无法开始比赛")
+            raise BizException(code=ErrorCode.RECORD_ERROR, message="record.op_failed")
         if record.status != RecordStatus.notStarted:
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="状态错误,无法开始比赛")
+            raise BizException(code=ErrorCode.RECORD_ERROR, message="record.status_error.start_match")
         if record.track is None:
-            raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
         if record.track.end_date < info.start_time:
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛已结束")
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.is_finished")
         if record.team_id is None:
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="您不在队伍中")
+            raise BizException(code=ErrorCode.RECORD_ERROR, message="team.not_in_members")
         
         team = await get_team_by_id_for_update(db, record.team_id)
         if team is None:
-            raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
         if team.status == TeamStatus.ready and team.start_date_real is None:
             if info.start_time < team.start_date:
-                raise BizException(code=ErrorCode.RECORD_ERROR, message="未到队伍比赛时间")
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="team.out_of_match_time")
             if info.start_time > team.start_date + timedelta(hours=2):
-                raise BizException(code=ErrorCode.RECORD_ERROR, message="已错过队伍比赛时间")
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="team.out_of_match_time")
             team.start_date_real = info.start_time
             team.status = TeamStatus.recording
         elif team.status == TeamStatus.recording and team.start_date_real is not None:
             if info.start_time > team.start_date_real + timedelta(seconds=180) or info.start_time < team.start_date_real:
-                raise BizException(code=ErrorCode.RECORD_ERROR, message="不在队伍比赛窗口期,无法加入")
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="team.out_of_match_window")
         else:
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="队伍状态错误")
+            raise BizException(code=ErrorCode.RECORD_ERROR, message="team.status_error")
 
         update_data = {
             "status": RecordStatus.recording,
@@ -705,9 +715,9 @@ async def update_leaderboard_for_record(
     try:
         key = f"leaderboard:bike:{record.track.track_id}:{gender.value}"
         if record.status != RecordStatus.completed or record.duration_seconds is None:
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="记录数据错误")
+            raise BizException(code=ErrorCode.RECORD_ERROR, message="record.data_error.leaderboard_update")
         if record.track is None:
-            raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+            raise BizException(code=ErrorCode.RECORD_ERROR, message="record.data_error.leaderboard_update")
         # 1. 查找旧成绩
         best_score = None
         best_member = None
@@ -723,26 +733,116 @@ async def update_leaderboard_for_record(
                 await redis_client.zrem(key, best_member)
             member = f"{user_id}:{record.record_id}"
             await redis_client.zadd(key, {member: record.duration_seconds})
+    except BizException as b:
+        leaderboard_logger.error(f"Failed to update leaderboard {key} for record {record.record_id}: {b.detail}")
+        raise
     except Exception as e:
         # todo: 记录错误日志，后续由定时任务补偿
         leaderboard_logger.error(f"Failed to update leaderboard {key} for record {record.record_id}: {e}")
+        raise BizException(code=ErrorCode.UNKNOWN_ERROR, message="sys.unknown_error")
 
-async def finish_single_competition_service(db: AsyncSession, info: BikeFinishInfo, user_id: str):
+
+# 比赛奖励结算
+async def settle_match_result(db: AsyncSession, record: BikeRaceRecord, user: User) -> MatchFinishInfo | None:
+    gender = user.real_name_info.gender if user.real_name_info else Gender.male
+    match_result = None
+    if record.duration_seconds is None:
+        return match_result
+    if record.status == RecordStatus.completed or record.status == RecordStatus.toBeVerified:
+        leaderboard_key = f"leaderboard:bike:{record.track.track_id}:{gender.value}"
+        members = await redis_client.zrange(leaderboard_key, 0, -1, withscores=True)
+        # 查询用户的最佳成绩
+        user_best_time = None
+        for member, score in members:
+            if member.startswith(f"{user.user_id}:"):
+                user_best_time = score
+        # 查询赛道最佳成绩
+        track_best_time = None
+        if members:
+            _, track_best_time = members[0]
+        # 计算提升幅度和奖励
+        base_reward_coin = 50
+        improvement_bonus_coin = 0
+        # 随机选择一种 STONE 类型作为奖励类型
+        reward_stone_type = random.choice(
+            [CCAssetType.STONE1, CCAssetType.STONE2, CCAssetType.STONE3]
+        )
+        reward_stone = 0
+        is_track_best: bool = False
+        is_user_best: bool = False
+
+        if track_best_time is None:
+            is_track_best = True
+        elif record.duration_seconds < track_best_time:
+            is_track_best = True
+        else:
+            is_track_best = False
+        
+        if user_best_time is None:
+            is_user_best = True
+        elif record.duration_seconds < user_best_time:
+            is_user_best = True
+        else:
+            is_user_best = False
+
+        if is_track_best:
+            # 赛道最佳成绩：基础200金币 + 根据赛道成绩提升幅度计算的额外金币
+            base_reward_coin = 200
+            reward_stone = 2
+            improvement_ratio = (track_best_time - record.duration_seconds) / track_best_time if track_best_time else 0
+            improvement_bonus_coin = max(min(int(improvement_ratio * 100 * 10), 500), 0)
+        elif is_user_best:
+            # 用户最佳成绩：基础100金币 + 根据用户成绩提升幅度计算的额外金币
+            base_reward_coin = 100
+            reward_stone = 1
+            improvement_ratio = (user_best_time - record.duration_seconds) / user_best_time if user_best_time > 0 else 0
+            improvement_bonus_coin = max(min(int(improvement_ratio * 100 * 5), 250), 0)
+        else:
+            # 均不是：基础50金币 + 根据用户成绩提升幅度计算的额外金币
+            base_reward_coin = 50
+            improvement_ratio = (record.duration_seconds - user_best_time) / user_best_time if user_best_time > 0 else 0
+            improvement_bonus_coin = max(min(int((0.2 - improvement_ratio) * 100 * 3), 60), 0)
+
+        total_rewards = []
+        coin_balance = await reward_ccasset(db, CCAssetType.COIN, base_reward_coin + improvement_bonus_coin, user.id, "单次bike比赛结算", AssetOperation.REWARD)
+        coin_reward = CCAssetRewardResponse(
+            ccasset_type=CCAssetType.COIN,
+            new_ccamount=coin_balance,
+            reward_amount=base_reward_coin + improvement_bonus_coin
+        )
+        total_rewards.append(coin_reward)
+        if reward_stone > 0:
+            stone_balance = await reward_ccasset(db, reward_stone_type, reward_stone, user.id, "单次bike比赛结算", AssetOperation.REWARD)
+            stone_reward = CCAssetRewardResponse(
+                ccasset_type=reward_stone_type,
+                new_ccamount=stone_balance,
+                reward_amount=reward_stone
+            )
+            total_rewards.append(stone_reward)
+        match_result = MatchFinishInfo(
+            is_user_best=is_user_best,
+            is_track_best=is_track_best,
+            rewards=total_rewards
+        )
+    return match_result
+
+
+async def finish_single_competition_service(db: AsyncSession, info: BikeFinishInfo, user_id: str) -> MatchFinishResponse:
     try:
         async with db.begin():
             user = await get_user_by_id(db, user_id)
             if user is None:
-                raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+                raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
             gender = user.real_name_info.gender if user.real_name_info else Gender.male
             record = await get_record_by_record_id(db, info.record_id)
             if record is None:
-                raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
             if record.track is None:
-                raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+                raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
             if record.start_time is None or record.start_time > info.end_time:
-                raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛时间错误")
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="record.invalid_time")
             if record.status != RecordStatus.recording and record.status != RecordStatus.expired:
-                raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛状态错误")
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="record.status_error.finish_match")
             final_time = (info.end_time - record.start_time).total_seconds()
             bonus_time = 0
 
@@ -787,39 +887,45 @@ async def finish_single_competition_service(db: AsyncSession, info: BikeFinishIn
             # 更新奖金池
             track = await get_track_by_track_id_for_update(db, record.track.track_id)
             if track is None or track.event is None or track.event.season is None:
-                raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
-            card_price = await get_register_card_price(db, SportType.bike, False)
+                raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
+            if track.single_register_card_def is None:
+                raise BizException(code=ErrorCode.TRACK_ERROR, message="track.data_error")
+            card_price = await get_register_card_price(db, track.single_register_card_id)
             if card_price:
-                track.prize_pool += card_price.price
+                price_need_to_add = int(card_price.price / 5) if card_price.ccasset_type == CCAssetType.COIN else int(card_price.price / 2)
+                track.prize_pool += price_need_to_add
             db.add(track)
             # 更新个人统计数据 & 每日任务进度
             if record.status == RecordStatus.completed:
                 distance = compute_distance([p.base for p in info.path])
                 await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
                 await add_or_update_daily_task_record(db, user.id, distance, final_time)
+            # 发放比赛结算奖励
+            match_result = await settle_match_result(db, record, user)
     except Exception as e:
         competition_logger.error(f"finish single bike competition failed: {e}")
-        return
+        return MatchFinishResponse(match_result=None)
     # 更新排行榜
     if record.duration_seconds is not None and record.status == RecordStatus.completed:
         await update_leaderboard_for_record(record, user_id, gender)
+    return MatchFinishResponse(match_result=match_result)
 
 
-async def finish_team_competition_service(db: AsyncSession, info: BikeFinishInfo, user_id: str):
+async def finish_team_competition_service(db: AsyncSession, info: BikeFinishInfo, user_id: str) -> MatchFinishResponse:
     try:
         async with db.begin():
             user = await get_user_by_id(db, user_id)
             if user is None:
-                raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+                raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
             gender = user.real_name_info.gender if user.real_name_info else Gender.male
 
             # 先对 team 上锁
             team_id = await get_team_id_by_record_id(db, info.record_id)
             if not team_id:
-                raise BizException(code=ErrorCode.RECORD_ERROR, message="您不在队伍中")
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="team.not_in_members")
             team = await get_team_by_id_for_update(db, team_id)
             if team is None:
-                raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+                raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
             
             record = None
             records_in_team = await get_records_by_team_id_for_update(db, team_id)
@@ -828,13 +934,13 @@ async def finish_team_competition_service(db: AsyncSession, info: BikeFinishInfo
                     record = r
 
             if record is None:
-                raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
             if record.track is None:
-                raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+                raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
             if record.start_time is None or record.start_time > info.end_time:
-                raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛时间错误")
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="record.invalid_time")
             if record.status != RecordStatus.recording and record.status != RecordStatus.expired:
-                raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛状态错误")
+                raise BizException(code=ErrorCode.RECORD_ERROR, message="record.status_error.finish_match")
 
             final_time = (info.end_time - record.start_time).total_seconds()
             bonus_time = 0
@@ -896,11 +1002,14 @@ async def finish_team_competition_service(db: AsyncSession, info: BikeFinishInfo
             # 更新奖金池
             track = await get_track_by_track_id_for_update(db, record.track.track_id)
             if track is None or track.event is None or track.event.season is None:
-                raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+                raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
+            if track.team_register_card_def is None:
+                raise BizException(code=ErrorCode.TRACK_ERROR, message="track.data_error")
             #print(f"prize pool before update: {track.prize_pool}")
-            card_price = await get_register_card_price(db, SportType.bike, True)
+            card_price = await get_register_card_price(db, track.team_register_card_id)
             if card_price:
-                track.prize_pool += card_price.price
+                price_need_to_add = int(card_price.price / 5) if card_price.ccasset_type == CCAssetType.COIN else int(card_price.price / 2)
+                track.prize_pool += price_need_to_add
             db.add(track)
             # 应用团队收益 & 更新个人统计数据 & 更新每日任务进度
             if record.status == RecordStatus.completed:
@@ -909,12 +1018,15 @@ async def finish_team_competition_service(db: AsyncSession, info: BikeFinishInfo
                 distance = compute_distance([p.base for p in info.path])
                 await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
                 await add_or_update_daily_task_record(db, user.id, distance, final_time)
+            # 发放比赛结算奖励
+            match_result = await settle_match_result(db, record, user)
     except Exception as e:
         competition_logger.error(f"finish team bike competition failed: {e}")
-        return
+        return MatchFinishResponse(match_result=None)
     # 更新排行榜
     if record.duration_seconds is not None and record.status == RecordStatus.completed:
         await update_leaderboard_for_record(record, user_id, gender)
+    return MatchFinishResponse(match_result=match_result)
 
 
 async def query_unverified_records_service(
@@ -939,11 +1051,11 @@ async def handle_record_verified_service(db: AsyncSession, record_id: str, resul
     async with db.begin():
         record = await get_record_by_record_id(db, record_id)
         if record is None:
-            raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+            raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
         if record.status != RecordStatus.toBeVerified:
             raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛状态错误")
         if record.user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         if result:
             record.status = RecordStatus.completed
             points = []
@@ -954,7 +1066,7 @@ async def handle_record_verified_service(db: AsyncSession, record_id: str, resul
                 raise BizException(code=ErrorCode.RECORD_ERROR, message="找不到比赛成绩")
             track = await get_track_by_track_id(db, record.track.track_id)
             if track is None or track.event is None or track.event.season is None:
-                raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+                raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
             await add_or_update_career_statistic_data(db, track.event.season.id, record.user.id, distance, record.duration_seconds)
             await add_or_update_daily_task_record(db, record.user.id, distance, record.duration_seconds)
             # 更新排行榜
@@ -968,11 +1080,11 @@ async def handle_record_verified_service(db: AsyncSession, record_id: str, resul
 async def get_team_expired_date_service(db: AsyncSession, record_id: str) -> BikeTeamExpiredResponse:
     record = await get_record_by_record_id(db, record_id)
     if record is None:
-        raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+        raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
     if record.track is None:
-        raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
     if record.team is None:
-        raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
     expired_date = (record.team.start_date_real + timedelta(seconds=180)).isoformat() if record.team.start_date_real else None
     return BikeTeamExpiredResponse(expired_date=expired_date)
 
@@ -1015,7 +1127,7 @@ async def query_leaderboard_in_page(
     # 从Redis获取排行榜数据
     leaderboard_page = await redis_client.zrange(snapshot_key, start, end, withscores=True)
     if not leaderboard_page:
-        raise BizException(code=ErrorCode.LEADERBOARD_EXPIRED, message="排行榜数据已过期,请刷新")
+        raise BizException(code=ErrorCode.LEADERBOARD_ERROR, message="leaderboard.expired")
     
     member_keys = [member for member, _ in leaderboard_page]
     rewards_data = await redis_client.hmget(rewards_hash_key, *member_keys)
@@ -1067,7 +1179,7 @@ async def query_leaderboard_history_in_page(
 ) -> BikeLeaderboardResponse:
     track = await get_track_by_track_id(db, track_id)
     if track is None:
-        raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
     records = await get_leaderboad_records_in_page(db, track.id, gender, page, page_size)
     entries = []
     for record in records:
@@ -1096,7 +1208,7 @@ async def get_score_leaderboard_service(
 ) -> BikeScoreLeaderboardResponse:
     season = await get_season_by_season_id(db, season_id)
     if not season:
-        raise BizException(code=ErrorCode.SEASON_NOT_FOUND, message="赛季数据错误")
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
     scores = await get_scores_in_page(db, season.id, gender, page, page_size)
     entries = []
     for rank, score in enumerate(scores, start=1):
@@ -1116,7 +1228,7 @@ async def get_score_leaderboard_service(
 async def query_user_rank_info(db: AsyncSession, user_id: str, track_id: str) -> BikeRankInfo:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     gender = user.real_name_info.gender if user.real_name_info else Gender.male
 
     snapshot_key = await get_latest_snapshot_key(track_id, gender)
@@ -1150,14 +1262,14 @@ async def create_team_service(db: AsyncSession, create_info: BikeTeamCreateInfo,
     async with db.begin():
         track = await get_track_by_track_id(db, create_info.track_id)
         if track is None:
-            raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
         if track.start_date > datetime.now(timezone.utc):
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛未开始")
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_started")
         if track.end_date < datetime.now(timezone.utc):
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛已结束")
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.is_finished")
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         # 消费组队卡
         team_card_def = await get_team_card_def(db, SportType.bike)
         new_balance = await consume_cpasset(db, user.id, team_card_def.id, 1, "自行车赛事报名")
@@ -1197,11 +1309,11 @@ async def get_public_teams_service(
 ) -> BikeAppliedTeamResponse:
     track = await get_track_by_track_id(db, track_id)
     if track is None:
-        raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
     if track.start_date > datetime.now(timezone.utc):
-        raise BizException(code=ErrorCode.TRACK_ERROR, message="比赛未开始")
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_started")
     if track.end_date < datetime.now(timezone.utc):
-        raise BizException(code=ErrorCode.TRACK_ERROR, message="比赛已结束")
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.is_finished")
     teams = await get_public_teams_by_track_id(db, track.id, page, size)
     infos = []
     for t in teams:
@@ -1232,7 +1344,7 @@ async def get_user_applied_teams(
 ) -> BikeAppliedTeamResponse:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     teams = await get_applied_teams_by_user_id(db, user.id, page, size)
     # 批量查找所有队长 user_id
     leader_ids = [m.user_id for t in teams for m in t.members if m.is_leader]
@@ -1270,7 +1382,7 @@ async def get_user_teams(
 ) -> BikeTeamResponse:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     
     infos = []
     if relationship == TeamRelationship.created:
@@ -1323,9 +1435,9 @@ async def get_user_teams(
 async def get_team_detail_service(db: AsyncSession, team_id: str) -> BikeTeamDetailResponse:
     team = await get_team_by_team_id(db, team_id)
     if team is None:
-        raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
     if team.status == TeamStatus.completed:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍已过期")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_expired")
     members = [
         BikeTeamMemberInfo(
             member_id=m.member_id,
@@ -1361,13 +1473,13 @@ async def get_team_detail_service(db: AsyncSession, team_id: str) -> BikeTeamDet
 async def get_team_manage_service(db: AsyncSession, team_id: str) -> BikeTeamManageResponse:
     team = await get_team_by_team_id(db, team_id)
     if team is None:
-        raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
     if team.status == TeamStatus.completed:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍已过期")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_expired")
     if team.track is None:
-        raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
     if team.track.end_date < datetime.now(timezone.utc):
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍已过期")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_expired")
     members = [
         BikeTeamMemberInfo(
             member_id=m.member_id,
@@ -1441,11 +1553,11 @@ async def settle_bike_leaderboard_service(db: AsyncSession, track_id: str) -> tu
     async with db.begin():
         track = await get_track_by_track_id(db, track_id)
         if track is None:
-            raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="赛道不存在")
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
         if track.end_date > datetime.now(timezone.utc):
             raise BizException(code=ErrorCode.TRACK_ERROR, message="赛道未结束，无法结算")
         if track.event is None or track.event.season is None:
-            raise BizException(code=ErrorCode.TRACK_ERROR, message="赛事数据缺失")
+            raise BizException(code=ErrorCode.TRACK_ERROR, message="track.data_error")
         if await track_has_settled(db, track.id):
             raise BizException(code=ErrorCode.TRACK_ERROR, message="赛道已被结算")
 
@@ -1520,19 +1632,19 @@ async def settle_bike_leaderboard_service(db: AsyncSession, track_id: str) -> tu
 async def update_team_info_service(db: AsyncSession, user_id: str, info: BikeTeamUpdateInfo) -> BikeTeamUpdateResponse:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     team = await get_team_by_team_id_for_update(db, info.team_id)
     if team is None:
-        raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
     if team.status != TeamStatus.prepared:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍已锁定,保存失败")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_not_prepared.manage_team")
     # 验证用户是否是队伍成员
     user_member = next((member for member in team.members if member.user_id == user.id), None)
     if user_member is None:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="无修改权限")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
     # 验证用户是否是队长
     if not user_member.is_leader:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="无修改权限")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
     
     update_data = {
         "title": info.title,
@@ -1551,19 +1663,19 @@ async def update_team_info_service(db: AsyncSession, user_id: str, info: BikeTea
 async def update_team_public_status_service(db: AsyncSession, user_id: str, info: BikeTeamStatusUpdateInfo) -> bool:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     team = await get_team_by_team_id_for_update(db, info.team_id)
     if team is None:
-        raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
     if team.status != TeamStatus.prepared:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍已锁定,无法修改")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_not_prepared.manage_team")
     # 验证用户是否是队伍成员
     user_member = next((member for member in team.members if member.user_id == user.id), None)
     if user_member is None:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="无修改权限")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
     # 验证用户是否是队长
     if not user_member.is_leader:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="无修改权限")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
     
     update_data = {
         "is_public": info.new_status
@@ -1576,19 +1688,19 @@ async def update_team_public_status_service(db: AsyncSession, user_id: str, info
 async def update_team_lock_status_service(db: AsyncSession, user_id: str, info: BikeTeamStatusUpdateInfo) -> bool:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     team = await get_team_by_team_id_for_update(db, info.team_id)
     if team is None:
-        raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
     if team.status != TeamStatus.prepared and team.status != TeamStatus.locked:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍处于比赛状态,无法修改")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.match_recording.manage_team")
     # 验证用户是否是队伍成员
     user_member = next((member for member in team.members if member.user_id == user.id), None)
     if user_member is None:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="无修改权限")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
     # 验证用户是否是队长
     if not user_member.is_leader:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="无修改权限")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
     
     update_data = {
         "status": TeamStatus.locked if info.new_status else TeamStatus.prepared
@@ -1601,36 +1713,36 @@ async def update_team_lock_status_service(db: AsyncSession, user_id: str, info: 
 async def update_team_ready_status_service(db: AsyncSession, user_id: str, team_id: str) -> bool:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     team = await get_team_by_team_id_for_update(db, team_id)
     if team is None:
-        raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
     if team.status != TeamStatus.prepared and team.status != TeamStatus.locked:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍处于比赛状态,无法修改")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.match_recording.manage_team")
     # 验证用户是否是队伍成员
     user_member = next((member for member in team.members if member.user_id == user.id), None)
     if user_member is None:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="无修改权限")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
     # 验证用户是否是队长
     if not user_member.is_leader:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="无修改权限")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
     # 确认队伍中所有members都已报名
     if any(not member.is_registered for member in team.members):
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍中存在未报名成员")
-    # 确认队伍不存在applied_members
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_all_registered.manage_team")
+    # 确认队伍中不存在applied_members
     if len(team.applied_members) > 0:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍存在待审核成员")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_all_settled.manage_team")
     if team.track is None:
-        raise BizException(code=ErrorCode.TEAM_JOIN_ERROR, message="队伍赛道无效")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.data_error")
     # 确认比赛时间的合法性:
     if team.start_date < datetime.now(timezone.utc) or team.start_date > team.track.end_date:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="比赛时间不合法")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.invalid_match_time")
     # 确认队伍已锁定
     if team.status == TeamStatus.prepared:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="请先锁定队伍")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_not_locked")
     # 禁止1人进行组队比赛
     if len(team.members) == 1:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍至少需要有2名成员哦")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.member_not_enough")
     
     update_data = {
         "status": TeamStatus.ready
@@ -1644,32 +1756,31 @@ async def disband_team_service(db: AsyncSession, user_id: str, team_id: str) -> 
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         team = await get_team_by_team_id_for_update(db, team_id)
         if team is None:
-            raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
         if team.status != TeamStatus.prepared:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍已锁定,无法解散")
-        if team.track is None:
-            raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="队伍无效")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_not_prepared.manage_team")
+        if team.track is None or team.track.team_register_card_def is None:
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.data_error")
         if team.track.end_date < datetime.now(timezone.utc):
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍已过期")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_expired")
         user_member = next((member for member in team.members if member.user_id == user.id), None)
         if user_member is None:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="无修改权限")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
         if not user_member.is_leader:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="无修改权限")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
         if user_member.is_registered:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="请先取消报名")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.is_registered.quit_team")
         
         # 返回组队卡
         team_card_def = await get_team_card_def(db, SportType.bike)
         new_balance = await reward_cpasset(db, user.id, team_card_def.id, 1, "解散队伍", AssetOperation.REFUND)
         # 所有已报名成员取消报名
-        register_card_def = await get_registration_card_def(db, SportType.bike, True)
         for member in team.members:
             if member.is_registered:
-                await reward_cpasset(db, member.user_id, register_card_def.id, 1, "取消报名", AssetOperation.REFUND)
+                await reward_cpasset(db, member.user_id, team.track.team_register_card_id, 1, "取消报名", AssetOperation.REFUND)
         await delete_records_by_team_id(db, team.id)
         await db.delete(team)
         return CPAssetResponse(
@@ -1682,33 +1793,32 @@ async def remove_team_member_service(db: AsyncSession, user_id: str, team_id: st
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         team = await get_team_by_team_id_for_update(db, team_id)
         if team is None:
-            raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
         if team.status != TeamStatus.prepared:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍已锁定")
-        if team.track is None:
-            raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="队伍无效")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_not_prepared.manage_team")
+        if team.track is None or team.track.team_register_card_def is None:
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.data_error")
         if team.track.end_date < datetime.now(timezone.utc):
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍已过期")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_expired")
         user_member = next((member for member in team.members if member.user_id == user.id), None)
         member_need_delete = next((member for member in team.members if member.member_id == member_id), None)
         if member_need_delete is None:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="用户已不在队伍中")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_in_members.manage_team")
         if member_need_delete.user_id == user.id:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="不能移除自己")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
         if user_member is None:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="无移除权限")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
         if not user_member.is_leader:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="无移除权限")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
         # 若已报名则自动取消报名
         if member_need_delete.is_registered:
             record = await get_record_by_team_id_and_user_id(db, team.id, member_need_delete.user_id)
             if record is not None and record.status == RecordStatus.notStarted:
                 await delete_record_crud(db, record)
-                register_card_def = await get_registration_card_def(db, SportType.bike, True)
-                await reward_cpasset(db, member_need_delete.user_id, register_card_def.id, 1, "取消报名", AssetOperation.REFUND)
+                await reward_cpasset(db, member_need_delete.user_id, team.track.team_register_card_id, 1, "取消报名", AssetOperation.REFUND)
         await db.delete(member_need_delete)
         await db.flush()
         await db.refresh(team, attribute_names=["members"])
@@ -1728,26 +1838,24 @@ async def reject_applied_request_service(db: AsyncSession, user_id: str, team_id
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         team = await get_team_by_team_id_for_update(db, team_id)
         if team is None:
-            raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
         if team.status != TeamStatus.prepared:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍已锁定")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_not_prepared.manage_team")
         if team.track is None:
-            raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="队伍无效")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.data_error")
         if team.track.end_date < datetime.now(timezone.utc):
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍已过期")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_expired")
         user_member = next((member for member in team.members if member.user_id == user.id), None)
         member_need_delete = next((member for member in team.applied_members if member.member_id == member_id), None)
         if member_need_delete is None:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="用户已不在申请列表中")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_in_applied_members.manage_team")
         if member_need_delete.user_id == user.id:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="不能拒绝自己")
-        if user_member is None:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="无操作权限")
-        if not user_member.is_leader:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="无操作权限")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
+        if user_member is None or not user_member.is_leader:
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
         await db.delete(member_need_delete)
 
 
@@ -1755,28 +1863,28 @@ async def approve_applied_request_service(db: AsyncSession, user_id: str, team_i
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         team = await get_team_by_team_id_for_update(db, team_id)
         if team is None:
-            raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
         if team.status != TeamStatus.prepared:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍已锁定")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_not_prepared.manage_team")
         if team.track is None:
-            raise BizException(code=ErrorCode.TRACK_NOT_FOUND, message="队伍无效")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.data_error")
         if team.track.end_date < datetime.now(timezone.utc):
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍已过期")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_expired")
         user_member = next((member for member in team.members if member.user_id == user.id), None)
         member_need_delete = next((member for member in team.applied_members if member.member_id == member_id), None)
         if member_need_delete is None:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="用户已不在申请列表中")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_in_applied_members.manage_team")
         if member_need_delete.user_id == user.id:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="不能处理自己的申请")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
         if user_member is None:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="无操作权限")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
         if not user_member.is_leader:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="无操作权限")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.op_failed.manage_team")
         if len(team.members) >= team.members_count_max:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍已满")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.member_fulled")
         new_member = BikeTeamMember(
             member_id=f"member_{uuid.uuid4()}",
             team_id=team.id,
@@ -1797,28 +1905,23 @@ async def approve_applied_request_service(db: AsyncSession, user_id: str, team_i
         ) for member in team.members]
         return BikeTeamMembersResponse(members=members)
 
-        '''if member_need_delete in team.applied_members:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="操作失败")
-        if new_member not in team.members:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="操作失败")'''
-
 
 async def quit_team_service(db: AsyncSession, user_id: str, team_id: str):
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     team = await get_team_by_team_id_for_update(db, team_id)
     if team is None:
-        raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
     if team.status != TeamStatus.prepared and team.status != TeamStatus.locked:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍处于比赛状态,无法退出")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.match_recording.quit_team")
     user_member = next((member for member in team.members if member.user_id == user.id), None)
     if user_member is None:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="您不在队伍中")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_in_members")
     if user_member.is_leader:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="您是队长,无法退出队伍")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.is_leader.quit_team")
     if user_member.is_registered:
-        raise BizException(code=ErrorCode.TEAM_ERROR, message="请先取消报名")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.is_registered.quit_team")
     await db.delete(user_member)
     await db.commit()
 
@@ -1827,20 +1930,20 @@ async def join_team_service(db: AsyncSession, user_id: str, team_code: str):
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         team = await get_team_by_code_for_update(db, team_code)
         if team is None:
-            raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
         if any(member.user_id == user.id for member in team.members):
-            raise BizException(code=ErrorCode.TEAM_JOIN_ERROR, message="您已在队伍中")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.already_in_members")
         if team.status != TeamStatus.prepared:
-            raise BizException(code=ErrorCode.TEAM_JOIN_ERROR, message="队伍当前不可加入")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_not_prepared.join_team")
         if team.track is None:
-            raise BizException(code=ErrorCode.TEAM_JOIN_ERROR, message="队伍赛道无效")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.data_error")
         if team.track.end_date < datetime.now(timezone.utc):
-            raise BizException(code=ErrorCode.TEAM_JOIN_ERROR, message="队伍已过期")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_expired")
         if len(team.members) >= team.members_count_max:
-            raise BizException(code=ErrorCode.TEAM_JOIN_ERROR, message="队伍已满")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.member_fulled")
         new_member = BikeTeamMember(
             member_id=f"member_{uuid.uuid4()}",
             team_id=team.id,
@@ -1853,22 +1956,22 @@ async def applied_join_team_service(db: AsyncSession, user_id: str, request: Bik
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         team = await get_team_by_team_id_for_update(db, request.team_id)
         if team is None:
-            raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
         if any(member.user_id == user.id for member in team.members):
-            raise BizException(code=ErrorCode.TEAM_JOIN_ERROR, message="您已在队伍中")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.already_in_members")
         if any(member.user_id == user.id for member in team.applied_members):
-            raise BizException(code=ErrorCode.TEAM_JOIN_ERROR, message="请勿重复申请")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.already_in_applied_members")
         if team.status != TeamStatus.prepared:
-            raise BizException(code=ErrorCode.TEAM_JOIN_ERROR, message="队伍当前不可加入")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_not_prepared.join_team")
         if team.track is None:
-            raise BizException(code=ErrorCode.TEAM_JOIN_ERROR, message="队伍无效")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.data_error")
         if team.track.end_date < datetime.now(timezone.utc):
-            raise BizException(code=ErrorCode.TEAM_JOIN_ERROR, message="队伍已过期")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_expired")
         if len(team.members) >= team.members_count_max:
-            raise BizException(code=ErrorCode.TEAM_JOIN_ERROR, message="队伍已满")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.member_fulled")
         new_member = BikeTeamAppliedMember(
             member_id=f"member_{uuid.uuid4()}",
             team_id=team.id,
@@ -1882,24 +1985,24 @@ async def cancel_applied_join_team_service(db: AsyncSession, user_id: str, team_
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         team = await get_team_by_team_id_for_update(db, team_id)
         if team is None:
-            raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
         if team.track is None:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍无效")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.data_error")
         if team.track.end_date < datetime.now(timezone.utc):
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="队伍已过期")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.status_expired")
         member = next((member for member in team.applied_members if member.user_id == user.id), None)
         if member is None:
-            raise BizException(code=ErrorCode.TEAM_ERROR, message="您不在申请列表中")
+            raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_in_applied_members")
         await db.delete(member)
 
 
 async def get_record_detail_service(db: AsyncSession, record_id: str, user_id: str | None) -> BikeRecordDetailInfo:
     record = await get_record_by_record_id(db, record_id)
     if record is None:
-        raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+        raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
     
     # 构建MemberScoreInfo列表
     team_member_scores_list = []
@@ -1981,10 +2084,9 @@ async def get_record_detail_service(db: AsyncSession, record_id: str, user_id: s
 async def get_current_best_records_service(db: AsyncSession, user_id: str) -> BikeSummaryRecordResponse:
     seasons = await get_season_now(db)
     if not seasons:
-        #raise BizException(code=ErrorCode.SEASON_NOT_FOUND, message="当前没有进行中的Bike赛季")
         return BikeSummaryRecordResponse(records=[])
     if len(seasons) > 1:
-        raise BizException(code=ErrorCode.SEASON_NOT_UNIQUE, message="当前时间存在多个进行中的Bike赛季")
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.data_error")
     season: BikeSeason = seasons[0]
     events = await get_active_events_by_season_id(db, season.id)
     records = []
@@ -2008,10 +2110,10 @@ async def get_current_best_records_service(db: AsyncSession, user_id: str) -> Bi
 async def get_career_records_service(db: AsyncSession, season_id: str, user_id: str) -> BikeCareerRecordResponse:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     season = await get_season_by_season_id(db, season_id)
     if season is None:
-        raise BizException(code=ErrorCode.SEASON_NOT_FOUND, message="赛季数据异常")
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
     records = []
     for event in season.bike_events:
         for track in event.tracks:
@@ -2032,10 +2134,10 @@ async def get_career_records_service(db: AsyncSession, season_id: str, user_id: 
 async def get_career_data_service(db: AsyncSession, season_id: str, user_id: str) -> BikeCareerDataInfo:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     season = await get_season_by_season_id(db, season_id)
     if not season:
-        raise BizException(code=ErrorCode.SEASON_NOT_FOUND, message="赛季数据错误")
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
     gender = user.real_name_info.gender if user.real_name_info else Gender.male
     statistic_data = await get_career_statistic_data(db, season.id, user.id)
     score, rank, voucher_bonus = await get_score_and_rank_by_season_id_and_user(db, season.id, user.id, gender)
@@ -2050,7 +2152,7 @@ async def get_career_data_service(db: AsyncSession, season_id: str, user_id: str
 async def query_daily_task_status_service(db: AsyncSession, user_id: str) -> DailyTaskResponse | None:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     task = await get_daily_task(db)
     task_record = await get_today_task_record_by_user(db, user.id)
     if task:
@@ -2075,13 +2177,13 @@ async def claimed_daily_task_reward_service(db: AsyncSession, user_id: str, stag
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         if stage < 1 or stage > 3:
-            raise BizException(code=ErrorCode.PROPERTY_ERROR, message="领取失败")
+            raise BizException(code=ErrorCode.REWARD_CLAIM_FAILED, message="reward.data_error")
         task = await get_daily_task(db)
         task_record = await get_today_task_record_by_user(db, user.id)
         if task is None or task_record is None:
-            raise BizException(code=ErrorCode.DAILY_TASK_NOT_FOUND, message="领取失败")
+            raise BizException(code=ErrorCode.REWARD_CLAIM_FAILED, message="reward.data_error")
         if stage == 1 and not task_record.is_reward1_received and (task_record.progress / task.total_progress > 1/3):
             new_balance = await reward_ccasset(db, task.reward_stage1_type, task.reward_stage1, user.id, "每日任务奖励", AssetOperation.REWARD)
             task_record.is_reward1_received = True
@@ -2110,17 +2212,17 @@ async def claimed_daily_task_reward_service(db: AsyncSession, user_id: str, stag
                 cpasset_id=cpasset_def.asset_id if cpasset_def else None,
                 cpasset_amount=new_balance
             )
-        raise BizException(code=ErrorCode.DAILY_TASK_ERROR, message="领取失败")
+        raise BizException(code=ErrorCode.REWARD_CLAIM_FAILED, message="reward.data_error")
 
 async def start_competition_with_team_bonus_card_service(db: AsyncSession, user_id: str, record_id: str):
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     record = await get_record_by_record_id(db, record_id)
     if record is None:
-        raise BizException(code=ErrorCode.RECORD_NOT_FOUND, message="记录不存在")
+        raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
     if record.team_id is None:
-        raise BizException(code=ErrorCode.TEAM_NOT_FOUND, message="队伍不存在")
+        raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
     new_bonus_record = BikeBonusByTeamMember(
         team_id=record.team_id,
         user_id=user.id

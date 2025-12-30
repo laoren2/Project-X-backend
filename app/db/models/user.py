@@ -19,6 +19,7 @@ class User(Base):
     phone_number = Column(String, nullable=True)
     apple_id = Column(String, nullable=True)
     apple_email = Column(String, nullable=True)
+    email = Column(String, nullable=True)
     apple_iap_token = Column(UUID(as_uuid=True), unique=True, default=uuid.uuid4, nullable=False)    # 用来和 app store 交易关联
     avatar_image_url = Column(String, nullable=False)
     background_image_url = Column(String, nullable=False)
@@ -35,8 +36,8 @@ class User(Base):
     __table_args__ = (
         # 否则账号无法找回
         CheckConstraint(
-            "phone_number IS NOT NULL OR apple_id IS NOT NULL",
-            name="ck_user_phone_or_apple_id_not_null"
+            "phone_number IS NOT NULL OR apple_id IS NOT NULL OR email IS NOT NULL",
+            name="ck_user_phone_or_apple_id_or_email_not_null"
         ),
         # 部分唯一索引：仅对 status='normal' 或 'banned' 的数据生效
         Index(
@@ -48,6 +49,18 @@ class User(Base):
         Index(
             "uq_users_phone_status",
             "phone_number",
+            unique=True,
+            postgresql_where=(status.in_([UserStatus.normal, UserStatus.banned]))
+        ),
+        Index(
+            "uq_users_apple_id_status",
+            "apple_id",
+            unique=True,
+            postgresql_where=(status.in_([UserStatus.normal, UserStatus.banned]))
+        ),
+        Index(
+            "uq_users_email_status",
+            "email",
             unique=True,
             postgresql_where=(status.in_([UserStatus.normal, UserStatus.banned]))
         )

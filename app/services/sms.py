@@ -1,4 +1,3 @@
-import random
 from app.core.config import settings
 from app.core.errors import ErrorCode
 from app.schemas.base import BizException
@@ -7,7 +6,7 @@ from alibabacloud_dysmsapi20180501.client import Client as DysmsapiClient
 from alibabacloud_tea_openapi import models as open_api_models
 from alibabacloud_dysmsapi20180501 import models as dysmsapi_models
 from alibabacloud_tea_util.client import Client as UtilClient
-import asyncio
+import asyncio, random
 
 
 def create_dysmsapi_client() -> DysmsapiClient:
@@ -19,6 +18,8 @@ def create_dysmsapi_client() -> DysmsapiClient:
         access_key_secret=settings.ALIYUN_ACCESS_KEY_SECRET
     )
     config.endpoint = settings.ALIYUN_SMS_ENDPOINT
+    config.connect_timeout = 5
+    config.read_timeout = 5
     return DysmsapiClient(config)
 
 async def send_message_to_globe(
@@ -33,12 +34,13 @@ async def send_message_to_globe(
         to=to
     )
     try:
-        response = await asyncio.to_thread(client.send_message_to_globe, request)
+        response = await asyncio.wait_for(asyncio.to_thread(client.send_message_to_globe, request), timeout=5)
         return response.body.response_code == "OK"
     except Exception as e:
-        raise BizException(code=ErrorCode.SMS_SERVICE_ERROR, message="验证码发送失败")
+        print(e)
+        raise BizException(code=ErrorCode.SMS_SERVICE_ERROR, message="sms.service_error")
 
-async def send_sms_code(phone_number: str):
+async def send_sms_code_service(phone_number: str):
     key = f"sms:{phone_number}"
     code = await redis_client.get(key)
     #    raise BizException(code=ErrorCode.SMS_SERVICE_ERROR, message="请勿频繁请求验证码")
@@ -46,13 +48,13 @@ async def send_sms_code(phone_number: str):
         code = str(random.randint(100000, 999999))
         await redis_client.set(key, code, ex=300)  # 5分钟有效
     # 这里应调用短信服务商API发送验证码
-    '''result = await send_message_to_globe(
+    result = await send_message_to_globe(
         to=f"852{phone_number}",
         message=f"【Sporreer】您的驗證碼是：{code}，請在 5 分鐘內輸入此碼完成操作。如非本人操作，請忽略本短信。",
         from_="ValbaraTech"
     )
     if not result:
-        raise BizException(code=ErrorCode.SMS_SERVICE_ERROR, message="验证码发送失败")'''
+        raise BizException(code=ErrorCode.SMS_SERVICE_ERROR, message="sms.service_error")
     print(f"【调试用】发送验证码 {code} 到 {phone_number}")
     return code
 

@@ -21,5 +21,10 @@ redis_data/
 .idea/
 # Docker
 *.pem
-# 用户资源
+# 资源
 resources/user/
+resources/competition/
+resources/asset/
+resources/feedbacks/
+resources/homepage/
+resources/model/
