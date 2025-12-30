@@ -1,19 +1,23 @@
 from app.core.config import settings
 from app.schemas.base import BaseResponse
 from app.schemas.user import AuthContext
+from app.services.common import generate_did_service
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_language
 import geoip2.database
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_language)])
 
+
+@router.get("/ping", response_model=BaseResponse[None], summary="用于检查客户端本地网络权限")
+async def ping():
+    return BaseResponse.success(data=None)
 
 @router.get("/query_min_version", response_model=BaseResponse[str], summary="查询支持的最低客户端版本")
 async def query_min_version():
     return BaseResponse.success(data=settings.MIN_APP_VERSION)
-
 
 @router.get("/query_ip_country", response_model=BaseResponse[str], summary="查询客户端IP所属国家")
 async def query_ip_country(request: Request):
@@ -36,3 +40,10 @@ async def query_ip_country(request: Request):
         country_iso = "UNKNOWN"
 
     return BaseResponse.success(data=country_iso)
+
+@router.post("/generate_did", response_model=BaseResponse[str], summary="生成设备ID")
+async def generate_did(
+    db: AsyncSession = Depends(get_db)
+):
+    device_id = await generate_did_service(db)
+    return BaseResponse.success(data=device_id)

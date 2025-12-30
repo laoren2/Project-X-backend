@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Protocol
 from pydantic import BaseModel
-from app.schemas.common import EquipCardBaseInfo, PersonInfoResponse, CCAssetType
+from app.schemas.common import EquipCardBaseInfo, PersonInfoResponse, CCAssetType, CCAssetRewardResponse
 
 
 class RecordStatus(str, Enum):
@@ -82,3 +82,15 @@ class TeamMagicCardBonusInfo(BaseModel):
     card_id: str
     bonus_ratio: float | None = None
     bonus_seconds: float | None = None
+
+class MatchFinishInfo(BaseModel):
+    is_user_best: bool
+    is_track_best: bool
+    rewards: List[CCAssetRewardResponse]
+
+class MatchFinishResponse(BaseModel):
+    match_result: MatchFinishInfo | None = None
+
+class RegionResponse(BaseModel):
+    region_id: str | None
+    country_code: str | None

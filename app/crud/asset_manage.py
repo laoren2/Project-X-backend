@@ -4,7 +4,7 @@ from app.db.models.asset import (
     CPAssetTransaction, CPAssetDef, CPRegistrationCardDef, CPAssetPrice, CPTeamCardDef,
     EquipmentCardDef, EquipCardPrice, UserEquipmentCard, EquipCardTransaction, CouponPrice
 )
-from app.schemas.asset import AssetOperation, CPAssetType, CCAssetBaseInfo
+from app.schemas.asset import AssetOperation, CPAssetType
 from app.schemas.common import SportType, CCAssetType
 from app.schemas.base import BizException
 from app.core.errors import ErrorCode
@@ -20,7 +20,7 @@ import random
 async def consume_ccasset(db: AsyncSession, asset_type: CCAssetType, amount: int, user_id: uuid.UUID, comment: str) -> int:
     asset = await get_or_create_user_ccasset(db, user_id, asset_type)
     if asset.balance < amount:
-        raise BizException(code=ErrorCode.ASSET_NOT_ENOUGH, message=f"{asset_type.display_name()}不足")
+        raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.not_enough", params={"asset_type": f"ccasset.{asset_type.value}"})
     new_balance = asset.balance - amount
     new_balance = await update_user_ccasset_balance(db, asset, new_balance)
     await create_ccasset_transaction(
@@ -32,7 +32,7 @@ async def consume_ccasset(db: AsyncSession, asset_type: CCAssetType, amount: int
 async def consume_cpasset(db: AsyncSession, user_id: uuid.UUID, asset_id: uuid.UUID, amount: int, comment: str) -> int:
     asset = await get_or_create_user_cpasset(db, user_id, asset_id)
     if asset.balance < amount:
-        raise BizException(code=ErrorCode.ASSET_NOT_ENOUGH, message=f"{asset.prop_def.prop_type.display_name()}不足")
+        raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.not_enough", params={"asset_type": f"cpasset.{asset.prop_def.prop_type.value}"})
     new_balance = asset.balance - amount
     new_balance = await update_user_cpasset_balance(db, asset, new_balance)
     await create_cpasset_transaction(
@@ -84,19 +84,10 @@ async def get_cpasset_price_on_shelves(db: AsyncSession, asset_id: uuid.UUID) ->
     return result.scalar_one_or_none()
 
 # 查询报名卡的价格
-async def get_register_card_price(db: AsyncSession, sport_type: SportType, is_team: bool) -> CPAssetPrice | None:
-    card_defs = await db.execute(
-        select(CPRegistrationCardDef).where(
-            CPRegistrationCardDef.sport_type == sport_type,
-            CPRegistrationCardDef.is_team == is_team
-        )
-    )
-    card_def = card_defs.scalar_one_or_none()
-    if card_def is None:
-        return None
+async def get_register_card_price(db: AsyncSession, def_id: uuid.UUID) -> CPAssetPrice | None:
     result = await db.execute(
         select(CPAssetPrice).where(
-            CPAssetPrice.prop_def_id == card_def.id
+            CPAssetPrice.prop_def_id == def_id
         )
     )
     return result.scalar_one_or_none()
@@ -196,7 +187,7 @@ async def get_registration_card_def(db: AsyncSession, sport_type: SportType, is_
     )
     registration_card_def = result.scalar_one_or_none()
     if registration_card_def is None:
-        raise BizException(code=ErrorCode.ASSET_DEF_ERROR, message="资产定义不存在")
+        raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.data_error")
     return registration_card_def
 
 async def get_team_card_def(db: AsyncSession, sport_type: SportType) -> CPTeamCardDef:
@@ -207,7 +198,7 @@ async def get_team_card_def(db: AsyncSession, sport_type: SportType) -> CPTeamCa
     )
     team_card_def = result.scalar_one_or_none()
     if team_card_def is None:
-        raise BizException(code=ErrorCode.ASSET_DEF_ERROR, message="资产定义不存在")
+        raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.data_error")
     return team_card_def
 
 async def get_cpassets_on_shelves_crud(db: AsyncSession) -> List[CPAssetPrice]:
@@ -249,6 +240,7 @@ async def get_user_cpasset_all(db: AsyncSession, user_id: uuid.UUID) -> List[CPU
         select(CPUserAsset)
         .options(selectinload(CPUserAsset.prop_def))
         .where(CPUserAsset.user_id == user_id)
+        .order_by(CPUserAsset.updated_at.desc())
     )
     return result.scalars().all()
 
@@ -268,7 +260,7 @@ async def create_user_cpasset(db: AsyncSession, user_id: uuid.UUID, asset_id: uu
 async def get_or_create_user_cpasset(db: AsyncSession, user_id: uuid.UUID, asset_id: uuid.UUID) -> CPUserAsset:
     cpasset_def = await get_cpasset_def_by_id(db, asset_id)
     if cpasset_def is None:
-        raise BizException(code=ErrorCode.ASSET_DEF_ERROR, message="资产定义不存在")
+        raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.data_error")
     result = await db.execute(
         select(CPUserAsset)
         .options(selectinload(CPUserAsset.prop_def))
@@ -383,6 +375,7 @@ async def get_user_equip_cards_all(db: AsyncSession, user_id: uuid.UUID) -> List
         select(UserEquipmentCard)
         .options(selectinload(UserEquipmentCard.equipment_def))
         .where(UserEquipmentCard.user_id == user_id)
+        .order_by(UserEquipmentCard.updated_at.desc())
     )
     return result.scalars().all()
 

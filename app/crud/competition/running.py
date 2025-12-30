@@ -173,7 +173,9 @@ async def get_track_by_track_id(db: AsyncSession, track_id: str) -> RunningTrack
         select(RunningTrack)
         .where(RunningTrack.track_id == track_id)
         .options(
-            selectinload(RunningTrack.event).selectinload(RunningEvent.season)
+            selectinload(RunningTrack.event).selectinload(RunningEvent.season),
+            selectinload(RunningTrack.single_register_card_def),
+            selectinload(RunningTrack.team_register_card_def)
         )
     )
     return result.scalar_one_or_none()
@@ -183,7 +185,9 @@ async def get_track_by_track_id_for_update(db: AsyncSession, track_id: str) -> R
         select(RunningTrack)
         .where(RunningTrack.track_id == track_id)
         .options(
-            selectinload(RunningTrack.event).selectinload(RunningEvent.season)
+            selectinload(RunningTrack.event).selectinload(RunningEvent.season),
+            selectinload(RunningTrack.single_register_card_def),
+            selectinload(RunningTrack.team_register_card_def)
         )
         .with_for_update()
     )
@@ -202,6 +206,10 @@ async def get_track_by_event_id(db: AsyncSession, event_id: uuid.UUID) -> List[R
             RunningTrack.event_id == event_id,
             RunningTrack.start_date <= func.now() + timedelta(days=3),
             RunningTrack.end_date >= func.now()
+        )
+        .options(
+            selectinload(RunningTrack.single_register_card_def),
+            selectinload(RunningTrack.team_register_card_def)
         )
         .order_by(RunningTrack.start_date.desc())
     )
@@ -370,7 +378,10 @@ async def get_record_by_record_id(db: AsyncSession, record_id: str) -> RunningRa
         select(RunningRaceRecord)
         .where(RunningRaceRecord.record_id == record_id)
         .options(
-            selectinload(RunningRaceRecord.track),
+            selectinload(RunningRaceRecord.track)
+                .selectinload(RunningTrack.single_register_card_def),
+            selectinload(RunningRaceRecord.track)
+                .selectinload(RunningTrack.team_register_card_def),
             selectinload(RunningRaceRecord.team)
                 .selectinload(RunningTeam.members),
             selectinload(RunningRaceRecord.path),
@@ -497,7 +508,8 @@ async def get_team_by_code_for_update(db: AsyncSession, team_code: str) -> Runni
         .where(RunningTeam.team_code == team_code)
         .with_for_update()
         .options(
-            selectinload(RunningTeam.track),
+            selectinload(RunningTeam.track)
+                .selectinload(RunningTrack.team_register_card_def),
             selectinload(RunningTeam.members)
         )
     )
@@ -528,6 +540,8 @@ async def get_team_by_team_id_for_update(db: AsyncSession, team_id: str) -> Runn
             selectinload(RunningTeam.track)
                 .selectinload(RunningTrack.event)
                 .selectinload(RunningEvent.region),
+            selectinload(RunningTeam.track)
+                .selectinload(RunningTrack.team_register_card_def),
             selectinload(RunningTeam.members)
                 .selectinload(RunningTeamMember.user),
             selectinload(RunningTeam.applied_members)

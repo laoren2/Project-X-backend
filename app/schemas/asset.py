@@ -1,6 +1,6 @@
 from typing import Optional, List, Any
 from app.schemas.base import ORMBase
-from app.schemas.common import CPAssetBaseInfo, EquipCardBaseInfo, SportType, CCAssetType
+from app.schemas.common import CPAssetBaseInfo, EquipCardBaseInfo, SportType, CCAssetType, CCAssetBaseInfo
 from enum import Enum
 from fastapi import Form
 from pydantic import BaseModel
@@ -100,10 +100,6 @@ class CC_ECARD_PurchaseResultResponse(BaseModel):
     ccasset_type: CCAssetType
     new_ccamount: int
     card: EquipCardBaseInfo
-
-class CCAssetBaseInfo(BaseModel):
-    ccasset_type: CCAssetType
-    new_ccamount: int
 
 class CPAssetDefCreateForm(ORMBase):
     prop_type: str

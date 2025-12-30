@@ -1,24 +1,25 @@
 from app.crud.user import (
     create_user, get_user_by_id, get_banned_history_by_user_id,
-    get_user_by_apple_id, create_user_with_apple, get_realname_info_by_user_id,
+    create_user_with_apple, get_realname_info_by_user_id,
     get_realname_info_by_card_id, get_settings_by_user_id, get_exist_user_by_phone,
     get_exist_user_by_apple_id, get_exist_user_by_id, get_sign_in_rewards, 
-    get_user_normal_sign_in_today, get_user_sign_in_history,
-    get_user_vip_sign_in_today, get_sign_in_reward_by_day
+    get_user_normal_sign_in_today, get_user_sign_in_history, get_exist_user_by_email,
+    get_user_vip_sign_in_today, get_sign_in_reward_by_day, create_user_with_email
 )
 from app.crud.asset_manage import reward_ccasset
 from app.core.tools import get_today_hk_date
 import app.crud.competition.bike as bike_crud
 import app.crud.competition.running as running_crud
 from app.core.security import create_access_token
-from app.schemas.common import SportType
+from app.schemas.common import SportType, CCAssetBaseInfo
 from app.schemas.user import UserUpdateForm, UserBaseInfo, UserStatus, Gender
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.base import BizException
-from app.schemas.asset import SignInStatusResponse, CCAssetBaseInfo, AssetOperation, SignInItemInfo
+from app.schemas.asset import SignInStatusResponse, AssetOperation, SignInItemInfo
 from app.db.models.user import UserRealNameHK, UserSetting, UserSignIn, UserSubscription
 from app.core.errors import ErrorCode
 from app.core.config import settings
+from app.api.deps import Language
 from alibabacloud_ocr_api20210707.client import Client as OcrClient
 from alibabacloud_ocr_api20210707.models import RecognizeHKIdcardRequest
 from alibabacloud_tea_openapi import models as open_api_models
@@ -26,7 +27,12 @@ from alibabacloud_tea_util.client import Client as UtilClient
 from app.services.app_store_api_tool import query_user_subscroption_status
 from jwt import PyJWKClient
 from datetime import datetime, timedelta, timezone
-import io, asyncio, jwt, json, uuid
+from app.db.session import redis_client
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.header import Header
+from email.utils import formataddr
+import io, asyncio, jwt, json, uuid, random, smtplib, email
 
 
 async def login_or_register(phone_number: str, db: AsyncSession):
@@ -50,8 +56,8 @@ async def login_or_register(phone_number: str, db: AsyncSession):
                         remaining = ban_history.unban_time - now
                         remaining_str = str(remaining).split(".")[0]  # 去掉微秒
                     else:
-                        remaining_str = "未知"
-                    raise BizException(code=ErrorCode.USER_BANNED, message=f"账号已封禁\n剩余时间:{remaining_str}")
+                        remaining_str = "unknown"
+                    raise BizException(code=ErrorCode.USER_BANNED, message="user.banned", params={"remaining": remaining_str})
             user_info = UserBaseInfo.model_validate(user)
             if user.real_name_info:
                 user_info.gender = user.real_name_info.gender
@@ -88,8 +94,8 @@ async def login_or_register_apple(apple_id: str, email: str, db: AsyncSession):
                         remaining = ban_history.unban_time - now
                         remaining_str = str(remaining).split(".")[0]  # 去掉微秒
                     else:
-                        remaining_str = "未知"
-                    raise BizException(code=ErrorCode.USER_BANNED, message=f"账号已封禁\n剩余时间:{remaining_str}")
+                        remaining_str = "unknown"
+                    raise BizException(code=ErrorCode.USER_BANNED, message="user.banned", params={"remaining": remaining_str})
             user_info = UserBaseInfo.model_validate(user)
             if user.real_name_info:
                 user_info.gender = user.real_name_info.gender
@@ -105,18 +111,56 @@ async def login_or_register_apple(apple_id: str, email: str, db: AsyncSession):
         token = create_access_token({"user_id": user.user_id})
         return token, user_info, is_register, user.role
 
+async def login_or_register_email(email_address: str, db: AsyncSession):
+    async with db.begin():
+        isRegister = False
+        user = await get_exist_user_by_email(db, email_address)
+        if not user:
+            user = await create_user_with_email(db, email_address)
+            user_info = UserBaseInfo.model_validate(user)
+            isRegister = True
+        else:
+            if user.status == UserStatus.banned:
+                ban_history = await get_banned_history_by_user_id(db, user.id)
+                now = datetime.now(timezone.utc)
+                if ban_history and ban_history.unban_time <= now:
+                    # 自动解封
+                    user.status = UserStatus.normal
+                else:
+                    # 计算剩余时间
+                    if ban_history:
+                        remaining = ban_history.unban_time - now
+                        remaining_str = str(remaining).split(".")[0]  # 去掉微秒
+                    else:
+                        remaining_str = "unknown"
+                    raise BizException(code=ErrorCode.USER_BANNED, message="user.banned", params={"remaining": remaining_str})
+            user_info = UserBaseInfo.model_validate(user)
+            if user.real_name_info:
+                user_info.gender = user.real_name_info.gender
+                user_info.birthday = user.real_name_info.birth_date
+            if user.settings:
+                user_info.is_display_gender = user.settings.is_display_gender
+                user_info.is_display_age = user.settings.is_display_age
+                user_info.is_display_location = user.settings.is_display_location
+                user_info.enable_auto_location = user.settings.enable_auto_location
+                user_info.is_display_identity = user.settings.is_display_identity
+                user_info.default_sport = user.settings.default_sport
+            user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
+        token = create_access_token({"user_id": user.user_id})
+        return token, user_info, isRegister, user.role
+
 async def get_user_role(user_id: str, db: AsyncSession):
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     return user.role
 
 async def get_user_info(user_id: str, db: AsyncSession):
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     if not user.settings:
-        raise BizException(code=ErrorCode.USER_INFO_ERROR, message="用户信息错误")
+        raise BizException(code=ErrorCode.USER_INFO_ERROR, message="user.info_error")
     user_info = UserBaseInfo.model_validate(user)
     if user.real_name_info:
         user_info.gender = user.real_name_info.gender
@@ -134,9 +178,9 @@ async def get_me_info(user_id: str, db: AsyncSession) -> tuple[UserBaseInfo, str
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         if not user.settings:
-            raise BizException(code=ErrorCode.USER_INFO_ERROR, message="用户信息错误")
+            raise BizException(code=ErrorCode.USER_INFO_ERROR, message="user.info_error")
         user_info = UserBaseInfo.model_validate(user)
         if user.real_name_info:
             user_info.gender = user.real_name_info.gender
@@ -149,7 +193,10 @@ async def get_me_info(user_id: str, db: AsyncSession) -> tuple[UserBaseInfo, str
         user_info.default_sport = user.settings.default_sport
 
         subscription_status = user.subscription_info.is_active if user.subscription_info else False
-        if user.subscription_info and user.subscription_info.apple_original_transaction_id and datetime.now(timezone.utc) > user.subscription_info.updated_at + timedelta(days=1):
+        if not user.subscription_info or not user.subscription_info.is_active or not user.subscription_info.apple_original_transaction_id:
+            user_info.is_vip = subscription_status
+            return user_info, user.subscription_info.apple_original_transaction_id if user.subscription_info else None
+        if (datetime.now(timezone.utc) > user.subscription_info.updated_at + timedelta(days=1)) or (user.subscription_info.end_at and datetime.now(timezone.utc) > user.subscription_info.end_at):
             transaction, transaction_payload, renew_payload = await query_user_subscroption_status(user.subscription_info.apple_original_transaction_id)
             #print(transaction.status, renew_payload)
             if transaction and transaction_payload and renew_payload and transaction_payload.appAccountToken == str(user.apple_iap_token):
@@ -182,9 +229,9 @@ async def update_user_info(user_id: str, form: UserUpdateForm, avatar_url: str, 
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         if not user.settings:
-            raise BizException(code=ErrorCode.USER_INFO_ERROR, message="用户信息错误")
+            raise BizException(code=ErrorCode.USER_INFO_ERROR, message="user.info_error")
         user.nickname = form.nickname
         user.introduction = form.introduction
         user.location = form.location
@@ -212,7 +259,7 @@ async def delete_user_info(user_id: str, db: AsyncSession):
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         # 删除实名信息
         if user.real_name_info:
             await db.delete(user.real_name_info)
@@ -224,7 +271,7 @@ async def delete_user_info(user_id: str, db: AsyncSession):
 async def update_user_default_sport_service(sport: SportType, user_id: str, db: AsyncSession) -> SportType:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     if not user.settings:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户设置错误")
     user.settings.default_sport = sport
@@ -234,7 +281,7 @@ async def update_user_default_sport_service(sport: SportType, user_id: str, db: 
 async def update_user_location_service(region: str, user_id: str, db: AsyncSession):
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     user.location = region
     await db.commit()
 
@@ -259,21 +306,21 @@ async def recognize_hk_idcard(image_bytes: bytes) -> dict:
         response = await asyncio.to_thread(client.recognize_hkidcard, request)
         return UtilClient.to_map(response)
     except Exception as e:
-        raise BizException(code=ErrorCode.REALNAME_FAILED, message="身份证识别失败")
+        raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.recognition_failed.realname")
 
 async def realname_hk_service(user_id: str, front_bytes: bytes, db: AsyncSession):
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         exist_info = await get_realname_info_by_user_id(db, user.id)
-        if exist_info and (datetime.now(timezone.utc) < (exist_info.updated_at + timedelta(days=30))):
-            raise BizException(code=ErrorCode.REALNAME_FAILED, message="暂时无法重新认证")
+        if exist_info and (datetime.now(timezone.utc) < (exist_info.updated_at + timedelta(days=180))):
+            raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.frequently_certified.realname")
     
         result = await recognize_hk_idcard(front_bytes)
         raw_data = result.get("body", {}).get("Data", {})
         if not raw_data:
-            return BizException(code=ErrorCode.REALNAME_FAILED, message="身份证识别失败")
+            raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.recognition_failed.realname")
         try:
             parsed = json.loads(raw_data)
             data = parsed.get("data", {}) if isinstance(parsed, dict) else {}
@@ -295,10 +342,10 @@ async def realname_hk_service(user_id: str, front_bytes: bytes, db: AsyncSession
         issued_code = data.get("issuedCode", "")
 
         if not (name_En and gender_str and nation_id and birth_date and issued_code):
-            raise BizException(code=ErrorCode.REALNAME_FAILED, message="身份证识别失败")
+            raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.recognition_failed.realname")
         exist_card_info = await get_realname_info_by_card_id(db, nation_id)
         if exist_card_info:
-            raise BizException(code=ErrorCode.REALNAME_FAILED, message="身份已被认证")
+            raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.has_certified.realname")
 
         # 这里写回数据库，只存识别字段，不存身份证图片
         realname_info = UserRealNameHK(
@@ -330,7 +377,7 @@ async def verify_apple_identity_token(identity_token: str):
             identity_token,
             signing_key.key,
             algorithms=["RS256"],
-            audience="com.renjie.sportsx",
+            audience="com.valbara.sporreer",
             issuer="https://appleid.apple.com"
         )
         return payload
@@ -341,43 +388,43 @@ async def verify_apple_identity_token(identity_token: str):
 async def bind_phone_service(phone_number: str, user_id: str, db: AsyncSession):
     user = await get_exist_user_by_id(db, user_id)
     if not user:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     if user.phone_number:
-        raise BizException(code=ErrorCode.PHONE_NUMBER_ERROR, message="请先解除当前绑定号码")
+        raise BizException(code=ErrorCode.PHONE_NUMBER_ERROR, message="identity.with_phone.phone_bind")
     exist_phone = await get_exist_user_by_phone(db, phone_number)
     if exist_phone:
-        raise BizException(code=ErrorCode.PHONE_NUMBER_ERROR, message="该号码已被绑定")
+        raise BizException(code=ErrorCode.PHONE_NUMBER_ERROR, message="identity.already_certified.phone_bind")
     user.phone_number = phone_number
     await db.commit()
 
 async def unbind_phone_service(user_id: str, db: AsyncSession):
     user = await get_exist_user_by_id(db, user_id)
     if not user:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     if not user.phone_number:
-        raise BizException(code=ErrorCode.PHONE_NUMBER_ERROR, message="请先绑定手机号码")
-    if not user.apple_id:
-        raise BizException(code=ErrorCode.PHONE_NUMBER_ERROR, message="请先绑定一个Apple账号否则账号无法找回")
+        raise BizException(code=ErrorCode.PHONE_NUMBER_ERROR, message="identity.no_phone.phone_unbind")
+    if not user.apple_id and not user.email:
+        raise BizException(code=ErrorCode.PHONE_NUMBER_ERROR, message="identity.cannot_recover.phone_unbind")
     user.phone_number = None
     await db.commit()
 
 async def bind_apple_id_service(token: str, user_id: str, db: AsyncSession) -> str:
     user = await get_exist_user_by_id(db, user_id)
     if not user:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     if user.apple_id:
-        raise BizException(code=ErrorCode.APPLE_ID_ERROR, message="请先解除当前绑定的apple账号")
+        raise BizException(code=ErrorCode.APPLE_ID_ERROR, message="identity.with_appleID.apple_bind")
     
     payload = await verify_apple_identity_token(token)
     if not payload:
-        return BizException(code=ErrorCode.OAUTH_FAILED, message="apple账号绑定失败")
+        raise BizException(code=ErrorCode.APPLE_ID_ERROR, message="identity.verify_failed.apple_bind")
     apple_sub = payload.get("sub")  # Apple 提供的唯一用户 ID
     email = payload.get("email")
     if not apple_sub or not email:
-        return BizException(code=ErrorCode.OAUTH_FAILED, message="apple账号绑定失败，请在“系统设置-Apple账户-通过Apple登录”里删除账号后重试")
+        raise BizException(code=ErrorCode.APPLE_ID_ERROR, message="identity.verify_failed.apple_bind")
     exist_apple_id = await get_exist_user_by_apple_id(db, apple_sub)
     if exist_apple_id:
-        raise BizException(code=ErrorCode.PHONE_NUMBER_ERROR, message="该账号已被绑定")
+        raise BizException(code=ErrorCode.APPLE_ID_ERROR, message="identity.already_certified.apple_bind")
     user.apple_id = apple_sub
     user.apple_email = email
     await db.commit()
@@ -386,13 +433,37 @@ async def bind_apple_id_service(token: str, user_id: str, db: AsyncSession) -> s
 async def unbind_apple_id_service(user_id: str, db: AsyncSession):
     user = await get_exist_user_by_id(db, user_id)
     if not user:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     if not user.apple_id:
-        raise BizException(code=ErrorCode.APPLE_ID_ERROR, message="请先绑定apple账号")
-    if not user.phone_number:
-        raise BizException(code=ErrorCode.APPLE_ID_ERROR, message="请先绑定手机号否则账号无法找回")
+        raise BizException(code=ErrorCode.APPLE_ID_ERROR, message="identity.no_appleID.apple_unbind")
+    if not user.phone_number and not user.email:
+        raise BizException(code=ErrorCode.APPLE_ID_ERROR, message="identity.cannot_recover.apple_unbind")
     user.apple_id = None
     user.apple_email = None
+    await db.commit()
+
+
+async def bind_email_service(email: str, user_id: str, db: AsyncSession) -> str:
+    user = await get_exist_user_by_id(db, user_id)
+    if not user:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    if user.email:
+        raise BizException(code=ErrorCode.EMAIL_ERROR, message="identity.with_email.email_bind")
+    exist_email = await get_exist_user_by_email(db, email)
+    if exist_email:
+        raise BizException(code=ErrorCode.EMAIL_ERROR, message="identity.already_certified.email_bind")
+    user.email = email
+    await db.commit()
+
+async def unbind_email_service(user_id: str, db: AsyncSession):
+    user = await get_exist_user_by_id(db, user_id)
+    if not user:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    if not user.email:
+        raise BizException(code=ErrorCode.EMAIL_ERROR, message="identity.no_email.email_unbind")
+    if not user.apple_id and not user.phone_number:
+        raise BizException(code=ErrorCode.EMAIL_ERROR, message="identity.cannot_recover.email_unbind")
+    user.email = None
     await db.commit()
 
 
@@ -417,7 +488,7 @@ async def sign_in_status_service(db: AsyncSession, user_id: str) -> SignInStatus
     """查询用户签到状态"""
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     
     today = get_today_hk_date()
     
@@ -435,7 +506,7 @@ async def sign_in_status_service(db: AsyncSession, user_id: str) -> SignInStatus
         day_index = continuous_days + i
         reward = await get_sign_in_reward_by_day(db, today + timedelta(days=i), day_index)
         if not reward:
-            raise BizException(code=ErrorCode.SIGN_IN_ERROR, message="签到信息错误")
+            raise BizException(code=ErrorCode.REWARD_CLAIM_FAILED, message="reward.data_error")
         items.append(SignInItemInfo(
             date=(today + timedelta(days=i)).strftime("%Y-%m-%d"),
             ccasset_type=reward.reward_type,
@@ -454,12 +525,12 @@ async def sign_in_today_service(db: AsyncSession, user_id: str) -> CCAssetBaseIn
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         today = get_today_hk_date()
         today_sign_in = await get_user_normal_sign_in_today(db, user.id, today)
         today_signed = today_sign_in is not None
         if today_signed:
-            raise BizException(code=ErrorCode.SIGN_IN_ERROR, message="请勿重复签到")
+            raise BizException(code=ErrorCode.REWARD_CLAIM_FAILED, message="reward.repeat_claimed")
         sign_in = UserSignIn(
             user_id=user.id,
             sign_in_date=today,
@@ -475,14 +546,14 @@ async def sign_in_today_vip_service(db: AsyncSession, user_id: str) -> CCAssetBa
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         if not user.subscription_info or not user.subscription_info.is_active:
-            raise BizException(code=ErrorCode.SIGN_IN_ERROR, message="您还不是订阅会员哦")
+            raise BizException(code=ErrorCode.REWARD_CLAIM_FAILED, message="reward.no_auth.sign_in")
         today = get_today_hk_date()
         today_sign_in = await get_user_vip_sign_in_today(db, user.id, today)
         today_signed = today_sign_in is not None
         if today_signed:
-            raise BizException(code=ErrorCode.SIGN_IN_ERROR, message="请勿重复签到")
+            raise BizException(code=ErrorCode.REWARD_CLAIM_FAILED, message="reward.repeat_claimed")
         sign_in = UserSignIn(
             user_id=user.id,
             sign_in_date=today,
@@ -493,3 +564,103 @@ async def sign_in_today_vip_service(db: AsyncSession, user_id: str) -> CCAssetBa
         reward = await get_sign_in_reward_by_day(db, today, continuous_days)
         new_amount = await reward_ccasset(db, reward.reward_type_vip, reward.reward_count_vip, user.id, "签到奖励", AssetOperation.REWARD)
         return CCAssetBaseInfo(ccasset_type=reward.reward_type_vip, new_ccamount=new_amount)
+
+
+def _send_smtp(username, password, receivers, msg_str):
+    #client = smtplib.SMTP('smtpdm-ap-southeast-1.aliyuncs.com', 80, timeout=5)
+    client = smtplib.SMTP_SSL(settings.ALIYUN_EMAIL_ENDPOINT, 465, timeout=5)
+    client.set_debuglevel(0)
+    client.login(username, password)
+    client.sendmail(username, receivers, msg_str)
+    client.quit()
+
+# 发送验证码邮件
+async def send_email_code_service(to_email: str, lang: Language):
+    """
+    发送验证码邮件，不接收回信
+    :param to_email: 收件人邮箱
+    """
+
+    key = f"email:{to_email}"
+    code = await redis_client.get(key)
+    if not code:
+        code = str(random.randint(100000, 999999))
+    await redis_client.set(key, code, ex=300)  # 5分钟有效
+    
+    username = settings.NOREPLY_EMAIL_ADDRESS
+    password = settings.NOREPLY_EMAIL_PASSWORD
+    receivers = [to_email]
+
+    if lang == Language.en:
+        title0 = "Your login verification code"
+        title1 = "Your verification Code:"
+        title2 = "Please enter this code within 5 minutes. Do not share it with anyone."
+        title3 = "If you did not request this, you can safely ignore this email."
+        title4 = "Sporreer Team  (Please do not reply to this email)"
+    elif lang == Language.zh_hant:
+        title0 = "你的登入驗證碼"
+        title1 = "你的驗證碼:"
+        title2 = "請在5分鐘內輸入此驗證碼。請勿將此驗證碼透露給任何人。"
+        title3 = "如果您沒有提出這樣的請求，您可以忽略這封郵件。"
+        title4 = "Sporreer 團隊  （請勿回覆此郵件）"
+    else:
+        title0 = "你的登录验证码"
+        title1 = "你的验证码:"
+        title2 = "请在5分钟内输入此验证码。请勿将此验证码透露给任何人。"
+        title3 = "如果您没有提出这样的请求，您可以忽略这封邮件。"
+        title4 = "Sporreer 团队  （请勿回复此邮件）"
+
+    # 构建邮件
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = Header(f"【Sporreer】{title0}", "UTF-8")
+    msg['From'] = formataddr(("Sporreer", username))
+    msg['To'] = to_email
+    msg['Date'] = email.utils.formatdate()
+    msg['Message-id'] = email.utils.make_msgid()
+
+    # 组装 HTML
+    html = f"""
+    <html>
+        <body>
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; padding: 24px; max-width: 420px; margin: auto;">
+
+            <p style="font-size:16px; color:#333; margin-bottom: 6px;">
+                {title1}
+            </p>
+
+            <p style="font-size:36px; font-weight:700; background:#f6f6f6; padding:12px 18px; border-radius:8px; display:inline-block; letter-spacing:3px; margin-bottom: 16px;">
+                {code}
+            </p>
+
+            <p style="font-size:15px; color:#555;">
+                {title2}
+            </p>
+
+            <hr style="border:none; border-top:1px solid #eee; margin: 24px 0;" />
+
+            <p style="font-size:13px; color:#999;">
+                {title3}
+            </p>
+
+            <p style="font-size:14px; color:#666; margin-top: 18px;">—- {title4} --</p>
+            </div>
+        </body>
+    </html>
+    """
+
+    msg.attach(MIMEText(html, _subtype='html', _charset='UTF-8'))
+
+    # 发送邮件
+    try:
+        # 线程池方式执行 SMTP 发送，避免阻塞 event loop
+        await asyncio.wait_for(asyncio.to_thread(_send_smtp, username, password, receivers, msg.as_string()), timeout=5)
+        print("邮件发送成功:", to_email, code)
+        return
+    except Exception as e:
+        #print("异常:", str(e))
+        raise BizException(code=ErrorCode.EMAIL_SERVICE_ERROR, message="sms.service_error")
+
+async def verify_email_code(email_address: str, code: str):
+    key = f"email:{email_address}"
+    real_code = await redis_client.get(key)
+    return real_code == code

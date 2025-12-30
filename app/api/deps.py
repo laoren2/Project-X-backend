@@ -1,14 +1,15 @@
-from fastapi import Depends
-from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from app.core.security import verify_token
-from app.schemas.base import BizException
+from app.schemas.base import BizException, Language, DEFAULT_LANGUAGE
 from app.schemas.user import AuthContext, UserRole, UserStatus
 from app.core.errors import ErrorCode
 from app.db.session import get_db
 from app.db.models.user import User, UserBanHistory
 from app.crud.user import get_banned_history_by_user_id
+from fastapi import Depends, Header, Request
+from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from enum import Enum
 import datetime
 
 
@@ -21,7 +22,7 @@ async def get_current_user(
     result = verify_token(token)
     if result is None:
         # Token 无效或解码失败，处理异常情况
-        raise BizException(code=ErrorCode.TOKEN_INVALID, message="登录校验失败")
+        raise BizException(code=ErrorCode.TOKEN_INVALID, message="identity.verify_failed.token")
     
     user_id = result["payload"]["user_id"]
     result_db = await db.execute(
@@ -33,7 +34,7 @@ async def get_current_user(
     )
     user = result_db.scalar_one_or_none()
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     if user.status == UserStatus.banned:
         ban_history = await get_banned_history_by_user_id(db, user.id)
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -47,7 +48,7 @@ async def get_current_user(
                 remaining_str = str(remaining).split(".")[0]  # 去掉微秒
             else:
                 remaining_str = "未知"
-            raise BizException(code=ErrorCode.USER_BANNED, message=f"账号已封禁\n剩余时间:{remaining_str}")
+            raise BizException(code=ErrorCode.USER_BANNED, message="user.banned", params={"remaining": remaining_str})
     
     if db.in_transaction():
         await db.commit()
@@ -66,6 +67,27 @@ async def get_current_admin(
     user = result.scalar_one_or_none()
 
     if not user or user.role != UserRole.admin.value:
-        raise BizException(code=ErrorCode.NO_PERMISSION, message="无权限访问")
+        raise BizException(code=ErrorCode.NO_PERMISSION, message="identity.no_permission.internal_backend")
 
     return ctx
+
+
+def get_language(
+    request: Request,
+    accept_language: str | None = Header(default=None)
+) -> Language:
+    lang = DEFAULT_LANGUAGE
+
+    if accept_language:
+        raw = accept_language.split(",")[0].split(";")[0].lower()
+
+        if raw.startswith("zh"):
+            if "tw" in raw or "hk" in raw or "hant" in raw:
+                lang = Language.zh_hant
+            else:
+                lang = Language.zh_hans
+        elif raw.startswith("en"):
+            lang = Language.en
+
+    request.state.lang = lang
+    return lang

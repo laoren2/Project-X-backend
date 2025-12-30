@@ -23,7 +23,7 @@ async def query_subscription_status_service(
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         if user.subscription_info is None:
             return SubscriptionStatusResponse(
                 is_active=False,
@@ -78,7 +78,7 @@ async def query_subscription_account_service(
 ) -> str | None:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     transaction, transaction_payload, renew_payload = await query_user_subscroption_status(transaction_id)
     if not transaction_payload or not renew_payload or not transaction:
         return None
@@ -101,14 +101,14 @@ async def verify_auto_subscription_transaction_service(
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         is_active = user.subscription_info.is_active if user.subscription_info else False
         auto_renew = user.subscription_info.auto_renew if user.subscription_info else None
         started_at = user.subscription_info.start_at if user.subscription_info else None
         expired_at = user.subscription_info.end_at if user.subscription_info else None
         transaction, transaction_payload, renew_payload = await query_user_subscroption_status(transaction_id)
         if not transaction_payload or not renew_payload or not transaction:
-            raise BizException(code=ErrorCode.IAP_SUBSCRIPTION_VERIFY_ERROR, message="订阅校验失败")
+            raise BizException(code=ErrorCode.IAP_ERROR, message="iap_subscription.verify_failed.purchase")
         if transaction_payload.appAccountToken == str(user.apple_iap_token):
             is_active = (transaction.status == 1 or transaction.status == 4)
             auto_renew = renew_payload.autoRenewStatus == 1
@@ -160,10 +160,10 @@ async def verify_coupon_transaction_service(
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         payload = await verify_and_decode_transaction_service(jws)
         if payload is None:
-            raise BizException(code=ErrorCode.IAP_COUPON_VERIFY_ERROR, message="购买校验失败，请重试")
+            raise BizException(code=ErrorCode.IAP_ERROR, message="iap_coupon.verify_failed.purchase")
         transaction = CouponRechargeTransaction(
             user_id=user.id,
             product_id=payload.productId,
@@ -175,10 +175,10 @@ async def verify_coupon_transaction_service(
         )
         db.add(transaction)
         if payload.productId is None or payload.quantity != 1 or payload.rawType != "Consumable" or payload.appAccountToken != str(user.apple_iap_token):
-            raise BizException(code=ErrorCode.IAP_COUPON_VERIFY_ERROR, message="购买信息错误，请及时反馈")
+            raise BizException(code=ErrorCode.IAP_ERROR, message="iap_coupon.verify_failed.purchase")
         coupon_price = await get_coupon_price(db, payload.productId)
         if coupon_price is None:
-            raise BizException(code=ErrorCode.IAP_COUPON_VERIFY_ERROR, message="点券数量错误，请及时反馈")
+            raise BizException(code=ErrorCode.IAP_ERROR, message="iap_coupon.verify_failed.purchase")
         gift_coupon = coupon_price.gift_price or 0
         coupon_balance = await reward_ccasset(db, CCAssetType.COUPON, coupon_price.price + gift_coupon, user.id, f"充值点券：{coupon_price.price} 赠送：{gift_coupon}", AssetOperation.RECHARGE)
         return coupon_balance

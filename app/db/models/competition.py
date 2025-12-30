@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, func, UniqueConstraint, Integer, Float, Enum, Date
+from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, func, UniqueConstraint, Integer, Float, Enum, Date, Index
 from sqlalchemy.dialects.postgresql import UUID
 from app.schemas.competition.common import RecordStatus, TeamStatus, DailyTaskType
 from app.schemas.competition.bike import BikeTrackTerrainType
@@ -8,6 +8,7 @@ from app.schemas.common import CCAssetType
 from app.db.base import Base
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
+from geoalchemy2 import Geometry
 import uuid
 
 
@@ -17,12 +18,19 @@ import uuid
 class Region(Base):
     __tablename__ = "regions"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    region_id = Column(String, unique=True, index=True, nullable=False)
     name = Column(String, nullable=False, unique=True)
     country_code = Column(String, nullable=False)
+    boundary = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     bike_events = relationship("BikeEvent", primaryjoin="Region.id==foreign(BikeEvent.region_id)", back_populates="region")
     running_events = relationship("RunningEvent", primaryjoin="Region.id==foreign(RunningEvent.region_id)", back_populates="region")
+
+    # 空间索引
+    __table_args__ = (
+        Index("idx_regions_boundary", "boundary", postgresql_using="gist"),
+    )
 
 # Bike赛季表
 class BikeSeason(Base):
@@ -84,6 +92,8 @@ class BikeTrack(Base):
     to_lat = Column(Float, nullable=False)
     to_lng = Column(Float, nullable=False)
     to_radius = Column(Integer, default=10, nullable=False)
+    single_register_card_id = Column(UUID(as_uuid=True), nullable=False)
+    team_register_card_id = Column(UUID(as_uuid=True), nullable=False)
 
     elevation_difference = Column(Integer, default=0, nullable=False)
     sub_region_name = Column(String, nullable=False)
@@ -95,6 +105,8 @@ class BikeTrack(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     event = relationship("BikeEvent", primaryjoin="foreign(BikeTrack.event_id)==BikeEvent.id", back_populates="tracks")
+    single_register_card_def = relationship("CPRegistrationCardDef", primaryjoin="foreign(BikeTrack.single_register_card_id)==CPRegistrationCardDef.id", uselist=False)
+    team_register_card_def = relationship("CPRegistrationCardDef", primaryjoin="foreign(BikeTrack.team_register_card_id)==CPRegistrationCardDef.id", uselist=False)
 
 
 # Running赛事表
@@ -131,6 +143,8 @@ class RunningTrack(Base):
     to_lat = Column(Float, nullable=False)
     to_lng = Column(Float, nullable=False)
     to_radius = Column(Integer, default=10, nullable=False)
+    single_register_card_id = Column(UUID(as_uuid=True), nullable=False)
+    team_register_card_id = Column(UUID(as_uuid=True), nullable=False)
 
     elevation_difference = Column(Integer, default=0, nullable=False)
     sub_region_name = Column(String, nullable=False)
@@ -143,6 +157,8 @@ class RunningTrack(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     event = relationship("RunningEvent", primaryjoin="foreign(RunningTrack.event_id)==RunningEvent.id", back_populates="tracks")
+    single_register_card_def = relationship("CPRegistrationCardDef", primaryjoin="foreign(RunningTrack.single_register_card_id)==CPRegistrationCardDef.id", uselist=False)
+    team_register_card_def = relationship("CPRegistrationCardDef", primaryjoin="foreign(RunningTrack.team_register_card_id)==CPRegistrationCardDef.id", uselist=False)
 
 
 # 需要定期迁移,不要外部依赖

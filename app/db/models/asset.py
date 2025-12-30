@@ -125,6 +125,7 @@ class CPUserAsset(Base):
     user_id = Column(UUID(as_uuid=True), nullable=False)
     prop_def_id = Column(UUID(as_uuid=True), nullable=False)
     balance = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     user = relationship("User", primaryjoin="foreign(CPUserAsset.user_id)==User.id")
@@ -209,6 +210,7 @@ class UserEquipmentCard(Base):
     multiplier_skill2 = Column(Float, nullable=True)
     multiplier_skill3 = Column(Float, nullable=True)
     
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     user = relationship("User", primaryjoin="foreign(UserEquipmentCard.user_id)==User.id")

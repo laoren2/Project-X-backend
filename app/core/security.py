@@ -5,7 +5,7 @@ from app.schemas.base import BizException
 from app.core.errors import ErrorCode
 
 ALGORITHM = "HS256"
-TOKEN_REFRESH_THRESHOLD_MINUTES = 24 * 60 * 3   # 不足3天过期则刷新token
+TOKEN_REFRESH_THRESHOLD_MINUTES = 24 * 60 * 7   # 不足7天过期则刷新token
 
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -25,11 +25,11 @@ def verify_token(token: str):
         refresh_token = None
 
         if exp_datetime < now:
-            raise BizException(code=ErrorCode.TOKEN_EXPIRED, message="登录已过期")
+            raise BizException(code=ErrorCode.TOKEN_EXPIRED, message="identity.expired.token")
 
         if exp_datetime - now < timedelta(minutes=TOKEN_REFRESH_THRESHOLD_MINUTES):
             refresh_token = create_access_token({k: v for k, v in payload.items() if k != "exp"})
 
         return {"payload": payload, "new_token": refresh_token}
     except JWTError:
-        return None
+        raise BizException(code=ErrorCode.TOKEN_INVALID, message="identity.verify_failed.token")

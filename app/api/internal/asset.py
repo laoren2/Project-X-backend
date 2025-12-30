@@ -6,15 +6,12 @@ from datetime import datetime
 from app.db.session import get_db
 from app.api.deps import get_current_admin
 from app.services.asset_manage import (
-    get_user_ccassets, get_user_cpassets, buy_cpassets_use_ccasset, 
     query_cpasset_def_service, create_equip_card_def_service,
     create_cpasset_def_service, query_equip_card_def_service,
     add_cpasset_to_shop_service, get_cpassets_in_shop, reward_ccasset_to_user_service,
-    #, update_cpasset_in_shop_service
     get_equip_cards_in_shop, add_equip_card_to_shop_service
 )
 from app.schemas.asset import (
-    CCAssetsResponse, CPAssetsResponse, CPAssetBuyRequest, 
     CC_CP_PurchaseResultResponse, CPAssetsShopInternalResponse, CPAssetDefResponse,
     CPAssetShopInfoCreateRequest, CPAssetShopInfoUpdateRequest, CPAssetDefCreateForm,
     CCAssetRewardRequest, EquipCardDefCreateForm, EquipCardDefResponse,
@@ -22,7 +19,7 @@ from app.schemas.asset import (
 )
 from app.schemas.common import SportType
 from app.core.errors import ErrorCode
-from app.schemas.base import BaseResponse
+from app.schemas.base import BaseResponse, BizException
 from app.schemas.user import AuthContext
 import uuid
 
@@ -93,7 +90,7 @@ async def create_cpasset_def(
     cover_path = cpasset_folder / f"cover_{int(datetime.now().timestamp())}.jpg"
     contents = await image.read()
     if len(contents) > 0.5 * 1024 * 1024:  # 超过 512KB
-        return BaseResponse.error(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="上传图片体积超过限制")
+        raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
     with cover_path.open("wb") as f:
         f.write(contents)
     new_url = f"/resources/asset/cpasset/{asset_id}/{cover_path.name}"
@@ -141,7 +138,7 @@ async def create_equip_card_def(
     cover_path = cpasset_folder / f"cover_{int(datetime.now().timestamp())}.jpg"
     contents = await image.read()
     if len(contents) > 0.5 * 1024 * 1024:  # 超过 512KB
-        return BaseResponse.error(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="上传图片体积超过限制")
+        raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
     with cover_path.open("wb") as f:
         f.write(contents)
     new_url = f"/resources/asset/equipcard/{asset_id}/{cover_path.name}"

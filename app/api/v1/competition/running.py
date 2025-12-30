@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, File, UploadFile, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.schemas.base import BaseResponse
-from app.schemas.competition.common import TeamRelationship, RecordStatus, DailyTaskResponse
+from app.schemas.competition.common import TeamRelationship, MatchFinishResponse, DailyTaskResponse
 from app.schemas.competition.running import (
     RunningEventListResponse, RunningTrackListResponse,
     RunningRecordResponse, RunningBeginInfo, RunningFinishInfo,
@@ -35,11 +35,11 @@ from app.services.competition.running import (
     get_completed_records_all, get_incompleted_records_all, query_daily_task_status_service,
     claimed_daily_task_reward_service, start_competition_with_team_bonus_card_service
 )
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_language
 from typing import Optional
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_language)])
 
 
 # 查询赛季
@@ -54,13 +54,10 @@ async def query_season(
 # 查询赛事
 @router.get("/query_events", response_model=BaseResponse[RunningEventListResponse], summary="查询running赛事")
 async def query_events(
-    region_name: str = Query(...),
+    region_id: str = Query(...),
     db: AsyncSession = Depends(get_db)
 ):
-    events = await query_events_by_region(
-        db=db,
-        region_name=region_name
-    )
+    events = await query_events_by_region(db=db, region_id=region_id)
     return BaseResponse.success(data=RunningEventListResponse(events=events))
 
 
@@ -121,14 +118,14 @@ async def start_single_competition(
 
 
 # 结束单人比赛
-@router.post("/finish_single_competition",response_model=BaseResponse[None],summary="结束单人比赛")
+@router.post("/finish_single_competition",response_model=BaseResponse[MatchFinishResponse],summary="结束单人比赛")
 async def finish_single_competition(
     finish_info: RunningFinishInfo,
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    await finish_single_competition_service(db, finish_info, auth.payload["user_id"])
-    return BaseResponse.success(token=auth.new_token, message=f"比赛已结束", data=None)
+    result = await finish_single_competition_service(db, finish_info, auth.payload["user_id"])
+    return BaseResponse.success(token=auth.new_token, message=f"比赛已结束", data=result)
 
 
 # 检查是否可以进入组队比赛链路
@@ -154,14 +151,14 @@ async def start_team_competition(
 
 
 # 结束组队比赛
-@router.post("/finish_team_competition",response_model=BaseResponse[None],summary="结束组队比赛")
+@router.post("/finish_team_competition",response_model=BaseResponse[MatchFinishResponse],summary="结束组队比赛")
 async def finish_team_competition(
     finish_info: RunningFinishInfo,
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    await finish_team_competition_service(db, finish_info, auth.payload["user_id"])
-    return BaseResponse.success(token=auth.new_token, message=f"比赛已结束", data=None)
+    result = await finish_team_competition_service(db, finish_info, auth.payload["user_id"])
+    return BaseResponse.success(token=auth.new_token, message=f"比赛已结束", data=result)
 
 
 @router.get("/query_team_expired_date",response_model=BaseResponse[RunningTeamExpiredResponse],summary="查询队伍比赛窗口过期时间")

@@ -1,13 +1,16 @@
-from ast import List
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.crud.mailbox import get_mail_unread_status, get_mails_curd, get_mail_by_mail_id
+from app.crud.mailbox import (
+    get_mail_unread_status, get_mails_curd, get_mail_by_mail_id,
+    get_feedback_mails_curd, get_feedback_mail_by_mail_id
+)
 from app.crud.user import get_user_by_id
 from app.crud.asset_manage import reward_ccasset
 from app.core.errors import ErrorCode
-from app.db.models.mailbox import Mailbox
+from app.db.models.mailbox import Mailbox, FeedbackMailbox
 from app.schemas.base import BizException
 from app.schemas.mailbox import (
-    MailUnreadStatusResponse, MailInfo, MailDetailResponse, MailInfoResponse, MailCreateForm
+    MailUnreadStatusResponse, MailInfo, MailDetailResponse, MailInfoResponse, MailCreateForm,
+    FeedbackMailCreateForm, FeedbackMailInfoResponse, FeedbackMailInfo
 )
 from app.schemas.asset import AssetRewardsResponse, CCAssetType, CCAssetBaseInfo, AssetOperation
 from datetime import datetime, timezone, timedelta
@@ -21,7 +24,7 @@ async def get_mail_unread_status_service(
     """获取用户未读邮件状态"""
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     
     has_unread, unread_count = await get_mail_unread_status(db, user.id)
     
@@ -38,7 +41,7 @@ async def get_mails_service(
 ) -> MailInfoResponse:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     
     mails = await get_mails_curd(db, user.id, page, size)
     mail_infos = [MailInfo(
@@ -57,7 +60,7 @@ async def get_mail_detail_service(
 ) -> MailDetailResponse:
     mail = await get_mail_by_mail_id(db, mail_id)
     if mail is None:
-        raise BizException(code=ErrorCode.MAIL_NOT_FOUND, message="邮件不存在")
+        raise BizException(code=ErrorCode.MAIL_NOT_FOUND, message="mail.not_found")
     mail.is_read = True
     db.add(mail)
     await db.commit()
@@ -79,7 +82,7 @@ async def send_mail_service(
 ):
     user = await get_user_by_id(db, create_info.user_id)
     if not user:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     try:
         attach_json = json.loads(create_info.attachments) if create_info.attachments else None
     except:
@@ -105,16 +108,16 @@ async def receive_mail_rewards_service(
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if not user:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户不存在")
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         mail = await get_mail_by_mail_id(db, mail_id)
         if mail is None:
-            raise BizException(code=ErrorCode.MAIL_NOT_FOUND, message="邮件不存在")
+            raise BizException(code=ErrorCode.MAIL_NOT_FOUND, message="mail.not_found")
         if mail.is_received:
-            raise BizException(code=ErrorCode.MAIL_ERROR, message="请勿重复领取奖励哦")
+            raise BizException(code=ErrorCode.REWARD_CLAIM_FAILED, message="reward.repeat_claimed")
         if mail.expires_at < datetime.now(timezone.utc):
-            raise BizException(code=ErrorCode.MAIL_ERROR, message="奖励过期啦，下次记得早点领哦")
+            raise BizException(code=ErrorCode.REWARD_CLAIM_FAILED, message="reward.expired.mail")
         if not mail.attachment:
-            raise BizException(code=ErrorCode.MAIL_ERROR, message="无奖励可领取")
+            raise BizException(code=ErrorCode.REWARD_CLAIM_FAILED, message="reward.data_error")
         # 暂仅支持 CCAsset
         ccassets = []
         for asset_type in CCAssetType:
@@ -138,3 +141,59 @@ async def receive_mail_rewards_service(
             equip_cards=[]
         )
     
+
+async def commit_feedback_service(
+    form: FeedbackMailCreateForm,
+    image_url1: str | None,
+    image_url2: str | None,
+    user_id: str,
+    db: AsyncSession
+):
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if not user:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+        try:
+            images_data = []
+            if image_url1:
+                images_data.append(image_url1)
+            if image_url2:
+                images_data.append(image_url2)
+            new_feedback = FeedbackMailbox(
+                mail_id=f"feedback_mail_{uuid.uuid4()}",
+                user_id=user.id,
+                user_contact_info=form.user_contact_info,
+                mail_type=form.type,
+                description=form.content,
+                images=images_data,
+                is_handled=False
+            )
+            db.add(new_feedback)
+        except Exception as e:
+            raise BizException(code=ErrorCode.FEEDBACK_COMMIT_ERROR, message="feedback.submission_failed")
+
+
+async def query_feedback_mails_service(
+    db: AsyncSession,
+    page: int,
+    size: int
+) -> FeedbackMailInfoResponse:
+    mails = await get_feedback_mails_curd(db, page, size)
+    mail_infos = [FeedbackMailInfo(
+        mail_id=mail.mail_id,
+        mail_type=mail.mail_type,
+        user_contact_info=mail.user_contact_info,
+        content=mail.description,
+        images=mail.images,
+        is_handled=mail.is_handled,
+        created_at=mail.created_at.isoformat()
+    ) for mail in mails]
+    return FeedbackMailInfoResponse(mails=mail_infos)
+
+
+async def handle_feedback_mail_service(db: AsyncSession, mail_id: str):
+    feedback_mail = await get_feedback_mail_by_mail_id(db, mail_id)
+    if not feedback_mail:
+        raise BizException(code=ErrorCode.FEEDBACK_MAIL_NOT_FOUND, message=f"找不到反馈邮件")
+    feedback_mail.is_handled = True
+    await db.commit()
