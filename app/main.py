@@ -9,7 +9,7 @@ from app.scheduler.task import start_scheduler, stop_scheduler
 from app.api.internal import router as internal_router
 from app.api.v1 import router as v1_router
 from app.api.deps import Language, DEFAULT_LANGUAGE
-from app.db.init_db import init_db, keep_event_loop_alive
+from app.db.init_db import init_db, test_db_connection
 from app.db.session import test_redis_connection, close_redis_connection, close_database_connection
 from app.core.logging_config import setup_logging
 import logging
@@ -36,12 +36,12 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ Redis连接测试失败: {e}")
         raise
     
-    # 初始化数据库表结构
+    # 测试连接
     try:
-        await init_db()
-        logger.info("✅ 数据库初始化完成")
+        await test_db_connection()
+        logger.info("✅ 数据库连接测试成功")
     except Exception as e:
-        logger.error(f"❌ 数据库初始化失败: {e}")
+        logger.error(f"❌ 数据库连接测试失败: {e}")
         raise
     
     # 启动事件循环保活任务
