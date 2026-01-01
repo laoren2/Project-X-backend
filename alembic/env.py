@@ -31,6 +31,10 @@ target_metadata = Base.metadata
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
+# 用环境变量覆盖 sqlalchemy.url
+database_url = os.getenv("DATABASE_URL")
+if database_url:
+    config.set_main_option("sqlalchemy.url", database_url)
 
 def include_object(object, name, type_, reflected, compare_to):
     # 屏蔽 PostGIS 自动创建的 spatial_ref_sys 表，不生成 drop 迁移

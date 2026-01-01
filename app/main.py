@@ -9,7 +9,7 @@ from app.scheduler.task import start_scheduler, stop_scheduler
 from app.api.internal import router as internal_router
 from app.api.v1 import router as v1_router
 from app.api.deps import Language, DEFAULT_LANGUAGE
-from app.db.init_db import init_db, test_db_connection
+from app.db.init_db import test_db_connection
 from app.db.session import test_redis_connection, close_redis_connection, close_database_connection
 from app.core.logging_config import setup_logging
 import logging
