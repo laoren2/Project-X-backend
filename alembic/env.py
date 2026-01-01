@@ -32,7 +32,7 @@ target_metadata = Base.metadata
 # ... etc.
 
 # 用环境变量覆盖 sqlalchemy.url
-database_url = os.getenv("DATABASE_URL")
+database_url = os.getenv("DATABASE_URL_ALEMBIC")
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url)
 
