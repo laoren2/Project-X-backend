@@ -35,7 +35,7 @@ jobs:
         username: ${{ secrets.DEV_SERVER_USER }}
         key: ${{ secrets.DEV_SERVER_SSH_KEY }}
         script: |
-          cd /opt/sporreer-dev
+          cd /opt/sporreer_dev
           docker pull ${{ secrets.DOCKERHUB_USERNAME }}/sporreer_backend:dev-latest
-          docker compose -f docker-compose.dev.yml down
-          docker compose -f docker-compose.dev.yml up -d --force-recreate
+          docker compose down
+          docker compose up -d --force-recreate
