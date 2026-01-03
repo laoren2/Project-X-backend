@@ -40,6 +40,10 @@ def include_object(object, name, type_, reflected, compare_to):
     # 屏蔽 PostGIS 自动创建的 spatial_ref_sys 表，不生成 drop 迁移
     if name == "spatial_ref_sys":
         return False
+    # 如果 object 有 schema 属性，检查 schema
+    schema = getattr(object, "schema", None)
+    if schema in ("tiger", "topology"):
+        return False
     return True
 
 def run_migrations_offline() -> None:
