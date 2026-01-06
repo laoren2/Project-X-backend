@@ -37,5 +37,6 @@ jobs:
         script: |
           cd /opt/sporreer_dev
           docker pull ${{ secrets.DOCKERHUB_USERNAME }}/sporreer_backend:dev-latest
-          docker compose down
-          docker compose up -d --force-recreate
+          docker compose down backend
+          docker compose run --rm backend alembic upgrade head
+          docker compose up -d --force-recreate backend
