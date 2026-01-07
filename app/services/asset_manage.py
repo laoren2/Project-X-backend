@@ -6,7 +6,7 @@ from app.crud.asset_manage import (
     insert_cp_asset_def_and_child, query_cpasset_def_crud, query_cpassets_in_shop_crud,
     add_cpasset_to_shop_crud, consume_ccasset, consume_cpasset,
     reward_ccasset, reward_cpasset, query_equip_card_def_crud, get_user_equip_cards_all,
-    query_equip_cards_in_shop_crud, get_equip_card_def_by_card_id, get_equip_cards_on_shelves_crud,
+    query_equip_cards_in_shop_crud, get_equip_card_def_by_card_id, get_equip_card_price_all_on_shelves,
     get_equip_card_price_on_shelves, create_user_equip_card, create_equip_card_transaction
 )
 from app.crud.user import get_user_by_id
@@ -376,9 +376,33 @@ async def add_equip_card_to_shop_service(db: AsyncSession, request: EquipCardSho
     db.add(equip_card_price)
     await db.commit()
 
-# 查询商店的卡牌信息
+# 查询商店的指定卡牌信息
+async def get_equip_card_shop_detail_service(db: AsyncSession, def_id: str) -> EquipCardShopInfo:
+    card_def = await get_equip_card_def_by_card_id(db, def_id)
+    if card_def is None:
+        raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.not_found")
+    card_price = await get_equip_card_price_on_shelves(db, card_def.id)
+    if card_price is None:
+        raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.not_found")
+    return EquipCardShopInfo(
+            def_id=card_def.def_id,
+            name=card_def.name,
+            image_url=card_def.image_url,
+            sport_type=card_def.sport_type,
+            rarity=card_def.rarity,
+            description=card_def.description,
+            skill1_description=card_def.skill1_description,
+            skill2_description=card_def.skill2_description,
+            skill3_description=card_def.skill3_description,
+            version=card_def.version,
+            effect_config=card_def.effect_config,
+            ccasset_type=card_price.ccasset_type,
+            price=card_price.price
+        )
+
+# 查询商店的所有卡牌信息
 async def get_equip_cards_on_shelves(db: AsyncSession) -> EquipCardShopResponse:
-    card_prices = await get_equip_cards_on_shelves_crud(db)
+    card_prices = await get_equip_card_price_all_on_shelves(db)
     cards = []
     for price in card_prices:
         card_def = price.card_def
@@ -401,6 +425,16 @@ async def get_equip_cards_on_shelves(db: AsyncSession) -> EquipCardShopResponse:
                 )
             )
     return EquipCardShopResponse(cards=cards)
+
+# 查询用户持有卡牌详细信息
+async def get_user_equip_card_detail_service(db: AsyncSession, card_id: str) -> EquipCardBaseInfo:
+    card = await get_equip_card_by_card_id(db, card_id)
+    if card is None:
+        raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.not_found")
+    card_info = equip_card_to_base_info(card)
+    if card_info is None:
+        raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.data_error")
+    return card_info
 
 # 查询用户持有卡牌
 async def get_user_equip_cards(db: AsyncSession, user_id: str) -> EquipCardsResponse:

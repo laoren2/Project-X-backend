@@ -32,7 +32,7 @@ services:
     build: .
     image: sportsx_backend:dev
     # 调整为本地使用的证书
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=/app/certs/192.168.0.109-key.pem --ssl-certfile=/app/certs/192.168.0.109.pem
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=/app/certs/192.168.1.5-key.pem --ssl-certfile=/app/certs/192.168.1.5.pem
     volumes:
       - ./app:/app/app
       - ./alembic:/app/alembic
