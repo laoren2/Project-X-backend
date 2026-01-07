@@ -10,11 +10,11 @@ from app.services.asset_manage import (
     upgrade_equip_card_mat_service, upgrade_equip_card_fusion_service, get_equip_card_upgrade_price_service,
     upgrade_equip_card_skill1_service, get_equip_card_skill1_upgrade_price_service, get_equip_card_skill2_upgrade_price_service,
     get_equip_card_skill3_upgrade_price_service, upgrade_equip_card_skill2_service, upgrade_equip_card_skill3_service,
-    destroy_equip_card_service
+    destroy_equip_card_service, get_user_equip_card_detail_service, get_equip_card_shop_detail_service
 )
 from app.schemas.asset import (
     CCAssetsResponse, CPAssetsResponse, CPAssetBuyRequest, 
-    CC_CP_PurchaseResultResponse, CPAssetsShopResponse, CPAssetBaseInfo,
+    CC_CP_PurchaseResultResponse, CPAssetsShopResponse, CPAssetBaseInfo, EquipCardShopInfo,
     EquipCardShopResponse, EquipCardsResponse, CC_ECARD_PurchaseResultResponse,
     EquipCardUpgradeResponse, EquipCardUpgradePriceInfo, EquipCardSkillUpgradeResponse
 )
@@ -76,7 +76,16 @@ async def buy_cpasset(
     )
     return BaseResponse.success(token=auth.new_token, data=result, message="购买成功")
 
-@router.get("/query_equip_cards_on_shelves",response_model=BaseResponse[EquipCardShopResponse], summary="查询商店已上架的卡牌信息")
+@router.get("/query_equip_card_shop_detail",response_model=BaseResponse[EquipCardShopInfo], summary="查询商店的卡牌信息")
+async def query_equip_card_shop_detail(
+    def_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    card = await get_equip_card_shop_detail_service(db, def_id)
+    return BaseResponse.success(token=auth.new_token, data=card)
+
+@router.get("/query_equip_cards_on_shelves",response_model=BaseResponse[EquipCardShopResponse], summary="查询商店已上架的所有卡牌信息")
 async def query_equip_cards_on_shelves(
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -84,8 +93,18 @@ async def query_equip_cards_on_shelves(
     result = await get_equip_cards_on_shelves(db)
     return BaseResponse.success(token=auth.new_token, data=result)
 
+# 查询用户卡牌详细信息
+@router.get("/query_user_equip_card_detail",response_model=BaseResponse[EquipCardBaseInfo], summary="查询用户卡牌详细信息")
+async def query_user_equip_card_detail(
+    card_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    card = await get_user_equip_card_detail_service(db, card_id)
+    return BaseResponse.success(token=auth.new_token, data=card)
+
 # 查询用户所有卡牌
-@router.get("/query_user_equip_cards",response_model=BaseResponse[EquipCardsResponse], summary="查询用户所有通用道具资产")
+@router.get("/query_user_equip_cards",response_model=BaseResponse[EquipCardsResponse], summary="查询用户所有卡牌资产")
 async def query_user_equip_cards(
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)

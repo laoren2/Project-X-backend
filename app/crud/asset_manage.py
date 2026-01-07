@@ -362,7 +362,7 @@ async def get_equip_card_by_card_id(db: AsyncSession, card_id: str) -> UserEquip
     )
     return result.scalar_one_or_none()
 
-async def get_equip_cards_on_shelves_crud(db: AsyncSession) -> List[EquipCardPrice]:
+async def get_equip_card_price_all_on_shelves(db: AsyncSession) -> List[EquipCardPrice]:
     result = await db.execute(
         select(EquipCardPrice)
         .options(selectinload(EquipCardPrice.card_def))
