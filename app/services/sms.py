@@ -18,8 +18,8 @@ def create_dysmsapi_client() -> DysmsapiClient:
         access_key_secret=settings.ALIYUN_ACCESS_KEY_SECRET
     )
     config.endpoint = settings.ALIYUN_SMS_ENDPOINT
-    config.connect_timeout = 5
-    config.read_timeout = 5
+    #config.connect_timeout = 5
+    #config.read_timeout = 5
     return DysmsapiClient(config)
 
 async def send_message_to_globe(
@@ -37,7 +37,7 @@ async def send_message_to_globe(
         response = await asyncio.wait_for(asyncio.to_thread(client.send_message_to_globe, request), timeout=5)
         return response.body.response_code == "OK"
     except Exception as e:
-        print(e)
+        #print(f"send_message_to_globe failed with error: {e}")
         raise BizException(code=ErrorCode.SMS_SERVICE_ERROR, message="sms.service_error")
 
 async def send_sms_code_service(phone_number: str):
@@ -55,7 +55,7 @@ async def send_sms_code_service(phone_number: str):
     )
     if not result:
         raise BizException(code=ErrorCode.SMS_SERVICE_ERROR, message="sms.service_error")
-    print(f"【调试用】发送验证码 {code} 到 {phone_number}")
+    #print(f"【调试用】发送验证码 {code} 到 {phone_number}")
     return code
 
 async def verify_sms_code(phone_number: str, code: str):

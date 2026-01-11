@@ -502,10 +502,13 @@ async def get_team_by_code(db: AsyncSession, team_code: str) -> RunningTeam | No
     )
     return team.scalar_one_or_none()
 # 加行级锁
-async def get_team_by_code_for_update(db: AsyncSession, team_code: str) -> RunningTeam | None:
+async def get_active_team_by_code_for_update(db: AsyncSession, team_code: str) -> RunningTeam | None:
     team = await db.execute(
         select(RunningTeam)
-        .where(RunningTeam.team_code == team_code)
+        .where(
+            RunningTeam.team_code == team_code,
+            RunningTeam.status != TeamStatus.completed
+        )
         .with_for_update()
         .options(
             selectinload(RunningTeam.track)

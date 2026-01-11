@@ -1,6 +1,6 @@
 from app.crud.user import (
     create_user, get_user_by_id, get_banned_history_by_user_id,
-    create_user_with_apple, get_realname_info_by_user_id,
+    create_user_with_apple, get_realname_info_by_user_id, get_test_account,
     get_realname_info_by_card_id, get_settings_by_user_id, get_exist_user_by_phone,
     get_exist_user_by_apple_id, get_exist_user_by_id, get_sign_in_rewards, 
     get_user_normal_sign_in_today, get_user_sign_in_history, get_exist_user_by_email,
@@ -13,10 +13,11 @@ import app.crud.competition.running as running_crud
 from app.core.security import create_access_token
 from app.schemas.common import SportType, CCAssetBaseInfo
 from app.schemas.user import UserUpdateForm, UserBaseInfo, UserStatus, Gender
-from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.base import BizException
 from app.schemas.asset import SignInStatusResponse, AssetOperation, SignInItemInfo
+from app.schemas.mailbox import MailType
 from app.db.models.user import UserRealNameHK, UserSetting, UserSignIn, UserSubscription
+from app.db.models.mailbox import Mailbox
 from app.core.errors import ErrorCode
 from app.core.config import settings
 from app.api.deps import Language
@@ -28,12 +29,37 @@ from app.services.app_store_api_tool import query_user_subscroption_status
 from jwt import PyJWKClient
 from datetime import datetime, timedelta, timezone
 from app.db.session import redis_client
+from sqlalchemy.ext.asyncio import AsyncSession
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.header import Header
 from email.utils import formataddr
 import io, asyncio, jwt, json, uuid, random, smtplib, email
 
+
+async def distribute_newcomer_gift(db: AsyncSession, user_id: uuid.UUID):
+    attachment = {
+        "coin": 500,
+        "stone1": 10,
+        "stone2": 10,
+        "stone3": 10,
+        "description": "新人礼包"
+    }
+    mail = Mailbox(
+        mail_id=f"mail_{uuid.uuid4()}",
+        user_id=user_id,
+        mail_type=MailType.REWARD,
+        title_i18n={"en": "Newcomer Gift Pack", "zh-Hans": "新人礼包", "zh-Hant": "新人禮包"},
+        content_i18n={
+            "en": "Welcome to Sporreer! Ready to start your sporting career? We've prepared a welcome gift for you, have fun!", 
+            "zh-Hans": "欢迎来到Sporreer，准备好开启你的运动生涯了吗？我们为您准备了一份见面礼，玩的开心！",
+            "zh-Hant": "歡迎來到Sporreer，準備好開啟你的運動生涯了嗎？我們為您準備了一份見面禮，玩的開心！"
+        },
+        attachment = attachment,
+        is_received = False,
+        expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+    )
+    db.add(mail)
 
 async def login_or_register(phone_number: str, db: AsyncSession):
     async with db.begin():
@@ -43,6 +69,7 @@ async def login_or_register(phone_number: str, db: AsyncSession):
             user = await create_user(db, phone_number)
             user_info = UserBaseInfo.model_validate(user)
             isRegister = True
+            await distribute_newcomer_gift(db, user.id)
         else:
             if user.status == UserStatus.banned:
                 ban_history = await get_banned_history_by_user_id(db, user.id)
@@ -81,6 +108,7 @@ async def login_or_register_apple(apple_id: str, email: str, db: AsyncSession):
             user = await create_user_with_apple(db, apple_id, email)
             user_info = UserBaseInfo.model_validate(user)
             is_register = True
+            await distribute_newcomer_gift(db, user.id)
         else:
             if user.status == UserStatus.banned:
                 ban_history = await get_banned_history_by_user_id(db, user.id)
@@ -119,6 +147,7 @@ async def login_or_register_email(email_address: str, db: AsyncSession):
             user = await create_user_with_email(db, email_address)
             user_info = UserBaseInfo.model_validate(user)
             isRegister = True
+            await distribute_newcomer_gift(db, user.id)
         else:
             if user.status == UserStatus.banned:
                 ban_history = await get_banned_history_by_user_id(db, user.id)
@@ -595,20 +624,20 @@ async def send_email_code_service(to_email: str, lang: Language):
         title0 = "Your login verification code"
         title1 = "Your verification Code:"
         title2 = "Please enter this code within 5 minutes. Do not share it with anyone."
-        title3 = "If you did not request this, you can safely ignore this email."
-        title4 = "Sporreer Team  (Please do not reply to this email)"
+        title3 = "If you did not request this, you can safely ignore this email, please do not reply to this email."
+        title4 = "Sporreer Team"
     elif lang == Language.zh_hant:
         title0 = "你的登入驗證碼"
         title1 = "你的驗證碼:"
         title2 = "請在5分鐘內輸入此驗證碼。請勿將此驗證碼透露給任何人。"
-        title3 = "如果您沒有提出這樣的請求，您可以忽略這封郵件。"
-        title4 = "Sporreer 團隊  （請勿回覆此郵件）"
+        title3 = "如果您沒有提出這樣的請求，您可以忽略這封郵件，請勿回覆此郵件。"
+        title4 = "Sporreer 團隊"
     else:
         title0 = "你的登录验证码"
         title1 = "你的验证码:"
         title2 = "请在5分钟内输入此验证码。请勿将此验证码透露给任何人。"
-        title3 = "如果您没有提出这样的请求，您可以忽略这封邮件。"
-        title4 = "Sporreer 团队  （请勿回复此邮件）"
+        title3 = "如果您没有提出这样的请求，您可以忽略这封邮件，请勿回复此邮件。"
+        title4 = "Sporreer 团队"
 
     # 构建邮件
     msg = MIMEMultipart('alternative')
@@ -642,7 +671,7 @@ async def send_email_code_service(to_email: str, lang: Language):
                 {title3}
             </p>
 
-            <p style="font-size:14px; color:#666; margin-top: 18px;">—- {title4} --</p>
+            <p style="font-size:14px; color:#666; margin-top: 18px;">-· {title4} ·-</p>
             </div>
         </body>
     </html>
@@ -660,7 +689,12 @@ async def send_email_code_service(to_email: str, lang: Language):
         #print("异常:", str(e))
         raise BizException(code=ErrorCode.EMAIL_SERVICE_ERROR, message="sms.service_error")
 
-async def verify_email_code(email_address: str, code: str):
+async def verify_email_code(email_address: str, code: str) -> bool:
     key = f"email:{email_address}"
     real_code = await redis_client.get(key)
     return real_code == code
+
+async def verify_test_account(db: AsyncSession, email_address: str, password: str) -> bool:
+    account = await get_test_account(db, email_address)
+    await db.commit()
+    return account.password == password if account else False

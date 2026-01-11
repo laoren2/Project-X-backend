@@ -49,7 +49,7 @@ async def create_season(
             f.write(contents)
         new_url = f"/resources/competition/bike/season/{new_season.season_id}/{background_path.name}"
         await update_season_image_url(db, new_season.season_id, new_url)
-    return BaseResponse.success(token=auth.new_token, message=f"成功创建bike:{season.name}", data=None)
+    return BaseResponse.success(token=auth.new_token, message=f"成功创建bike:{new_season.name}", data=None)
 
 
 # bike创建新赛事

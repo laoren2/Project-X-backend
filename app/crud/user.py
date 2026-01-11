@@ -1,6 +1,6 @@
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.models.user import User, UserBanHistory, UserRealNameHK, UserSetting, UserSignIn, SignInReward
+from app.db.models.user import User, UserBanHistory, UserRealNameHK, UserSetting, UserSignIn, SignInReward, TestAccount
 from typing import Optional, List
 from sqlalchemy.orm import selectinload
 from app.schemas.user import UserStatus
@@ -316,3 +316,12 @@ async def get_user_sign_in_history(db: AsyncSession, user_id: uuid.UUID, days: i
         .order_by(UserSignIn.sign_in_date.desc())
     )
     return result.scalars().all()
+
+async def get_test_account(db: AsyncSession, email_address: str) -> TestAccount | None:
+    result = await db.execute(
+        select(TestAccount)
+        .where(
+            TestAccount.email == email_address
+        )
+    )
+    return result.scalar_one_or_none()

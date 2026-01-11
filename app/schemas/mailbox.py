@@ -42,8 +42,8 @@ class MailDetailResponse(BaseModel):
 class MailCreateForm(BaseModel):
     user_id: str
     type: MailType
-    title: str
-    content: str | None = None
+    title: dict
+    content: dict | None = None
     attachments: str | None = None
 
 class FeedbackMailCreateForm(BaseModel):

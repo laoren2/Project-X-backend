@@ -87,8 +87,8 @@ class CPAssetDef(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_id = Column(String, unique=True, index=True, nullable=False)
     prop_type = Column(Enum(CPAssetType), nullable=False)  # "registration_card", "team_card"
-    name = Column(String, nullable=False)
-    description = Column(String, nullable=False)
+    name_i18n = Column(JSONB, nullable=False)
+    description_i18n = Column(JSONB, nullable=False)
     image_url = Column(String, nullable=False)
 
     __mapper_args__ = {
@@ -159,13 +159,13 @@ class EquipmentCardDef(Base):
     def_id = Column(String, unique=True, index=True, nullable=False)
     validation_token = Column(String, nullable=False)
 
-    name = Column(String, nullable=False)
+    name_i18n = Column(JSONB, nullable=False)
     sport_type = Column(Enum(SportType), nullable=False)
     rarity = Column(String, nullable=False)
-    description = Column(String, nullable=False)
-    skill1_description = Column(String, nullable=True)
-    skill2_description = Column(String, nullable=True)
-    skill3_description = Column(String, nullable=True)
+    description_i18n = Column(JSONB, nullable=False)
+    skill1_description_i18n = Column(JSONB, nullable=True)
+    skill2_description_i18n = Column(JSONB, nullable=True)
+    skill3_description_i18n = Column(JSONB, nullable=True)
     image_url = Column(String, nullable=False)
     version = Column(String, nullable=False)
 

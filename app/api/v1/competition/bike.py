@@ -35,7 +35,7 @@ from app.services.competition.bike import (
     get_completed_records_all, query_daily_task_status_service, claimed_daily_task_reward_service,
     start_competition_with_team_bonus_card_service
 )
-from app.api.deps import get_current_user, get_language
+from app.api.deps import get_current_user, get_language, Language
 from typing import Optional
 
 
@@ -45,9 +45,10 @@ router = APIRouter(dependencies=[Depends(get_language)])
 # 查询赛季
 @router.get("/query_season", response_model=BaseResponse[BikeSeasonBaseInfo], summary="查询bike赛季")
 async def query_season(
+    lang: Language = Depends(get_language),
     db: AsyncSession = Depends(get_db)
 ):
-    season = await query_current_season_service(db)
+    season = await query_current_season_service(db, lang)
     return BaseResponse.success(data=season)
 
 
@@ -55,9 +56,10 @@ async def query_season(
 @router.get("/query_events", response_model=BaseResponse[BikeEventListResponse], summary="查询bike赛事")
 async def query_events(
     region_id: str = Query(...),
+    lang: Language = Depends(get_language),
     db: AsyncSession = Depends(get_db)
 ):
-    events = await query_events_by_region(db=db, region_id=region_id)
+    events = await query_events_by_region(db, lang, region_id)
     return BaseResponse.success(data=BikeEventListResponse(events=events))
 
 
@@ -65,12 +67,10 @@ async def query_events(
 @router.get("/query_tracks", response_model=BaseResponse[BikeTrackListResponse], summary="查询bike赛道")
 async def query_tracks(
     event_id: str = Query(...),
+    lang: Language = Depends(get_language),
     db: AsyncSession = Depends(get_db)
 ):
-    tracks = await query_tracks_by_event(
-        db=db,
-        event_id=event_id
-    )
+    tracks = await query_tracks_by_event(db, lang, event_id)
     return BaseResponse.success(data=BikeTrackListResponse(tracks=tracks))
 
 
@@ -78,10 +78,11 @@ async def query_tracks(
 @router.post("/single_register",response_model=BaseResponse[BikeSingleRegisterResponse], summary="bike单人赛事报名")
 async def single_register(
     track_id: str = Query(...),
+    lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    response = await single_register_service(db, track_id, auth.payload["user_id"])
+    response = await single_register_service(db, lang, track_id, auth.payload["user_id"])
     return BaseResponse.success(token=auth.new_token, message=f"报名成功", data=response)
 
 
@@ -175,10 +176,11 @@ async def query_team_expired_date(
 async def query_incompleted_records(
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1),
+    lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    records = await get_incompleted_records_all(db, auth.payload["user_id"], page, size)
+    records = await get_incompleted_records_all(db, lang, auth.payload["user_id"], page, size)
     return BaseResponse.success(token=auth.new_token, data=BikeRecordResponse(records=records))
 
 
@@ -186,10 +188,11 @@ async def query_incompleted_records(
 async def query_completed_records(
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1),
+    lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    records = await get_completed_records_all(db, auth.payload["user_id"], page, size)
+    records = await get_completed_records_all(db, lang, auth.payload["user_id"], page, size)
     return BaseResponse.success(token=auth.new_token, data=BikeRecordResponse(records=records))
 
 
@@ -267,10 +270,11 @@ async def query_public_teams(
 async def query_created_teams(
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1),
+    lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    teams = await get_user_teams(db, auth.payload["user_id"], TeamRelationship.created, page, size)
+    teams = await get_user_teams(db, lang, auth.payload["user_id"], TeamRelationship.created, page, size)
     return BaseResponse.success(token=auth.new_token, data=teams)
 
 
@@ -278,10 +282,11 @@ async def query_created_teams(
 async def query_applied_teams(
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1),
+    lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    teams = await get_user_applied_teams(db, auth.payload["user_id"], page, size)
+    teams = await get_user_applied_teams(db, lang, auth.payload["user_id"], page, size)
     return BaseResponse.success(token=auth.new_token, data=teams)
 
 
@@ -289,30 +294,33 @@ async def query_applied_teams(
 async def query_joined_teams(
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1),
+    lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    teams = await get_user_teams(db, auth.payload["user_id"], TeamRelationship.joined, page, size)
+    teams = await get_user_teams(db, lang, auth.payload["user_id"], TeamRelationship.joined, page, size)
     return BaseResponse.success(token=auth.new_token, data=teams)
 
 
 @router.get("/query_team_detail",response_model=BaseResponse[BikeTeamDetailResponse],summary="查询队伍详细信息")
 async def query_team_detail(
     team_id: str = Query(...),
+    lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    info = await get_team_detail_service(db, team_id)
+    info = await get_team_detail_service(db, lang, team_id)
     return BaseResponse.success(token=auth.new_token, data=info)
 
 
 @router.get("/query_team_manage",response_model=BaseResponse[BikeTeamManageResponse],summary="查询队伍管理信息")
 async def query_team_manage(
     team_id: str = Query(...),
+    lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    info = await get_team_manage_service(db, team_id)
+    info = await get_team_manage_service(db, lang, team_id)
     return BaseResponse.success(token=auth.new_token, data=info)
 
 
@@ -443,50 +451,56 @@ async def cancel_applied_join_team(
 async def query_record_detail(
     record_id: str = Query(...),
     user_id: str = Query(None),
+    lang: Language = Depends(get_language),
     db: AsyncSession = Depends(get_db)
 ):
-    detail = await get_record_detail_service(db, record_id, user_id)
+    detail = await get_record_detail_service(db, lang, record_id, user_id)
     return BaseResponse.success(data=detail)
 
 @router.get("/query_user_current_best_records",response_model=BaseResponse[BikeSummaryRecordResponse],summary="查询任意用户当前赛季最佳记录")
 async def query_user_current_best_records(
     user_id: str = Query(...),
+    lang: Language = Depends(get_language),
     db: AsyncSession = Depends(get_db)
 ):
-    records = await get_current_best_records_service(db, user_id)
+    records = await get_current_best_records_service(db, lang, user_id)
     return BaseResponse.success(data=records)
 
 @router.get("/query_me_current_best_records",response_model=BaseResponse[BikeSummaryRecordResponse],summary="查询自己当前赛季最佳记录")
 async def query_me_current_best_records(
+    lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    records = await get_current_best_records_service(db, auth.payload["user_id"])
+    records = await get_current_best_records_service(db, lang, auth.payload["user_id"])
     return BaseResponse.success(token=auth.new_token, data=records)
 
 @router.get("/query_history_seasons",response_model=BaseResponse[BikeHistorySeasonResponse],summary="查询历史赛季信息")
 async def query_history_seasons(
+    lang: Language = Depends(get_language),
     db: AsyncSession = Depends(get_db)
 ):
-    seasons = await get_history_seasons_service(db)
+    seasons = await get_history_seasons_service(db, lang)
     return BaseResponse.success(data=seasons)
 
 @router.get("/query_user_career_records",response_model=BaseResponse[BikeCareerRecordResponse],summary="查询任意用户历史赛季记录")
 async def query_user_career_records(
     season_id: str = Query(...),
     user_id: str = Query(...),
+    lang: Language = Depends(get_language),
     db: AsyncSession = Depends(get_db)
 ):
-    records = await get_career_records_service(db, season_id, user_id)
+    records = await get_career_records_service(db, lang, season_id, user_id)
     return BaseResponse.success(data=records)
 
 @router.get("/query_me_career_records",response_model=BaseResponse[BikeCareerRecordResponse],summary="查询自己历史赛季最佳记录")
 async def query_me_career_records(
     season_id: str = Query(...),
+    lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    records = await get_career_records_service(db, season_id, auth.payload["user_id"])
+    records = await get_career_records_service(db, lang, season_id, auth.payload["user_id"])
     return BaseResponse.success(token=auth.new_token, data=records)
 
 @router.get("/query_user_career_data",response_model=BaseResponse[BikeCareerDataInfo],summary="查询用户历史赛季总结数据")
