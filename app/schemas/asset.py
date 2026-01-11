@@ -84,6 +84,11 @@ class CPAssetBuyRequest(ORMBase):
     cpasset_id: str
     cpamount: int
 
+class CC_CC_BuyRequest(ORMBase):
+    buy: CCAssetType
+    amount: int
+    use: CCAssetType
+
 class CC_CC_PurchaseResultResponse(ORMBase):
     decrease_type: CCAssetType
     decrease_amount: int

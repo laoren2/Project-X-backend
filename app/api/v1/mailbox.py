@@ -11,7 +11,7 @@ from app.schemas.mailbox import (
 from app.core.errors import ErrorCode
 from app.schemas.user import AuthContext
 from app.db.session import get_db
-from app.api.deps import get_current_user, get_language
+from app.api.deps import get_current_user, get_language, Language
 from fastapi import APIRouter, Depends, Query, UploadFile, File
 from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,19 +32,21 @@ async def get_mail_unread_status(
 async def query_mails(
     page: int = Query(...),
     size: int = Query(...),
+    lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await get_mails_service(page, size, auth.payload["user_id"], db)
+    result = await get_mails_service(page, size, auth.payload["user_id"], lang, db)
     return BaseResponse.success(token=auth.new_token, data=result)
 
 @router.get("/query_mail_detail", response_model=BaseResponse[MailDetailResponse], summary="查询邮件详情")
 async def query_mail_detail(
     mail_id: str = Query(...),
+    lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await get_mail_detail_service(mail_id, auth.payload["user_id"], db)
+    result = await get_mail_detail_service(mail_id, auth.payload["user_id"], lang, db)
     return BaseResponse.success(token=auth.new_token, data=result)
 
 @router.post("/receive_mail_rewards", response_model=BaseResponse[AssetRewardsResponse], summary="领取邮件中的奖励")

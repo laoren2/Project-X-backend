@@ -7,7 +7,7 @@ from app.crud.competition.running import (
     create_record_crud, get_record_by_record_id, update_record_crud,
     create_season_crud, get_season_by_season_id, update_season_crud, 
     get_season_now, get_season_by_name, get_active_events_by_season_id,
-    delete_record_crud, create_team_crud, get_team_by_code_for_update,
+    delete_record_crud, create_team_crud, get_active_team_by_code_for_update,
     get_created_teams_by_user_id, get_applied_teams_by_user_id, get_joined_teams_by_user_id,
     get_team_by_team_id, create_team_member_crud, update_team_crud, delete_records_by_team_id,
     get_team_by_id_for_update, get_team_by_team_id_for_update, get_record_by_team_id_and_user_id,
@@ -26,7 +26,7 @@ from app.crud.asset_manage import (
 )
 from app.crud.user import get_user_by_id, get_users_by_ids, get_users_by_user_ids, get_exist_user_by_id
 from app.core.errors import ErrorCode
-from app.schemas.base import BizException
+from app.schemas.base import BizException, Language, pick_i18n_text
 from app.schemas.common import PersonInfoResponse, EquipCardBaseInfo, SportType, CCAssetType, CCAssetRewardResponse
 from app.schemas.mailbox import MailType
 from app.schemas.user import Gender
@@ -84,7 +84,7 @@ async def create_season_service(db: AsyncSession, season_create: RunningSeasonCr
     await db.commit()
     return RunningSeasonBaseInfo(
         season_id=res.season_id,
-        name=res.name,
+        name=pick_i18n_text(res.name_i18n, Language.zh_hans),
         start_date=res.start_date.isoformat(),
         end_date=res.end_date.isoformat(),
         image_url=res.image_url
@@ -102,7 +102,7 @@ async def update_season_image_url(db: AsyncSession, season_id: str, image_url: s
     await db.commit()
 
 
-async def query_current_season_service(db: AsyncSession) -> RunningSeasonBaseInfo:
+async def query_current_season_service(db: AsyncSession, lang: Language) -> RunningSeasonBaseInfo:
     seasons = await get_season_now(db)
     if not seasons:
         raise BizException(code=ErrorCode.SEASON_ERROR, message="season.out_of_season")
@@ -111,19 +111,19 @@ async def query_current_season_service(db: AsyncSession) -> RunningSeasonBaseInf
     season: RunningSeason = seasons[0]
     return RunningSeasonBaseInfo(
         season_id=season.season_id,
-        name=season.name,
+        name=pick_i18n_text(season.name_i18n, lang),
         start_date=season.start_date.isoformat(),
         end_date=season.end_date.isoformat(),
         image_url=season.image_url
     )
 
-async def get_history_seasons_service(db: AsyncSession) -> RunningHistorySeasonResponse:
+async def get_history_seasons_service(db: AsyncSession, lang: Language) -> RunningHistorySeasonResponse:
     seasons = await get_history_seasons(db)
     response = []
     for season in seasons:
         response.append(RunningHistorySeasonInfo(
             season_id=season.season_id,
-            season_name=season.name
+            season_name=pick_i18n_text(season.name_i18n, lang)
         ))
     return RunningHistorySeasonResponse(seasons=response)
 
@@ -213,13 +213,13 @@ async def query_events_service(
         description=e.description,
         start_date=e.start_date.isoformat(),
         end_date=e.end_date.isoformat(),
-        season_name=e.season.name if e.season is not None else "未知",
+        season_name=pick_i18n_text(e.season.name_i18n, Language.zh_hans) if e.season is not None else "未知",
         region_name=e.region.name if e.region is not None else "未知",
         image_url=e.image_url
     ) for e in events]
 
 
-async def query_events_by_region(db: AsyncSession, region_id: str) -> List[RunningEventBaseInfo]:
+async def query_events_by_region(db: AsyncSession, lang: Language, region_id: str) -> List[RunningEventBaseInfo]:
     seasons = await get_season_now(db)
     if not seasons:
         raise BizException(code=ErrorCode.SEASON_ERROR, message="season.out_of_season")
@@ -236,8 +236,8 @@ async def query_events_by_region(db: AsyncSession, region_id: str) -> List[Runni
         raise BizException(code=ErrorCode.REGION_ERROR, message="region.no_events")
     return [RunningEventBaseInfo(
         event_id=e.event_id,
-        name=e.name,
-        description=e.description,
+        name=pick_i18n_text(e.name_i18n, lang),
+        description=pick_i18n_text(e.description_i18n, lang),
         start_date=e.start_date.isoformat(),
         end_date=e.end_date.isoformat(),
         image_url=e.image_url
@@ -386,7 +386,7 @@ async def query_tracks_service(
     ) for t, is_settled in tracks]
 
 
-async def query_tracks_by_event(db: AsyncSession, event_id: str) -> List[RunningTrackBaseInfo]:
+async def query_tracks_by_event(db: AsyncSession, lang: Language, event_id: str) -> List[RunningTrackBaseInfo]:
     event = await get_event_by_event_id(db, event_id)
     if event is None:
         raise BizException(code=ErrorCode.EVENT_ERROR, message="event.not_found")
@@ -405,7 +405,7 @@ async def query_tracks_by_event(db: AsyncSession, event_id: str) -> List[Running
 
         results.append(RunningTrackBaseInfo(
             track_id=t.track_id,
-            name=t.name,
+            name=pick_i18n_text(t.name_i18n, lang),
             start_date=t.start_date.isoformat(),
             end_date=t.end_date.isoformat(),
             image_url=t.image_url,
@@ -418,7 +418,7 @@ async def query_tracks_by_event(db: AsyncSession, event_id: str) -> List[Running
             to_longitude=t.to_lng,
             to_radius=t.to_radius,
             elevation_difference=t.elevation_difference,
-            sub_region_name=t.sub_region_name,
+            sub_region_name=pick_i18n_text(t.sub_region_name_i18n, lang),
             prize_pool=t.prize_pool,
             distance=t.distance,
             score=t.score,
@@ -428,7 +428,7 @@ async def query_tracks_by_event(db: AsyncSession, event_id: str) -> List[Running
     return results
 
 
-async def single_register_service(db: AsyncSession, track_id: str, user_id: str) -> RunningSingleRegisterResponse:
+async def single_register_service(db: AsyncSession, lang: Language, track_id: str, user_id: str) -> RunningSingleRegisterResponse:
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
@@ -455,8 +455,8 @@ async def single_register_service(db: AsyncSession, track_id: str, user_id: str)
         record_info = RunningRecordInfo(
             record_id=record.record_id,
             region_name=record.track.event.region.name if record.track and record.track.event and record.track.event.region else "未知",
-            event_name=record.track.event.name if record.track and record.track.event else "未知",
-            track_name=record.track.name if record.track else "未知",
+            event_name=pick_i18n_text(record.track.event.name_i18n, lang) if record.track and record.track.event else "未知",
+            track_name=pick_i18n_text(record.track.name_i18n, lang) if record.track else "未知",
             track_start_lat=record.track.from_lat if record.track else -1,
             track_start_lng=record.track.from_lng if record.track else -1,
             track_start_radius=record.track.from_radius if record.track else 10,
@@ -485,7 +485,7 @@ async def team_register_service(db: AsyncSession, team_code: str, user_id: str) 
         user = await get_user_by_id(db, user_id)
         if user is None:
             raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
-        team = await get_team_by_code_for_update(db, team_code)
+        team = await get_active_team_by_code_for_update(db, team_code)
         if team is None:
             raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
         if team.track is None:
@@ -523,6 +523,7 @@ async def team_register_service(db: AsyncSession, team_code: str, user_id: str) 
 
 async def get_incompleted_records_all(
     db: AsyncSession, 
+    lang: Language,
     user_id: str,
     page: int,
     size: int
@@ -534,8 +535,8 @@ async def get_incompleted_records_all(
     return [RunningRecordInfo(
         record_id=r.record_id,
         region_name=r.track.event.region.name if r.track and r.track.event and r.track.event.region else "未知",
-        event_name=r.track.event.name if r.track and r.track.event else "未知",
-        track_name=r.track.name if r.track else "未知",
+        event_name=pick_i18n_text(r.track.event.name_i18n, lang) if r.track and r.track.event else "未知",
+        track_name=pick_i18n_text(r.track.name_i18n, lang) if r.track else "未知",
         track_start_lat=r.track.from_lat if r.track else -1,
         track_start_lng=r.track.from_lng if r.track else -1,
         track_start_radius=r.track.from_radius if r.track else 10,
@@ -556,6 +557,7 @@ async def get_incompleted_records_all(
 
 async def get_completed_records_all(
     db: AsyncSession, 
+    lang: Language,
     user_id: str,
     page: int,
     size: int
@@ -567,8 +569,8 @@ async def get_completed_records_all(
     return [RunningRecordInfo(
         record_id=r.record_id,
         region_name=r.track.event.region.name if r.track and r.track.event and r.track.event.region else "未知",
-        event_name=r.track.event.name if r.track and r.track.event else "未知",
-        track_name=r.track.name if r.track else "未知",
+        event_name=pick_i18n_text(r.track.event.name_i18n, lang) if r.track and r.track.event else "未知",
+        track_name=pick_i18n_text(r.track.name_i18n, lang) if r.track else "未知",
         track_start_lat=r.track.from_lat if r.track else -1,
         track_start_lng=r.track.from_lng if r.track else -1,
         track_start_radius=r.track.from_radius if r.track else 10,
@@ -1349,7 +1351,8 @@ async def get_public_teams_service(
 
 
 async def get_user_applied_teams(
-    db: AsyncSession, 
+    db: AsyncSession,
+    lang: Language,
     user_id: str,
     page: int, 
     size: int
@@ -1378,8 +1381,8 @@ async def get_user_applied_teams(
                 member_count=len(t.members),
                 max_member_size=t.members_count_max,
                 region_name=t.track.event.region.name if t.track and t.track.event and t.track.event.region else "未知",
-                event_name=t.track.event.name if t.track and t.track.event else "未知",
-                track_name=t.track.name if t.track else "未知",
+                event_name=pick_i18n_text(t.track.event.name_i18n, lang) if t.track and t.track.event else "未知",
+                track_name=pick_i18n_text(t.track.name_i18n, lang) if t.track else "未知",
                 competition_date=t.start_date.isoformat(),
             ))
     return RunningAppliedTeamResponse(teams=infos)
@@ -1387,6 +1390,7 @@ async def get_user_applied_teams(
 
 async def get_user_teams(
     db: AsyncSession, 
+    lang: Language,
     user_id: str,
     relationship: TeamRelationship,
     page: int, 
@@ -1410,8 +1414,8 @@ async def get_user_teams(
                 max_member_size=t.members_count_max,
                 team_code=t.team_code,
                 region_name=t.track.event.region.name if t.track and t.track.event and t.track.event.region else "未知",
-                event_name=t.track.event.name if t.track and t.track.event else "未知",
-                track_name=t.track.name if t.track else "未知",
+                event_name=pick_i18n_text(t.track.event.name_i18n, lang) if t.track and t.track.event else "未知",
+                track_name=pick_i18n_text(t.track.name_i18n, lang) if t.track else "未知",
                 is_public=t.is_public,
                 status=t.status,
                 competition_date=t.start_date.isoformat(),
@@ -1435,8 +1439,8 @@ async def get_user_teams(
                     max_member_size=t.members_count_max,
                     team_code=t.team_code,
                     region_name=t.track.event.region.name if t.track and t.track.event and t.track.event.region else "未知",
-                    event_name=t.track.event.name if t.track and t.track.event else "未知",
-                    track_name=t.track.name if t.track else "未知",
+                    event_name=pick_i18n_text(t.track.event.name_i18n, lang) if t.track and t.track.event else "未知",
+                    track_name=pick_i18n_text(t.track.name_i18n, lang) if t.track else "未知",
                     is_public=t.is_public,
                     status=t.status,
                     competition_date=t.start_date.isoformat(),
@@ -1444,7 +1448,7 @@ async def get_user_teams(
     return RunningTeamResponse(teams=infos)
 
 
-async def get_team_detail_service(db: AsyncSession, team_id: str) -> RunningTeamDetailResponse:
+async def get_team_detail_service(db: AsyncSession, lang: Language, team_id: str) -> RunningTeamDetailResponse:
     team = await get_team_by_team_id(db, team_id)
     if team is None:
         raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
@@ -1463,8 +1467,8 @@ async def get_team_detail_service(db: AsyncSession, team_id: str) -> RunningTeam
         for m in team.members
     ]
     region_name = team.track.event.region.name if team.track and team.track.event and team.track.event.region else "未知"
-    event_name = team.track.event.name if team.track and team.track.event else "未知"
-    track_name = team.track.name if team.track else "未知"
+    event_name = pick_i18n_text(team.track.event.name_i18n, lang) if team.track and team.track.event else "未知"
+    track_name = pick_i18n_text(team.track.name_i18n, lang) if team.track else "未知"
     return RunningTeamDetailResponse(
         team_id=team.team_id,
         title=team.title,
@@ -1482,7 +1486,7 @@ async def get_team_detail_service(db: AsyncSession, team_id: str) -> RunningTeam
     )
     
 
-async def get_team_manage_service(db: AsyncSession, team_id: str) -> RunningTeamManageResponse:
+async def get_team_manage_service(db: AsyncSession, lang: Language, team_id: str) -> RunningTeamManageResponse:
     team = await get_team_by_team_id(db, team_id)
     if team is None:
         raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
@@ -1516,8 +1520,8 @@ async def get_team_manage_service(db: AsyncSession, team_id: str) -> RunningTeam
         for m in team.applied_members
     ]
     region_name = team.track.event.region.name if team.track.event and team.track.event.region else "未知"
-    event_name = team.track.event.name if team.track.event else "未知"
-    track_name = team.track.name
+    event_name = pick_i18n_text(team.track.event.name_i18n, lang) if team.track.event else "未知"
+    track_name = pick_i18n_text(team.track.name_i18n, lang)
     track_end_date = team.track.end_date.isoformat()
     return RunningTeamManageResponse(
         team_id=team.team_id,
@@ -1621,8 +1625,12 @@ async def settle_running_leaderboard_service(db: AsyncSession, track_id: str) ->
                         mail_id=f"mail_{uuid.uuid4()}",
                         user_id=user.id,
                         mail_type=MailType.REWARD,
-                        title=f"自行车赛事结算奖励",
-                        content=f"恭喜您在 {track.event.name} - {track.name} 比赛中获得第 {rank} 名，请尽快领取奖励:",
+                        title_i18n={"en": "Running race settlement rewards", "zh-Hans": "跑步赛事结算奖励", "zh-Hant": "跑步賽事結算獎勵"},
+                        content_i18n={
+                            "en": f"Congratulations on achieving rank {rank} in the {pick_i18n_text(track.event.name_i18n, Language.en)} - {pick_i18n_text(track.name_i18n, Language.en)} competition! Please claim your reward as soon as possible:", 
+                            "zh-Hans": f"恭喜您在 {pick_i18n_text(track.event.name_i18n, Language.zh_hans)} - {pick_i18n_text(track.name_i18n, Language.zh_hans)} 比赛中获得第 {rank} 名，请尽快领取奖励:", 
+                            "zh-Hant": f"恭喜您在 {pick_i18n_text(track.event.name_i18n, Language.zh_hant)} - {pick_i18n_text(track.name_i18n, Language.zh_hant)} 比賽中獲得第 {rank} 名，請盡快領取獎勵:"
+                        },
                         attachment={"voucher": voucher, "description": "比赛结算奖励"},
                         is_read=False,
                         is_received=False,
@@ -1940,7 +1948,7 @@ async def join_team_service(db: AsyncSession, user_id: str, team_code: str):
         user = await get_user_by_id(db, user_id)
         if user is None:
             raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
-        team = await get_team_by_code_for_update(db, team_code)
+        team = await get_active_team_by_code_for_update(db, team_code)
         if team is None:
             raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
         if any(member.user_id == user.id for member in team.members):
@@ -2008,7 +2016,7 @@ async def cancel_applied_join_team_service(db: AsyncSession, user_id: str, team_
         await db.delete(member)
 
 
-async def get_record_detail_service(db: AsyncSession, record_id: str, user_id: str | None) -> RunningRecordDetailInfo:
+async def get_record_detail_service(db: AsyncSession, lang: Language, record_id: str, user_id: str | None) -> RunningRecordDetailInfo:
     record = await get_record_by_record_id(db, record_id)
     if record is None:
         raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
@@ -2027,7 +2035,7 @@ async def get_record_detail_service(db: AsyncSession, record_id: str, user_id: s
     raw_duration = (record.end_time - record.start_time).total_seconds() if record.end_time and record.start_time else 0
     for card_bonus in record.card_bonus:
         if card_bonus.card and card_bonus.card.user:
-            card_info = equip_card_to_base_info(card_bonus.card)
+            card_info = equip_card_to_base_info(card_bonus.card, lang)
             ratio_bonus = card_bonus.bonus_ratio * raw_duration if card_bonus.bonus_ratio else 0
             if card_info is not None:
                 card_bonus_list.append(
@@ -2093,7 +2101,7 @@ async def get_record_detail_service(db: AsyncSession, record_id: str, user_id: s
         team_member_scores=team_member_scores_list
     )
 
-async def get_current_best_records_service(db: AsyncSession, user_id: str) -> RunningSummaryRecordResponse:
+async def get_current_best_records_service(db: AsyncSession, lang: Language, user_id: str) -> RunningSummaryRecordResponse:
     seasons = await get_season_now(db)
     if not seasons:
         return RunningSummaryRecordResponse(records=[])
@@ -2109,8 +2117,8 @@ async def get_current_best_records_service(db: AsyncSession, user_id: str) -> Ru
                 if rank_info.record_id and event.region:
                     records.append(RunningSummaryRecordInfo(
                         record_id=rank_info.record_id,
-                        event_name=event.name,
-                        track_name=track.name,
+                        event_name=pick_i18n_text(event.name_i18n, lang),
+                        track_name=pick_i18n_text(track.name_i18n, lang),
                         city_name=event.region.name,
                         best_time=rank_info.duration_seconds if rank_info.duration_seconds else 0,
                         rank=rank_info.rank if rank_info.rank else 0,
@@ -2119,7 +2127,7 @@ async def get_current_best_records_service(db: AsyncSession, user_id: str) -> Ru
                     ))
     return RunningSummaryRecordResponse(records=records)
 
-async def get_career_records_service(db: AsyncSession, season_id: str, user_id: str) -> RunningCareerRecordResponse:
+async def get_career_records_service(db: AsyncSession, lang: Language, season_id: str, user_id: str) -> RunningCareerRecordResponse:
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
@@ -2134,8 +2142,8 @@ async def get_career_records_service(db: AsyncSession, season_id: str, user_id: 
                 records.append(RunningCareerRecordInfo(
                     record_id=record.record.record_id,
                     track_id=track.track_id,
-                    track_name=track.name,
-                    event_name=event.name,
+                    track_name=pick_i18n_text(track.name_i18n, lang),
+                    event_name=pick_i18n_text(event.name_i18n, lang),
                     region=event.region.name,
                     track_score=track.score,
                     score=record.score,

@@ -419,13 +419,13 @@ async def create_user_equip_card(db: AsyncSession, user_id: uuid.UUID, card_def:
         lucky_value=lucky_value,
         multiplier=1
     )
-    if card_def.skill1_description:
+    if card_def.skill1_description_i18n:
         card.skill1_level = 0
         card.multiplier_skill1 = 1
-    if card_def.skill2_description:
+    if card_def.skill2_description_i18n:
         card.skill2_level = 0
         card.multiplier_skill2 = 1
-    if card_def.skill3_description:
+    if card_def.skill3_description_i18n:
         card.skill3_level = 0
         card.multiplier_skill3 = 1
     db.add(card)

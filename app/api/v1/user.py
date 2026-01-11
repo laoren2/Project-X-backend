@@ -10,7 +10,8 @@ from app.services.user import (
     login_or_register_apple, realname_hk_service, bind_phone_service,
     bind_apple_id_service, unbind_apple_id_service, sign_in_status_service,
     sign_in_today_service, sign_in_today_vip_service, send_email_code_service,
-    verify_email_code, login_or_register_email, bind_email_service, unbind_email_service
+    verify_email_code, login_or_register_email, bind_email_service, unbind_email_service,
+    verify_test_account
 )
 from app.crud.user import get_users_by_name
 from app.services.user_follow import get_relation_count, get_relationship_service
@@ -68,6 +69,14 @@ async def send_email_code(
 async def login_email(data: schemas_user.EmailCodeVerify, db: AsyncSession = Depends(get_db)):
     if not await verify_email_code(data.email_address, data.code):
         raise BizException(code=ErrorCode.EMAIL_VERIFY_FAILED, message="identity.verify_failed.sms")
+    token, user, isRegister, role = await login_or_register_email(data.email_address, db)
+    relation = await get_relation_count(db, user.user_id)
+    return BaseResponse.success(token=token, message="登录成功", data=schemas_user.LoginResponse(user=user, relation=relation, role=role, isRegister=isRegister))
+
+@router.post("/login/test_account", response_model=BaseResponse[schemas_user.LoginResponse], summary="测试账号登录/注册")
+async def login_test_account(data: schemas_user.EmailCodeVerify, db: AsyncSession = Depends(get_db)):
+    if not await verify_test_account(db, data.email_address, data.code):
+        raise BizException(code=ErrorCode.EMAIL_VERIFY_FAILED, message="identity.verify_failed.test_account")
     token, user, isRegister, role = await login_or_register_email(data.email_address, db)
     relation = await get_relation_count(db, user.user_id)
     return BaseResponse.success(token=token, message="登录成功", data=schemas_user.LoginResponse(user=user, relation=relation, role=role, isRegister=isRegister))

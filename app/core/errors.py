@@ -94,6 +94,11 @@ ERROR_MESSAGES = {
         "en": "Account has been banned\nremaining time:{remaining}"
     },
 # 身份校验
+    "identity.verify_failed.test_account": {
+        "zh-Hans": "账号信息错误",
+        "zh-Hant": "帳號信息錯誤",
+        "en": "Account info error"
+    },
     "identity.verify_failed.sms": {
         "zh-Hans": "验证码错误",
         "zh-Hant": "驗證碼錯誤",

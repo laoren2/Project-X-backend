@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime
 from app.db.session import get_db
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_admin, get_language, Language
 from app.services.asset_manage import (
     query_cpasset_def_service, create_equip_card_def_service,
     create_cpasset_def_service, query_equip_card_def_service,
@@ -24,7 +24,7 @@ from app.schemas.user import AuthContext
 import uuid
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_language)])
 
 
 @router.get("/query_cpassets_in_shop",response_model=BaseResponse[CPAssetsShopInternalResponse], summary="查询商店的通用道具资产信息")
@@ -154,10 +154,11 @@ async def query_equip_cards_in_shop(
     is_on_shelves: Optional[bool] = Query(None),
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1),
+    lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await get_equip_cards_in_shop(db, name, card_def_id, is_on_shelves, page, size)
+    result = await get_equip_cards_in_shop(db, lang, name, card_def_id, is_on_shelves, page, size)
     return BaseResponse.success(token=auth.new_token, data=result)
 
 

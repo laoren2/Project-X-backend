@@ -19,7 +19,7 @@ class Region(Base):
     __tablename__ = "regions"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     region_id = Column(String, unique=True, index=True, nullable=False)
-    name = Column(String, nullable=False, unique=True)
+    name = Column(String, nullable=False, unique=True)  # 暂时存客户端的本地化字符串key
     country_code = Column(String, nullable=False)
     boundary = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -37,7 +37,7 @@ class BikeSeason(Base):
     __tablename__ = "bike_seasons"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     season_id = Column(String, unique=True, index=True, nullable=False)
-    name = Column(String, nullable=False)
+    name_i18n = Column(JSONB, nullable=False)
     start_date = Column(DateTime(timezone=True), nullable=False)
     end_date = Column(DateTime(timezone=True), nullable=False)
     image_url = Column(String, nullable=False)
@@ -50,7 +50,7 @@ class RunningSeason(Base):
     __tablename__ = "running_seasons"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     season_id = Column(String, unique=True, index=True, nullable=False)
-    name = Column(String, nullable=False)
+    name_i18n = Column(JSONB, nullable=False)
     start_date = Column(DateTime(timezone=True), nullable=False)
     end_date = Column(DateTime(timezone=True), nullable=False)
     image_url = Column(String, nullable=False)
@@ -63,8 +63,8 @@ class BikeEvent(Base):
     __tablename__ = "bike_events"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     event_id = Column(String, unique=True, index=True, nullable=False)
-    name = Column(String, nullable=False)
-    description = Column(String, nullable=True)
+    name_i18n = Column(JSONB, nullable=False)
+    description_i18n = Column(JSONB, nullable=False)
     start_date = Column(DateTime(timezone=True), nullable=False)
     end_date = Column(DateTime(timezone=True), nullable=False)
     region_id = Column(UUID(as_uuid=True), nullable=False)
@@ -82,7 +82,7 @@ class BikeTrack(Base):
     __tablename__ = "bike_tracks"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     track_id = Column(String, unique=True, index=True, nullable=False)
-    name = Column(String, nullable=False)
+    name_i18n = Column(JSONB, nullable=False)
     start_date = Column(DateTime(timezone=True), nullable=False)
     end_date = Column(DateTime(timezone=True), nullable=False)
     event_id = Column(UUID(as_uuid=True), nullable=False)
@@ -96,7 +96,7 @@ class BikeTrack(Base):
     team_register_card_id = Column(UUID(as_uuid=True), nullable=False)
 
     elevation_difference = Column(Integer, default=0, nullable=False)
-    sub_region_name = Column(String, nullable=False)
+    sub_region_name_i18n = Column(JSONB, nullable=False)
     prize_pool = Column(Integer, default=0, nullable=False)     # 暂只支持金券
     score = Column(Integer, default=0, nullable=False)          # 赛道冠军对应积分
     terrain_type = Column(Enum(BikeTrackTerrainType), nullable=False)
@@ -114,8 +114,8 @@ class RunningEvent(Base):
     __tablename__ = "running_events"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     event_id = Column(String, unique=True, index=True, nullable=False)
-    name = Column(String, nullable=False)
-    description = Column(String, nullable=True)
+    name_i18n = Column(JSONB, nullable=False)
+    description_i18n = Column(JSONB, nullable=False)
     start_date = Column(DateTime(timezone=True), nullable=False)
     end_date = Column(DateTime(timezone=True), nullable=False)
     region_id = Column(UUID(as_uuid=True), nullable=False)
@@ -133,7 +133,7 @@ class RunningTrack(Base):
     __tablename__ = "running_tracks"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     track_id = Column(String, unique=True, index=True, nullable=False)
-    name = Column(String, nullable=False)
+    name_i18n = Column(JSONB, nullable=False)
     start_date = Column(DateTime(timezone=True), nullable=False)
     end_date = Column(DateTime(timezone=True), nullable=False)
     event_id = Column(UUID(as_uuid=True), nullable=False)
@@ -147,7 +147,7 @@ class RunningTrack(Base):
     team_register_card_id = Column(UUID(as_uuid=True), nullable=False)
 
     elevation_difference = Column(Integer, default=0, nullable=False)
-    sub_region_name = Column(String, nullable=False)
+    sub_region_name_i18n = Column(JSONB, nullable=False)
     prize_pool = Column(Integer, default=0, nullable=False)
     score = Column(Integer, default=0, nullable=False)          # 赛道冠军对应积分
     distance = Column(Float, nullable=False)
@@ -268,7 +268,7 @@ class BikeTeam(Base):
     __tablename__ = "bike_teams"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id = Column(String, unique=True, index=True, nullable=False)
-    team_code = Column(String, unique=True, index=True, nullable=False)
+    team_code = Column(String, nullable=False)
     track_id = Column(UUID(as_uuid=True), nullable=False)
 
     title = Column(String, nullable=False)
@@ -284,6 +284,15 @@ class BikeTeam(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     start_date = Column(DateTime(timezone=True), nullable=False)
     start_date_real = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index(
+            "uq_bike_teams_teamcode_status",
+            "team_code",
+            unique=True,
+            postgresql_where=(status.in_([TeamStatus.prepared, TeamStatus.locked, TeamStatus.ready, TeamStatus.recording]))
+        ),
+    )
 
 
 class BikeTeamMember(Base):
@@ -332,7 +341,7 @@ class RunningTeam(Base):
     __tablename__ = "running_teams"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id = Column(String, unique=True, index=True, nullable=False)
-    team_code = Column(String, unique=True, index=True, nullable=False)
+    team_code = Column(String, nullable=False)
     track_id = Column(UUID(as_uuid=True), nullable=False)
 
     title = Column(String, nullable=False)
@@ -348,6 +357,15 @@ class RunningTeam(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     start_date = Column(DateTime(timezone=True), nullable=False)
     start_date_real = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index(
+            "uq_running_teams_teamcode_status",
+            "team_code",
+            unique=True,
+            postgresql_where=(status.in_([TeamStatus.prepared, TeamStatus.locked, TeamStatus.ready, TeamStatus.recording]))
+        ),
+    )
 
 class RunningTeamMember(Base):
     __tablename__ = "running_team_members"

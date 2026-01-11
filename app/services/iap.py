@@ -143,7 +143,9 @@ async def verify_auto_subscription_transaction_service(
                     apple_original_transaction_id = renew_payload.originalTransactionId,
                     apple_latest_transaction_id = transaction_payload.transactionId
                 )
-                db.add(new_subs_info)          
+                db.add(new_subs_info)
+        else:
+            raise BizException(code=ErrorCode.IAP_ERROR, message="iap_subscription.verify_failed.purchase")
         return SubscriptionStatusResponse(
             is_active=is_active,
             auto_renew=auto_renew,

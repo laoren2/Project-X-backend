@@ -7,12 +7,13 @@ from app.crud.user import get_user_by_id
 from app.crud.asset_manage import reward_ccasset
 from app.core.errors import ErrorCode
 from app.db.models.mailbox import Mailbox, FeedbackMailbox
-from app.schemas.base import BizException
+from app.schemas.base import BizException, pick_i18n_text
 from app.schemas.mailbox import (
     MailUnreadStatusResponse, MailInfo, MailDetailResponse, MailInfoResponse, MailCreateForm,
     FeedbackMailCreateForm, FeedbackMailInfoResponse, FeedbackMailInfo
 )
 from app.schemas.asset import AssetRewardsResponse, CCAssetType, CCAssetBaseInfo, AssetOperation
+from app.api.deps import Language
 from datetime import datetime, timezone, timedelta
 import uuid, json
 
@@ -37,6 +38,7 @@ async def get_mails_service(
     page: int,
     size: int,
     user_id: str,
+    lang: Language,
     db: AsyncSession,
 ) -> MailInfoResponse:
     user = await get_user_by_id(db, user_id)
@@ -46,7 +48,7 @@ async def get_mails_service(
     mails = await get_mails_curd(db, user.id, page, size)
     mail_infos = [MailInfo(
         mail_id=mail.mail_id,
-        title=mail.title,
+        title=pick_i18n_text(mail.title_i18n, lang),
         mail_type=mail.mail_type,
         is_read=mail.is_read,
         created_at=mail.created_at.isoformat()
@@ -56,6 +58,7 @@ async def get_mails_service(
 async def get_mail_detail_service(
     mail_id: str,
     user_id: str,
+    lang: Language,
     db: AsyncSession
 ) -> MailDetailResponse:
     mail = await get_mail_by_mail_id(db, mail_id)
@@ -66,8 +69,8 @@ async def get_mail_detail_service(
     await db.commit()
     return MailDetailResponse(
         mail_id=mail.mail_id,
-        title=mail.title,
-        content=mail.content,
+        title=pick_i18n_text(mail.title_i18n, lang),
+        content=pick_i18n_text(mail.content_i18n, lang) if mail.content_i18n else None,
         mail_type=mail.mail_type,
         attachments=mail.attachment,
         is_received=mail.is_received,
@@ -91,8 +94,8 @@ async def send_mail_service(
         mail_id=f"mail_{uuid.uuid4()}",
         user_id=user.id,
         mail_type=create_info.type,
-        title = create_info.title,
-        content = create_info.content,
+        title_i18n = create_info.title,
+        content_i18n = create_info.content,
         attachment = attach_json,
         is_received = False if create_info.attachments else None,
         expires_at = datetime.now(timezone.utc) + timedelta(days=30) if create_info.attachments else None
