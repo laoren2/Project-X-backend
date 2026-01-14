@@ -17,7 +17,7 @@ class AnnouncementInfoResponse(BaseModel):
     announcements: List[AnnouncementInfo]
 
 class AnnouncementUpdateForm(BaseModel):
-    content: str = Field(..., min_length=1, max_length=5000)
+    content: dict
 
 class AdsInfoInternal(BaseModel):
     image_url: str

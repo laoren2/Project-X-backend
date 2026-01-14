@@ -17,10 +17,10 @@ from app.crud.competition.running import (
     get_incompleted_records_by_user_id, get_completed_records_by_user_id, get_career_statistic_data,
     add_or_update_career_statistic_data, get_daily_task, get_today_task_record_by_user,
     add_or_update_daily_task_record, get_unverified_records, get_bonus_record_with_team_magic_card_for_update,
-    get_team_id_by_record_id
+    get_team_id_by_record_id, get_season_by_date
 )
 from app.crud.asset_manage import (
-    consume_cpasset, get_register_card_price,
+    consume_cpasset, get_register_card_price, get_cpasset_def_by_asset_id,
     reward_cpasset, get_team_card_def, get_equip_card_by_card_id, get_cpasset_def_by_id,
     reward_ccasset
 )
@@ -68,27 +68,25 @@ competition_logger = logging.getLogger("competition")
 leaderboard_logger = logging.getLogger("leaderboard")
 
 
-async def create_season_service(db: AsyncSession, season_create: RunningSeasonCreateForm, image_url: str) -> RunningSeasonBaseInfo:
-    season = await get_season_by_name(db, season_create.name)
+async def create_season_service(db: AsyncSession, season_create: RunningSeasonCreateForm, image_url: str) -> str:
+    season = await get_season_by_date(db, season_create.start_date, season_create.end_date)
     if season is not None:
         raise BizException(code=ErrorCode.SEASON_ERROR, message="season.data_error")
     season_id = f"season_{str(uuid.uuid4())[:8]}"
+    try:
+        name_i18n = json.loads(season_create.name)
+    except:
+        raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"JSON格式错误")
     new_season = RunningSeason(
         season_id=season_id,
-        name=season_create.name,
+        name_i18n=name_i18n,
         start_date=season_create.start_date,
         end_date=season_create.end_date,
         image_url=image_url
     )
     res = await create_season_crud(db, new_season)
     await db.commit()
-    return RunningSeasonBaseInfo(
-        season_id=res.season_id,
-        name=pick_i18n_text(res.name_i18n, Language.zh_hans),
-        start_date=res.start_date.isoformat(),
-        end_date=res.end_date.isoformat(),
-        image_url=res.image_url
-    )
+    return res.season_id
 
 
 async def update_season_image_url(db: AsyncSession, season_id: str, image_url: str):
@@ -127,22 +125,28 @@ async def get_history_seasons_service(db: AsyncSession, lang: Language) -> Runni
         ))
     return RunningHistorySeasonResponse(seasons=response)
 
-async def create_event_service(db: AsyncSession, event_form: RunningEventCreateForm, image_url: str) -> RunningEventBaseInfoInternal:
-    region = await get_region_by_name(db, event_form.region_name)
+async def create_event_service(db: AsyncSession, event_form: RunningEventCreateForm, image_url: str) -> str:
+    region = await get_region_by_region_id(db, event_form.region_id)
     if region is None:
         raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
 
-    season = await get_season_by_name(db, event_form.season_name)
+    season = await get_season_by_season_id(db, event_form.season_id)
     if season is None:
         raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
     if event_form.start_date < season.start_date or event_form.end_date > season.end_date or event_form.start_date > event_form.end_date:
         raise BizException(code=ErrorCode.EVENT_EEROR, message="赛事时间非法")
 
+    try:
+        name_i18n = json.loads(event_form.name)
+        description_i18n = json.loads(event_form.description)
+    except:
+        raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"JSON格式错误")
+
     event_id = f"event_{str(uuid.uuid4())[-12:]}"
     new_event = RunningEvent(
         event_id=event_id,
-        name=event_form.name,
-        description=event_form.description,
+        name_i18n=name_i18n,
+        description_i18n=description_i18n,
         start_date=event_form.start_date,
         end_date=event_form.end_date,
         region_id=region.id,
@@ -151,16 +155,7 @@ async def create_event_service(db: AsyncSession, event_form: RunningEventCreateF
     )
     res = await create_event_crud(db, new_event)
     await db.commit()
-    return RunningEventBaseInfoInternal(
-        event_id=res.event_id,
-        name=res.name,
-        description=res.description,
-        start_date=res.start_date.isoformat(),
-        end_date=res.end_date.isoformat(),
-        season_name=res.season.name if res.season else "未知",
-        region_name=res.region.name if res.region else "未知",
-        image_url=res.image_url
-    )
+    return res.event_id
 
 
 async def update_event_service(db: AsyncSession, event: RunningEventUpdateForm, image_url: str):
@@ -169,9 +164,14 @@ async def update_event_service(db: AsyncSession, event: RunningEventUpdateForm, 
         raise BizException(code=ErrorCode.EVENT_ERROR, message="event.not_found")
     if event.start_date < existing_event.season.start_date or event.end_date > existing_event.season.end_date or event.start_date > event.end_date:
         raise BizException(code=ErrorCode.EVENT_ERROR, message="event.invalid_time")
+    try:
+        name_i18n = json.loads(event.name)
+        description_i18n = json.loads(event.description)
+    except:
+        raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"JSON格式错误")
     update_data = {
-        "name": event.name,
-        "description": event.description,
+        "name_i18n": name_i18n,
+        "description_i18n": description_i18n,
         "start_date": event.start_date,
         "end_date": event.end_date,
         "image_url": image_url
@@ -209,11 +209,11 @@ async def query_events_service(
     )
     return [RunningEventBaseInfoInternal(
         event_id=e.event_id,
-        name=e.name,
-        description=e.description,
+        name=e.name_i18n,
+        description=e.description_i18n,
         start_date=e.start_date.isoformat(),
         end_date=e.end_date.isoformat(),
-        season_name=pick_i18n_text(e.season.name_i18n, Language.zh_hans) if e.season is not None else "未知",
+        season_name=e.season.name_i18n["zh-Hans"] if e.season is not None else "未知",
         region_name=e.region.name if e.region is not None else "未知",
         image_url=e.image_url
     ) for e in events]
@@ -244,25 +244,28 @@ async def query_events_by_region(db: AsyncSession, lang: Language, region_id: st
     ) for e in events]
 
 
-async def create_track_service(db: AsyncSession, track_form: RunningTrackCreateForm, image_url: str) -> RunningTrackBaseInfoInternal:
-    event = await get_event_by_name(db, track_form.event_name)
+async def create_track_service(db: AsyncSession, track_form: RunningTrackCreateForm, image_url: str) -> str:
+    event = await get_event_by_event_id(db, track_form.event_id)
     if event is None:
         raise BizException(code=ErrorCode.EVENT_ERROR, message="event.not_found")
     if track_form.start_date < event.start_date or track_form.end_date > event.end_date or track_form.start_date > track_form.end_date:
         raise BizException(code=ErrorCode.TRACK_ERROR, message="track.invalid_time")
 
-    region = await get_region_by_name(db, track_form.region_name)
-    if region is None:
-        raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
+    single_card = await get_cpasset_def_by_asset_id(db, track_form.single_registercard_id)
+    team_card = await get_cpasset_def_by_asset_id(db, track_form.team_registercard_id)
+    if single_card is None or team_card is None:
+        raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.not_found")
 
-    season = await get_season_by_name(db, track_form.season_name)
-    if season is None:
-        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
+    try:
+        name_i18n = json.loads(track_form.name)
+        sub_region_i18n = json.loads(track_form.subRegioName)
+    except:
+        raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"JSON格式错误")
 
     track_id = f"track_{str(uuid.uuid4())[-12:]}"
     new_track = RunningTrack(
         track_id = track_id,
-        name = track_form.name,
+        name_i18n = name_i18n,
         start_date = track_form.start_date,
         end_date = track_form.end_date,
         event_id = event.id,
@@ -272,8 +275,10 @@ async def create_track_service(db: AsyncSession, track_form: RunningTrackCreateF
         to_lat = track_form.to_latitude,
         to_lng = track_form.to_longitude,
         to_radius = track_form.to_radius,
+        single_register_card_id = single_card.id,
+        team_register_card_id = team_card.id,
         elevation_difference = track_form.elevationDifference,
-        sub_region_name = track_form.subRegioName,
+        sub_region_name_i18n = sub_region_i18n,
         prize_pool = track_form.prizePool,
         score = track_form.score,
         distance = track_form.distance,
@@ -282,26 +287,7 @@ async def create_track_service(db: AsyncSession, track_form: RunningTrackCreateF
     )
     res = await create_track_crud(db, new_track)
     await db.commit()
-    return RunningTrackBaseInfoInternal(
-        track_id=res.track_id,
-        name=res.name,
-        start_date=res.start_date.isoformat(),
-        end_date=res.end_date.isoformat(),
-        event_name=res.event.name if res.event else "未知",
-        season_name=res.event.season.name if res.event and res.event.season else "未知",
-        region_name=res.event.region.name if res.event and res.event.region else "未知",
-        image_url=res.image_url,
-        from_latitude=str(res.from_lat),
-        from_longitude=str(res.from_lng),
-        to_latitude=str(res.to_lat),
-        to_longitude=str(res.to_lng),
-        elevation_difference=str(res.elevation_difference),
-        sub_region_name=res.sub_region_name,
-        prize_pool=str(res.prize_pool),
-        distance=str(res.distance),
-        score=str(res.score),
-        is_settled=False
-    )
+    return res.track_id
 
 
 async def update_track_service(db: AsyncSession, track: RunningTrackUpdateForm, image_url: str):
@@ -310,8 +296,13 @@ async def update_track_service(db: AsyncSession, track: RunningTrackUpdateForm, 
         raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
     if track.start_date < existing_track.event.start_date or track.end_date > existing_track.event.end_date or track.start_date > track.end_date:
         raise BizException(code=ErrorCode.TRACK_ERROR, message="track.invalid_time")
+    try:
+        name_i18n = json.loads(track.name)
+        sub_region_i18n = json.loads(track.subRegioName)
+    except:
+        raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"JSON格式错误")
     update_data = {
-        "name": track.name,
+        "name_i18n": name_i18n,
         "start_date": track.start_date,
         "end_date": track.end_date,
         "from_lat": track.from_latitude,
@@ -321,7 +312,7 @@ async def update_track_service(db: AsyncSession, track: RunningTrackUpdateForm, 
         "to_lng": track.to_longitude,
         "to_radius": track.to_radius,
         "elevation_difference": track.elevationDifference,
-        "sub_region_name": track.subRegioName,
+        "sub_region_name_i18n": sub_region_i18n,
         "prize_pool": track.prizePool,
         "score": track.score,
         "distance": track.distance,
@@ -363,11 +354,11 @@ async def query_tracks_service(
     )
     return [RunningTrackBaseInfoInternal(
         track_id=t.track_id,
-        name=t.name,
+        name=t.name_i18n,
         start_date=t.start_date.isoformat(),
         end_date=t.end_date.isoformat(),
-        event_name=t.event.name if t.event else "未知",
-        season_name=t.event.season.name if t.event and t.event.season else "未知",
+        event_name=t.event.name_i18n["zh-Hans"] if t.event else "未知",
+        season_name=t.event.season.name_i18n["zh-Hans"] if t.event and t.event.season else "未知",
         region_name=t.event.region.name if t.event and t.event.region else "未知",
         image_url=t.image_url,
         from_latitude=str(t.from_lat),
@@ -377,7 +368,7 @@ async def query_tracks_service(
         to_longitude=str(t.to_lng),
         to_radius=t.to_radius,
         elevation_difference=str(t.elevation_difference),
-        sub_region_name=t.sub_region_name,
+        sub_region_name=t.sub_region_name_i18n,
         prize_pool=str(t.prize_pool),
         distance=str(t.distance),
         score=str(t.score),

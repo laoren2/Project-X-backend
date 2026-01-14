@@ -23,9 +23,9 @@ async def query_annoucements_service(db: AsyncSession, lang: Language) -> Announ
 
 async def update_announcements_service(
     db: AsyncSession,
-    content: str
+    content: dict
 ):
-    db.add(Announcement(content=content))
+    db.add(Announcement(content_i18n=content))
     await db.commit()
 
 

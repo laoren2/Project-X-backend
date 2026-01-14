@@ -53,7 +53,13 @@ class CPAssetShopInfo(ORMBase):
 class CPAssetsShopResponse(ORMBase):
     assets: List[CPAssetShopInfo]
 
-class CPAssetShopInternalInfo(CPAssetShopInfo):
+class CPAssetShopInternalInfo(BaseModel):
+    asset_id: str
+    name: dict[str, Any]
+    description: dict[str, Any]
+    image_url: str
+    ccasset_type: CCAssetType
+    price: int
     is_on_shelves: bool
 
 class CPAssetsShopInternalResponse(ORMBase):
@@ -73,8 +79,8 @@ class CPAssetShopInfoUpdateRequest(ORMBase):
 class CPAssetDefInfo(ORMBase):
     asset_id: str
     cpasset_type: CPAssetType
-    name: str
-    description: str
+    name: dict[str, Any]
+    description: dict[str, Any]
     image_url: str
 
 class CPAssetDefResponse(ORMBase):
@@ -176,14 +182,14 @@ class EquipCardDefCreateForm(ORMBase):
 
 class EquipCardDefInfo(ORMBase):
     def_id: str
-    name: str
+    name_i18n: dict[str, Any]
     image_url: str
     sport_type: SportType
     rarity: str
-    description: str
-    skill1_description: str | None
-    skill2_description: str | None
-    skill3_description: str | None
+    description_i18n: dict[str, Any]
+    skill1_description_i18n: dict[str, Any] | None
+    skill2_description_i18n: dict[str, Any] | None
+    skill3_description_i18n: dict[str, Any] | None
     version: str
     #type_name: str
     tags: List[str]
@@ -217,7 +223,21 @@ class EquipCardShopInfo(BaseModel):
 class EquipCardShopResponse(BaseModel):
     cards: List[EquipCardShopInfo]
 
-class EquipCardShopInternalInfo(EquipCardShopInfo):
+class EquipCardShopInternalInfo(BaseModel):
+    def_id: str
+    name: dict[str, Any]
+    image_url: str
+    sport_type: SportType
+    rarity: str
+    description: dict[str, Any]
+    skill1_description: dict[str, Any] | None
+    skill2_description: dict[str, Any] | None
+    skill3_description: dict[str, Any] | None
+    version: str
+    effect_config: dict[str, Any]
+
+    ccasset_type: CCAssetType
+    price: int
     is_on_shelves: bool
 
 class EquipCardShopInternalResponse(BaseModel):
