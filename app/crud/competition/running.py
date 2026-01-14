@@ -11,7 +11,7 @@ from app.db.models.user import UserSubscription, User
 from app.schemas.competition.common import RecordStatus, TeamStatus, DailyTaskType
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
-from datetime import timedelta, date
+from datetime import timedelta, date, datetime
 from sqlalchemy.dialects.postgresql import insert
 from app.schemas.user import Gender
 from app.core.tools import get_today_hk_date
@@ -54,10 +54,19 @@ async def get_history_seasons(db: AsyncSession) -> List[RunningSeason]:
     )
     return result.scalars().all()
 
-async def get_season_by_name(db: AsyncSession, name: str) -> RunningSeason | None:
+async def get_season_by_date(db: AsyncSession, start: datetime, end: datetime) -> RunningSeason | None:
     result = await db.execute(
         select(RunningSeason).where(
-            RunningSeason.name == name
+            RunningSeason.end_date > start,
+            RunningSeason.start_date < end
+        )
+    )
+    return result.scalar_one_or_none()
+
+async def get_season_by_name(db: AsyncSession, zh_name: str) -> RunningSeason | None:
+    result = await db.execute(
+        select(RunningSeason).where(
+            RunningSeason.name_i18n["zh-Hans"].astext == zh_name
         )
     )
     return result.scalar_one_or_none()
@@ -103,8 +112,8 @@ async def get_event_by_event_id(db: AsyncSession, event_id: str) -> RunningEvent
     return result.scalar_one_or_none()
 
 
-async def get_event_by_name(db: AsyncSession, name: str) -> RunningEvent | None:
-    result = await db.execute(select(RunningEvent).where(RunningEvent.name == name))
+async def get_event_by_name(db: AsyncSession, zh_name: str) -> RunningEvent | None:
+    result = await db.execute(select(RunningEvent).where(RunningEvent.name_i18n["zh-Hans"] == zh_name))
     return result.scalar_one_or_none()
 
 
@@ -156,11 +165,11 @@ async def query_events_crud(
     ).join(RunningEvent.region).join(RunningEvent.season)
 
     if season_name:
-        stmt = stmt.filter(func.lower(RunningSeason.name).contains(season_name.lower()))
+        stmt = stmt.filter(func.lower(RunningSeason.name_i18n["zh-Hans"]).contains(season_name.lower()))
     if region_name:
         stmt = stmt.filter(func.lower(Region.name).contains(region_name.lower()))
     if event_name:
-        stmt = stmt.filter(func.lower(RunningEvent.name).contains(event_name.lower()))
+        stmt = stmt.filter(func.lower(RunningEvent.name_i18n["zh-Hans"]).contains(event_name.lower()))
 
     stmt = stmt.order_by(RunningEvent.created_at.asc()).offset((page - 1) * size).limit(size)
 
@@ -269,13 +278,13 @@ async def query_tracks_crud(
     )
 
     if event_name:
-        stmt = stmt.filter(func.lower(RunningEvent.name).contains(event_name.lower()))
+        stmt = stmt.filter(func.lower(RunningEvent.name_i18n["zh-Hans"]).contains(event_name.lower()))
     if season_name:
-        stmt = stmt.filter(func.lower(RunningSeason.name).contains(season_name.lower()))
+        stmt = stmt.filter(func.lower(RunningSeason.name_i18n["zh-Hans"]).contains(season_name.lower()))
     if region_name:
         stmt = stmt.filter(func.lower(Region.name).contains(region_name.lower()))
     if track_name:
-        stmt = stmt.filter(func.lower(RunningTrack.name).contains(track_name.lower()))
+        stmt = stmt.filter(func.lower(RunningTrack.name_i18n["zh-Hans"]).contains(track_name.lower()))
 
     stmt = stmt.order_by(RunningTrack.created_at.asc()).offset((page - 1) * size).limit(size)
 

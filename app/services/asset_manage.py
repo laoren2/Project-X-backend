@@ -219,7 +219,6 @@ async def get_cpassets_on_shelves(db: AsyncSession, lang: Language) -> CPAssetsS
 
 async def get_cpassets_in_shop(
         db: AsyncSession,
-        lang: Language,
         name: Optional[str], 
         asset_id: Optional[str],
         is_on_shelves: Optional[str],
@@ -234,8 +233,8 @@ async def get_cpassets_in_shop(
             assets.append(
                 CPAssetShopInternalInfo(
                     asset_id=prop_def.asset_id,
-                    name=pick_i18n_text(prop_def.name_i18n, lang),
-                    description=pick_i18n_text(prop_def.description_i18n, lang),
+                    name=prop_def.name_i18n,
+                    description=prop_def.description_i18n,
                     image_url=prop_def.image_url,
                     ccasset_type=asset.ccasset_type,
                     price=asset.price,
@@ -260,7 +259,6 @@ async def add_cpasset_to_shop_service(db: AsyncSession, request: CPAssetShopInfo
 # 查询cp道具定义
 async def query_cpasset_def_service(
     db: AsyncSession,
-    lang: Language,
     name: Optional[str], 
     prop_type: Optional[str], 
     page: int, 
@@ -272,8 +270,8 @@ async def query_cpasset_def_service(
         CPAssetDefInfo(
             asset_id=item.asset_id,
             cpasset_type=item.prop_type,
-            name=pick_i18n_text(item.name_i18n, lang),
-            description=pick_i18n_text(item.description_i18n, lang),
+            name=item.name_i18n,
+            description=item.description_i18n,
             image_url=item.image_url
         )
         for item in items
@@ -291,13 +289,15 @@ async def create_cpasset_def_service(
     async with db.begin():
         try:
             extra_fields_dict = json.loads(form.extra_fields)
+            name_i18n = json.loads(form.name)
+            description_i18n = json.loads(form.description)
         except json.JSONDecodeError:
             raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"JSON格式错误")
         parent_data = {
             "asset_id": asset_id,
             "prop_type": form.prop_type,
-            "name": form.name,
-            "description": form.description,
+            "name_i18n": name_i18n,
+            "description_i18n": description_i18n,
             "image_url": url
         }
         # 3. 动态创建子类实例并插入
@@ -364,17 +364,22 @@ async def create_equip_card_def_service(
     try:
         tags_data = json.loads(form.tags)
         effect_data = json.loads(form.effect_config)
+        name_i18n = json.loads(form.name)
+        des_i18n = json.loads(form.description)
+        skill1_des_i18n = json.loads(form.skill1_description) if form.skill1_description else None
+        skill2_des_i18n = json.loads(form.skill2_description) if form.skill2_description else None
+        skill3_des_i18n = json.loads(form.skill3_description) if form.skill3_description else None
     except json.JSONDecodeError:
         raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"JSON格式错误")
     card = EquipmentCardDef(
         def_id=def_id,
-        name=form.name,
+        name_i18n=name_i18n,
         sport_type=form.sport_type,
         rarity=form.rarity,
-        description=form.description,
-        skill1_description=form.skill1_description,
-        skill2_description=form.skill2_description,
-        skill3_description=form.skill3_description,
+        description_i18n=des_i18n,
+        skill1_description_i18n=skill1_des_i18n,
+        skill2_description_i18n=skill2_des_i18n,
+        skill3_description_i18n=skill3_des_i18n,
         image_url=url,
         version=form.version,
         #type_name=form.type_name,
@@ -387,7 +392,6 @@ async def create_equip_card_def_service(
 
 async def get_equip_cards_in_shop(
     db: AsyncSession,
-    lang: Language,
     name: Optional[str],
     card_id: Optional[str],
     is_on_shelves: Optional[str],
@@ -402,14 +406,14 @@ async def get_equip_cards_in_shop(
             cards.append(
                 EquipCardShopInternalInfo(
                     def_id=card_def.def_id,
-                    name=pick_i18n_text(card_def.name_i18n, lang),
+                    name=card_def.name_i18n,
                     image_url=card_def.image_url,
                     sport_type=card_def.sport_type,
                     rarity=card_def.rarity,
-                    description=pick_i18n_text(card_def.description_i18n, lang),
-                    skill1_description=pick_i18n_text(card_def.skill1_description_i18n, lang) if card_def.skill1_description_i18n else None,
-                    skill2_description=pick_i18n_text(card_def.skill2_description_i18n, lang) if card_def.skill2_description_i18n else None,
-                    skill3_description=pick_i18n_text(card_def.skill3_description_i18n, lang) if card_def.skill3_description_i18n else None,
+                    description=card_def.description_i18n,
+                    skill1_description=card_def.skill1_description_i18n,
+                    skill2_description=card_def.skill2_description_i18n,
+                    skill3_description=card_def.skill3_description_i18n,
                     version=card_def.version,
                     effect_config=card_def.effect_config,
                     ccasset_type=card.ccasset_type,

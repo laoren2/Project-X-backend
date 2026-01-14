@@ -48,7 +48,7 @@ async def add_cpasset_to_shop(
     db: AsyncSession = Depends(get_db)
 ):
     await add_cpasset_to_shop_service(db, request)
-    return BaseResponse.success(token=auth.new_token, message="添加成功", data=None)
+    return BaseResponse.success(token=auth.new_token, message="success", data=None)
 
 
 #@router.post("/update_cpasset_in_shop",response_model=BaseResponse[None], summary="更新通用道具资产在商店的信息")
@@ -71,7 +71,7 @@ async def query_cpasset_def(
     db: AsyncSession = Depends(get_db)
 ):
     result = await query_cpasset_def_service(db, name, type, page, size)
-    return BaseResponse.success(token=auth.new_token, message="查询成功", data=result)
+    return BaseResponse.success(token=auth.new_token, message="success", data=result)
 
 
 @router.post("/create_cpasset_def",response_model=BaseResponse[None],summary="创建新道具定义")
@@ -96,7 +96,7 @@ async def create_cpasset_def(
     new_url = f"/resources/asset/cpasset/{asset_id}/{cover_path.name}"
     await create_cpasset_def_service(db, form, asset_id, new_url)
 
-    return BaseResponse.success(token=auth.new_token, message="成功创建", data=None)
+    return BaseResponse.success(token=auth.new_token, message="success", data=None)
 
 
 @router.post("/reward_ccasset",response_model=BaseResponse[None],summary="用户通用货币资产奖励")
@@ -106,7 +106,7 @@ async def reward_ccasset_to_user(
     db: AsyncSession = Depends(get_db)
 ):
     await reward_ccasset_to_user_service(db, request)
-    return BaseResponse.success(token=auth.new_token, message="奖励成功", data=None)
+    return BaseResponse.success(token=auth.new_token, message="success", data=None)
 
 
 @router.get("/query_equip_card_def",response_model=BaseResponse[EquipCardDefResponse], summary="查询卡牌资产定义")
@@ -119,7 +119,7 @@ async def query_equip_card_def(
     db: AsyncSession = Depends(get_db)
 ):
     result = await query_equip_card_def_service(db, name, sport_type, page, size)
-    return BaseResponse.success(token=auth.new_token, message="查询成功", data=result)
+    return BaseResponse.success(token=auth.new_token, message="success", data=result)
 
 
 @router.post("/create_equip_card_def",response_model=BaseResponse[None],summary="创建新卡牌定义")
@@ -144,7 +144,7 @@ async def create_equip_card_def(
     new_url = f"/resources/asset/equipcard/{asset_id}/{cover_path.name}"
     await create_equip_card_def_service(db, form, asset_id, new_url)
 
-    return BaseResponse.success(token=auth.new_token, message="成功创建", data=None)
+    return BaseResponse.success(token=auth.new_token, message="success", data=None)
 
 
 @router.get("/query_equip_cards_in_shop",response_model=BaseResponse[EquipCardShopInternalResponse], summary="查询商店的卡牌信息")
@@ -154,11 +154,10 @@ async def query_equip_cards_in_shop(
     is_on_shelves: Optional[bool] = Query(None),
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1),
-    lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await get_equip_cards_in_shop(db, lang, name, card_def_id, is_on_shelves, page, size)
+    result = await get_equip_cards_in_shop(db, name, card_def_id, is_on_shelves, page, size)
     return BaseResponse.success(token=auth.new_token, data=result)
 
 
@@ -169,4 +168,4 @@ async def add_equip_card_to_shop(
     db: AsyncSession = Depends(get_db)
 ):
     await add_equip_card_to_shop_service(db, request)
-    return BaseResponse.success(token=auth.new_token, message="添加成功", data=None)
+    return BaseResponse.success(token=auth.new_token, message="success", data=None)

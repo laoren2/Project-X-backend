@@ -35,10 +35,10 @@ async def create_season(
     db: AsyncSession = Depends(get_db)
 ):
     image_url = "/resources/placeholder/season.png"
-    new_season = await create_season_service(db, season, image_url)
+    new_season_id = await create_season_service(db, season, image_url)
 
     if season_image:
-        season_folder = Path(f"resources/competition/running/season") / new_season.season_id
+        season_folder = Path(f"resources/competition/running/season") / new_season_id
         season_folder.mkdir(parents=True, exist_ok=True)
         for file in season_folder.glob("background_*.jpg"):
             file.unlink(missing_ok=True)
@@ -48,9 +48,9 @@ async def create_season(
             raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
         with background_path.open("wb") as f:
             f.write(contents)
-        new_url = f"/resources/competition/running/season/{new_season.season_id}/{background_path.name}"
-        await update_season_image_url(db, new_season.season_id, new_url)
-    return BaseResponse.success(token=auth.new_token, message=f"成功创建running:{new_season.name}", data=None)
+        new_url = f"/resources/competition/running/season/{new_season_id}/{background_path.name}"
+        await update_season_image_url(db, new_season_id, new_url)
+    return BaseResponse.success(token=auth.new_token, message="success", data=None)
 
 
 # running创建新赛事
@@ -62,10 +62,10 @@ async def create_event(
     db: AsyncSession = Depends(get_db)
 ):
     image_url = "/resources/placeholder/event.png"
-    new_event = await create_event_service(db, event, image_url)
+    new_event_id = await create_event_service(db, event, image_url)
 
     if event_image:
-        event_folder = Path("resources/competition/running/event") / new_event.event_id
+        event_folder = Path("resources/competition/running/event") / new_event_id
         event_folder.mkdir(parents=True, exist_ok=True)
         for file in event_folder.glob("background_*.jpg"):
             file.unlink(missing_ok=True)
@@ -75,10 +75,10 @@ async def create_event(
             raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
         with background_path.open("wb") as f:
             f.write(contents)
-        new_url = f"/resources/competition/running/event/{new_event.event_id}/{background_path.name}"
-        await update_event_image_url(db, new_event.event_id, new_url)
+        new_url = f"/resources/competition/running/event/{new_event_id}/{background_path.name}"
+        await update_event_image_url(db, new_event_id, new_url)
 
-    return BaseResponse.success(token=auth.new_token, message=f"成功创建running赛事:{event.name}", data=None)
+    return BaseResponse.success(token=auth.new_token, message="success", data=None)
 
 
 # running更新赛事
@@ -104,7 +104,7 @@ async def update_event(
         image_url = f"/resources/competition/running/event/{event.event_id}/{bg_path.name}"
     await update_event_service(db, event, image_url)
 
-    return BaseResponse.success(token=auth.new_token, message=f"成功更新running赛事:{event.name}", data=None)
+    return BaseResponse.success(token=auth.new_token, message="success", data=None)
 
 
 # running查询赛事
@@ -138,10 +138,10 @@ async def create_track(
     db: AsyncSession = Depends(get_db)
 ):
     image_url = "/resources/placeholder/track.png"
-    new_track = await create_track_service(db, track, image_url)
+    new_track_id = await create_track_service(db, track, image_url)
 
     if track_image:
-        track_folder = Path("resources/competition/running/track") / new_track.track_id
+        track_folder = Path("resources/competition/running/track") / new_track_id
         track_folder.mkdir(parents=True, exist_ok=True)
         for file in track_folder.glob("background_*.jpg"):
             file.unlink(missing_ok=True)
@@ -151,10 +151,10 @@ async def create_track(
             raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
         with background_path.open("wb") as f:
             f.write(contents)
-        new_url = f"/resources/competition/running/track/{new_track.track_id}/{background_path.name}"
-        await update_track_image_url(db, new_track.track_id, new_url)
+        new_url = f"/resources/competition/running/track/{new_track_id}/{background_path.name}"
+        await update_track_image_url(db, new_track_id, new_url)
 
-    return BaseResponse.success(token=auth.new_token, message=f"成功创建running赛道:{track.name}", data=None)
+    return BaseResponse.success(token=auth.new_token, message="success", data=None)
 
 
 # running更新赛道
@@ -180,7 +180,7 @@ async def update_track(
         image_url = f"/resources/competition/running/track/{track.track_id}/{bg_path.name}"
     await update_track_service(db, track, image_url)
 
-    return BaseResponse.success(token=auth.new_token, message=f"成功更新running赛道:{track.name}", data=None)
+    return BaseResponse.success(token=auth.new_token, message="success", data=None)
 
 
 # running查询赛道
