@@ -126,6 +126,7 @@ class BikeTrackCreateForm:
     subRegioName: str
     prizePool: int
     score: int
+    distance: float
     terrain_type: BikeTrackTerrainType
 
     def __init__(
@@ -146,6 +147,7 @@ class BikeTrackCreateForm:
         subRegioName: str = Form(...),
         prizePool: int = Form(...),
         score: int = Form(...),
+        distance: float = Form(...),
         terrain_type: BikeTrackTerrainType = Form(...)
     ):
         self.name = name
@@ -164,6 +166,7 @@ class BikeTrackCreateForm:
         self.subRegioName = subRegioName
         self.prizePool = prizePool
         self.score = score
+        self.distance = distance
         self.terrain_type = terrain_type
 
 
@@ -182,6 +185,7 @@ class BikeTrackUpdateForm:
     subRegioName: str
     prizePool: int
     score: int
+    distance: float
     terrain_type: BikeTrackTerrainType
 
     def __init__(
@@ -200,6 +204,7 @@ class BikeTrackUpdateForm:
         subRegioName: str = Form(...),
         prizePool: int = Form(...),
         score: int = Form(...),
+        distance: float = Form(...),
         terrain_type: BikeTrackTerrainType = Form(...)
     ):
         self.track_id = track_id
@@ -216,6 +221,7 @@ class BikeTrackUpdateForm:
         self.subRegioName = subRegioName
         self.prizePool = prizePool
         self.score = score
+        self.distance = distance
         self.terrain_type = terrain_type
 
 
@@ -239,6 +245,7 @@ class BikeTrackBaseInfoInternal(ORMBase):
     sub_region_name: dict[str, Any]
     prize_pool: str
     score: str
+    distance: str
     terrain_type: BikeTrackTerrainType
     is_settled: bool
 
@@ -266,6 +273,7 @@ class BikeTrackBaseInfo(ORMBase):
     prize_pool: int
     score: int
     totalParticipants: int
+    distance: float
     terrain_type: BikeTrackTerrainType
 
 class BikeTrackListResponse(ORMBase):

@@ -99,6 +99,7 @@ class BikeTrack(Base):
     sub_region_name_i18n = Column(JSONB, nullable=False)
     prize_pool = Column(Integer, default=0, nullable=False)     # 暂只支持金券
     score = Column(Integer, default=0, nullable=False)          # 赛道冠军对应积分
+    distance = Column(Float, nullable=False)
     terrain_type = Column(Enum(BikeTrackTerrainType), nullable=False)
 
     image_url = Column(String, nullable=False)
