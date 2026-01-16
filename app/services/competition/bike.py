@@ -281,6 +281,7 @@ async def create_track_service(db: AsyncSession, track_form: BikeTrackCreateForm
         sub_region_name_i18n = sub_region_i18n,
         prize_pool = track_form.prizePool,
         score = track_form.score,
+        distance = track_form.distance,
         terrain_type = track_form.terrain_type,
         image_url = image_url
     )
@@ -315,6 +316,7 @@ async def update_track_service(db: AsyncSession, track: BikeTrackUpdateForm, ima
         "sub_region_name_i18n": sub_region_i18n,
         "prize_pool": track.prizePool,
         "score": track.score,
+        "distance": track.distance,
         "terrain_type": track.terrain_type,
         "image_url": image_url
     }
@@ -370,6 +372,7 @@ async def query_tracks_service(
         sub_region_name=t.sub_region_name_i18n,
         prize_pool=str(t.prize_pool),
         score=str(t.score),
+        distance=str(t.distance),
         terrain_type=t.terrain_type,
         is_settled=is_settled
     ) for t, is_settled in tracks]
@@ -411,6 +414,7 @@ async def query_tracks_by_event(db: AsyncSession, lang: Language, event_id: str)
             prize_pool=t.prize_pool,
             score=t.score,
             totalParticipants=total_count,
+            distance=t.distance,
             terrain_type=t.terrain_type,
         ))
     return results
