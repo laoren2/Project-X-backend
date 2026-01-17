@@ -29,10 +29,10 @@ async def update_announcements_service(
     await db.commit()
 
 
-async def query_banner_ads_service(db: AsyncSession) -> BannerAdsInfoResponse:
+async def query_banner_ads_service(db: AsyncSession, lang: Language) -> BannerAdsInfoResponse:
     ads = await get_displayed_ads(db)
     ads_infos = [AdsInfo(
-        image_url=ad.image_url,
+        image_url=pick_i18n_text(ad.image_url_i18n, lang),
         web_url=ad.web_url
     ) for ad in ads]
     return BannerAdsInfoResponse(ads=ads_infos)
@@ -41,11 +41,17 @@ async def query_banner_ads_service(db: AsyncSession) -> BannerAdsInfoResponse:
 async def create_banner_ad_service(
     db: AsyncSession,
     form: AdCreateForm,
-    image_url: str
+    url_hans: str,
+    url_hant: str,
+    url_en: str
 ):
     new_ad = BannerAds(
         ad_id=f"ad_{str(uuid.uuid4())[:8]}",
-        image_url=image_url,
+        image_url_i18n={
+            "en": url_en, 
+            "zh-Hans": url_hans,
+            "zh-Hant": url_hant
+        },
         web_url=form.web_url,
         is_displayed=form.is_displayed
     )

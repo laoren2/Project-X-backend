@@ -356,9 +356,8 @@ async def query_equip_card_def_service(
 
 
 async def create_equip_card_def_service(
-    db: AsyncSession, 
-    form: EquipCardDefCreateForm, 
-    def_id: str, 
+    db: AsyncSession,
+    form: EquipCardDefCreateForm,
     url: str
 ):
     try:
@@ -372,7 +371,7 @@ async def create_equip_card_def_service(
     except json.JSONDecodeError:
         raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"JSON格式错误")
     card = EquipmentCardDef(
-        def_id=def_id,
+        def_id=form.def_id,
         name_i18n=name_i18n,
         sport_type=form.sport_type,
         rarity=form.rarity,
@@ -382,7 +381,6 @@ async def create_equip_card_def_service(
         skill3_description_i18n=skill3_des_i18n,
         image_url=url,
         version=form.version,
-        #type_name=form.type_name,
         tags=tags_data,
         effect_config=effect_data,
     )
