@@ -139,6 +139,7 @@ class CCAssetRewardRequest(ORMBase):
     amount: int
 
 class EquipCardDefCreateForm(ORMBase):
+    def_id: str
     name: str
     sport_type: SportType
     rarity: str
@@ -147,13 +148,13 @@ class EquipCardDefCreateForm(ORMBase):
     skill2_description: str | None
     skill3_description: str | None
     version: str
-    #type_name: str
     tags: str           # 后续手动json.loads
     effect_config: str  # 后续手动json.loads
 
     @classmethod
     def as_form(
         cls,
+        def_id: str = Form(...),
         name: str = Form(...),
         sport_type: SportType = Form(...),
         rarity: str = Form(...),
@@ -162,11 +163,11 @@ class EquipCardDefCreateForm(ORMBase):
         skill2_description: str | None = Form(None),
         skill3_description: str | None = Form(None),
         version: str = Form(...),
-        #type_name: str = Form(...),
         tags: str = Form("[]"),
         effect_config: str = Form(...)
     ):
         return cls(
+            def_id=def_id,
             name=name,
             sport_type=sport_type,
             rarity=rarity,
@@ -175,7 +176,6 @@ class EquipCardDefCreateForm(ORMBase):
             skill2_description=skill2_description,
             skill3_description=skill3_description,
             version=version,
-            #type_name=type_name,
             tags=tags,
             effect_config=effect_config
         )

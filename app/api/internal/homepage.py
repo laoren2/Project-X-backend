@@ -30,19 +30,32 @@ async def update_announcements(
 @router.post("/create_banner_ad", response_model=BaseResponse[None], summary="创建首页轮播图")
 async def create_banner_ad(
     form: AdCreateForm = Depends(AdCreateForm.as_form),
-    image: UploadFile = File(...),
+    image_hans: UploadFile = File(...),
+    image_hant: UploadFile = File(...),
+    image_en: UploadFile = File(...),
     auth: AuthContext = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
     cpasset_folder = Path("resources/homepage/banner")
     cpasset_folder.mkdir(parents=True, exist_ok=True)
-    ad_path = cpasset_folder / f"ad_{int(datetime.now().timestamp())}.jpg"
-    contents = await image.read()
-    if len(contents) > 0.5 * 1024 * 1024:  # 超过 512KB
+    now_str = f"{int(datetime.now().timestamp())}"
+    hans_path = cpasset_folder / f"ad_{now_str}_hans.jpg"
+    hant_path = cpasset_folder / f"ad_{now_str}_hant.jpg"
+    en_path = cpasset_folder / f"ad_{now_str}_en.jpg"
+    content_hans = await image_hans.read()
+    content_hant = await image_hant.read()
+    content_en = await image_en.read()
+    if len(content_hans) > 0.5 * 1024 * 1024 or len(content_hant) > 0.5 * 1024 * 1024 or len(content_en) > 0.5 * 1024 * 1024:  # 超过 512KB
         raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
-    with ad_path.open("wb") as f:
-        f.write(contents)
-    new_url = f"/resources/homepage/banner/{ad_path.name}"
+    with hans_path.open("wb") as f:
+        f.write(content_hans)
+    with hant_path.open("wb") as f:
+        f.write(content_hant)
+    with en_path.open("wb") as f:
+        f.write(content_en)
+    url_hans = f"/resources/homepage/banner/{hans_path.name}"
+    url_hant = f"/resources/homepage/banner/{hant_path.name}"
+    url_en = f"/resources/homepage/banner/{en_path.name}"
 
-    await create_banner_ad_service(db, form, new_url)
+    await create_banner_ad_service(db, form, url_hans, url_hant, url_en)
     return BaseResponse.success(token=auth.new_token, message="success")

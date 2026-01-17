@@ -129,7 +129,7 @@ async def create_equip_card_def(
     auth: AuthContext = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    asset_id = f"equipcard_def_{str(uuid.uuid4())[:8]}"
+    asset_id = form.def_id
 
     cpasset_folder = Path("resources/asset/equipcard") / asset_id
     cpasset_folder.mkdir(parents=True, exist_ok=True)
@@ -142,7 +142,7 @@ async def create_equip_card_def(
     with cover_path.open("wb") as f:
         f.write(contents)
     new_url = f"/resources/asset/equipcard/{asset_id}/{cover_path.name}"
-    await create_equip_card_def_service(db, form, asset_id, new_url)
+    await create_equip_card_def_service(db, form, new_url)
 
     return BaseResponse.success(token=auth.new_token, message="success", data=None)
 

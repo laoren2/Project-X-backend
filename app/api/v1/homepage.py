@@ -24,7 +24,8 @@ async def query_announcements(
 
 @router.get("/query_banner_ads", response_model=BaseResponse[BannerAdsInfoResponse], summary="查询首页轮播信息")
 async def query_banner_ads(
+    lang: Language = Depends(get_language),
     db: AsyncSession = Depends(get_db)
 ):
-    results = await query_banner_ads_service(db)
+    results = await query_banner_ads_service(db, lang)
     return BaseResponse.success(data=results)
