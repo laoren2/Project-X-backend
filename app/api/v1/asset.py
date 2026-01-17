@@ -33,11 +33,10 @@ router = APIRouter(dependencies=[Depends(get_language)])
 @router.get("/query_cpassets_on_shelves",response_model=BaseResponse[CPAssetsShopResponse], summary="查询商店已上架的通用道具资产信息")
 async def query_cpassets_on_shelves(
     lang: Language = Depends(get_language),
-    auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     result = await get_cpassets_on_shelves(db, lang)
-    return BaseResponse.success(token=auth.new_token, data=result)
+    return BaseResponse.success(data=result)
 
 # 查询用户所有ccasset 金币 & 点券 & 金券资产
 @router.get("/query_user_ccassets",response_model=BaseResponse[CCAssetsResponse], summary="查询用户所有通用货币资产")
@@ -102,11 +101,10 @@ async def query_equip_card_shop_detail(
 @router.get("/query_equip_cards_on_shelves",response_model=BaseResponse[EquipCardShopResponse], summary="查询商店已上架的所有卡牌信息")
 async def query_equip_cards_on_shelves(
     lang: Language = Depends(get_language),
-    auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     result = await get_equip_cards_on_shelves(db, lang)
-    return BaseResponse.success(token=auth.new_token, data=result)
+    return BaseResponse.success(data=result)
 
 # 查询用户卡牌详细信息
 @router.get("/query_user_equip_card_detail",response_model=BaseResponse[EquipCardBaseInfo], summary="查询用户卡牌详细信息")
