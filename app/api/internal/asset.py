@@ -9,13 +9,14 @@ from app.services.asset_manage import (
     query_cpasset_def_service, create_equip_card_def_service,
     create_cpasset_def_service, query_equip_card_def_service,
     add_cpasset_to_shop_service, get_cpassets_in_shop, reward_ccasset_to_user_service,
-    get_equip_cards_in_shop, add_equip_card_to_shop_service
+    get_equip_cards_in_shop, add_equip_card_to_shop_service, update_cpasset_service,
+    update_equip_card_service
 )
 from app.schemas.asset import (
     CC_CP_PurchaseResultResponse, CPAssetsShopInternalResponse, CPAssetDefResponse,
     CPAssetShopInfoCreateRequest, CPAssetShopInfoUpdateRequest, CPAssetDefCreateForm,
-    CCAssetRewardRequest, EquipCardDefCreateForm, EquipCardDefResponse,
-    EquipCardShopInfoCreateRequest, EquipCardShopInternalResponse
+    CCAssetRewardRequest, EquipCardDefCreateForm, EquipCardDefResponse, EquipCardDefUpdateForm,
+    EquipCardShopInfoCreateRequest, EquipCardShopInternalResponse, CPAssetDefUpdateForm
 )
 from app.schemas.common import SportType
 from app.core.errors import ErrorCode
@@ -99,6 +100,28 @@ async def create_cpasset_def(
     return BaseResponse.success(token=auth.new_token, message="success", data=None)
 
 
+@router.post("/update_cpasset_def",response_model=BaseResponse[None],summary="更新道具定义")
+async def update_cpasset_def(
+    form: CPAssetDefUpdateForm = Depends(CPAssetDefUpdateForm.as_form),
+    image: UploadFile = File(...),
+    auth: AuthContext = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    asset_folder = Path("resources/asset/cpasset") / form.asset_id
+    asset_folder.mkdir(parents=True, exist_ok=True)
+    for file in asset_folder.glob("cover_*.png"):
+        file.unlink(missing_ok=True)
+    cover_path = asset_folder / f"cover_{int(datetime.now().timestamp())}.png"
+    contents = await image.read()
+    if len(contents) > 1 * 1024 * 1024:  # 超过 1MB
+        raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
+    with cover_path.open("wb") as f:
+        f.write(contents)
+    image_url = f"/resources/asset/cpasset/{form.asset_id}/{cover_path.name}"
+    await update_cpasset_service(db, form, image_url)
+    return BaseResponse.success(token=auth.new_token, message="success", data=None)
+
+
 @router.post("/reward_ccasset",response_model=BaseResponse[None],summary="用户通用货币资产奖励")
 async def reward_ccasset_to_user(
     request: CCAssetRewardRequest,
@@ -144,6 +167,28 @@ async def create_equip_card_def(
     new_url = f"/resources/asset/equipcard/{asset_id}/{cover_path.name}"
     await create_equip_card_def_service(db, form, new_url)
 
+    return BaseResponse.success(token=auth.new_token, message="success", data=None)
+
+
+@router.post("/update_equip_card_def",response_model=BaseResponse[None],summary="更新卡牌定义")
+async def update_equip_card_def(
+    form: EquipCardDefUpdateForm = Depends(EquipCardDefUpdateForm.as_form),
+    image: UploadFile = File(...),
+    auth: AuthContext = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    card_folder = Path("resources/asset/equipcard") / form.def_id
+    card_folder.mkdir(parents=True, exist_ok=True)
+    for file in card_folder.glob("cover_*.jpg"):
+        file.unlink(missing_ok=True)
+    cover_path = card_folder / f"cover_{int(datetime.now().timestamp())}.jpg"
+    contents = await image.read()
+    if len(contents) > 1 * 1024 * 1024:  # 超过 1MB
+        raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
+    with cover_path.open("wb") as f:
+        f.write(contents)
+    image_url = f"/resources/asset/equipcard/{form.def_id}/{cover_path.name}"
+    await update_equip_card_service(db, form, image_url)
     return BaseResponse.success(token=auth.new_token, message="success", data=None)
 
 
