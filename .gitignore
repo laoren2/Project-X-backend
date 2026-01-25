@@ -22,9 +22,4 @@ redis_data/
 # Docker
 *.pem
 # 资源
-resources/user/
-resources/competition/
-resources/asset/
-resources/feedbacks/
-resources/homepage/
-resources/model/
+resources/

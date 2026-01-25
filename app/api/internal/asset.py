@@ -85,9 +85,9 @@ async def create_cpasset_def(
 
     cpasset_folder = Path("resources/asset/cpasset") / asset_id
     cpasset_folder.mkdir(parents=True, exist_ok=True)
-    for file in cpasset_folder.glob("cover_*.jpg"):
+    for file in cpasset_folder.glob("cover_*.png"):
         file.unlink(missing_ok=True)
-    cover_path = cpasset_folder / f"cover_{int(datetime.now().timestamp())}.jpg"
+    cover_path = cpasset_folder / f"cover_{int(datetime.now().timestamp())}.png"
     contents = await image.read()
     if len(contents) > 0.5 * 1024 * 1024:  # 超过 512KB
         raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")

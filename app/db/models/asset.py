@@ -157,7 +157,7 @@ class EquipmentCardDef(Base):
     __tablename__ = "equipment_card_defs"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     def_id = Column(String, unique=True, index=True, nullable=False)
-    validation_token = Column(String, nullable=False)
+    #validation_token = Column(String, nullable=False)
 
     name_i18n = Column(JSONB, nullable=False)
     sport_type = Column(Enum(SportType), nullable=False)
@@ -173,7 +173,7 @@ class EquipmentCardDef(Base):
     tags = Column(JSONB, nullable=False, default=list)   # 过滤标签，string数组
     effect_config = Column(JSONB, nullable=False)        # 包含基本使用方法/收益等配置
 
-@event.listens_for(EquipmentCardDef, "before_insert")
+'''@event.listens_for(EquipmentCardDef, "before_insert")
 def generate_validation_token(mapper, connection, target):
     if target.effect_config is not None:
         serialized = json.dumps(target.effect_config, sort_keys=True)
@@ -188,7 +188,7 @@ def update_validation_token(mapper, connection, target):
         serialized = json.dumps(target.effect_config, sort_keys=True)
         target.validation_token = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
     else:
-        target.validation_token = ""
+        target.validation_token = ""'''
 
 # 用户装备卡表（玩家持有的具体卡片）
 class UserEquipmentCard(Base):

@@ -47,6 +47,7 @@ class BikeEventCreateForm:
     end_date: datetime
     season_id: str
     region_id: str
+    image_url: str
 
     def __init__(
         self,
@@ -55,7 +56,8 @@ class BikeEventCreateForm:
         start_date: datetime = Form(...),
         end_date: datetime = Form(...),
         season_id: str = Form(...),
-        region_id: str = Form(...)
+        region_id: str = Form(...),
+        image_url: str = Form(None)
     ):
         self.name = name
         self.description = description
@@ -63,6 +65,7 @@ class BikeEventCreateForm:
         self.end_date = end_date
         self.season_id = season_id
         self.region_id = region_id
+        self.image_url = image_url
 
 class BikeEventUpdateForm:
     event_id: str
