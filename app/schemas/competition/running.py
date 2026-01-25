@@ -44,6 +44,7 @@ class RunningEventCreateForm:
     end_date: datetime
     season_id: str
     region_id: str
+    image_url: str
 
     def __init__(
         self,
@@ -52,7 +53,8 @@ class RunningEventCreateForm:
         start_date: datetime = Form(...),
         end_date: datetime = Form(...),
         season_id: str = Form(...),
-        region_id: str = Form(...)
+        region_id: str = Form(...),
+        image_url: str = Form(None)
     ):
         self.name = name
         self.description = description
@@ -60,6 +62,7 @@ class RunningEventCreateForm:
         self.end_date = end_date
         self.season_id = season_id
         self.region_id = region_id
+        self.image_url = image_url
 
 class RunningEventUpdateForm:
     event_id: str

@@ -544,8 +544,9 @@ async def claimed_daily_task_reward(
 @router.post("/start_competition_with_team_bonus_card",response_model=BaseResponse[None],summary="使用队伍奖励的卡牌开始比赛时的装备逻辑")
 async def start_competition_with_team_bonus_card(
     record_id: str = Query(...),
+    card_id: str = Query(...),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    await start_competition_with_team_bonus_card_service(db, auth.payload["user_id"], record_id)
+    await start_competition_with_team_bonus_card_service(db, auth.payload["user_id"], record_id, card_id)
     return BaseResponse.success(token=auth.new_token)

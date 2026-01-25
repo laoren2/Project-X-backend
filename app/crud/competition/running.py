@@ -430,7 +430,8 @@ async def get_records_by_team_id(db: AsyncSession, team_id: uuid.UUID) -> List[R
         select(RunningRaceRecord)
         .where(RunningRaceRecord.team_id == team_id)
         .options(
-            selectinload(RunningRaceRecord.user)
+            selectinload(RunningRaceRecord.user),
+            selectinload(RunningRaceRecord.track)
         )
     )
     return result.scalars().all()
@@ -896,6 +897,15 @@ async def add_or_update_daily_task_record(
     else:
         record.progress += progress
 
+async def get_bonus_record_with_team_magic_card_by_team_id(db: AsyncSession, team_id: uuid.UUID) -> List[RunningBonusByTeamMember]:
+    result = await db.execute(
+        select(RunningBonusByTeamMember)
+        .where(
+            RunningBonusByTeamMember.team_id == team_id
+        )
+    )
+    return result.scalars().all()
+
 async def get_bonus_record_with_team_magic_card_for_update(db: AsyncSession, team_id: uuid.UUID) -> List[RunningBonusByTeamMember]:
     result = await db.execute(
         select(RunningBonusByTeamMember)
@@ -906,3 +916,13 @@ async def get_bonus_record_with_team_magic_card_for_update(db: AsyncSession, tea
         .with_for_update()
     )
     return result.scalars().all()
+
+async def get_bonus_record_with_team_magic_card_by_team_user(db: AsyncSession, team_id: uuid.UUID, user_id: uuid.UUID) -> RunningBonusByTeamMember | None:
+    result = await db.execute(
+        select(RunningBonusByTeamMember)
+        .where(
+            RunningBonusByTeamMember.team_id == team_id,
+            RunningBonusByTeamMember.user_id == user_id
+        )
+    )
+    return result.scalar_one_or_none()

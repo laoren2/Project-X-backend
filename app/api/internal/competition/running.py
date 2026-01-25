@@ -77,7 +77,12 @@ async def create_event(
             f.write(contents)
         new_url = f"/resources/competition/running/event/{new_event_id}/{background_path.name}"
         await update_event_image_url(db, new_event_id, new_url)
-
+    elif event.image_url:
+        # 校验 image_url 指向的文件是否真实存在
+        image_path = Path(event.image_url.lstrip("/"))
+        if not image_path.exists() or not image_path.is_file():
+            raise BizException(code=ErrorCode.FILE_NOT_FOUND, message="找不到文件")
+        await update_event_image_url(db, new_event_id, event.image_url)
     return BaseResponse.success(token=auth.new_token, message="success", data=None)
 
 

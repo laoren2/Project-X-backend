@@ -17,7 +17,7 @@ from app.crud.competition.running import (
     get_incompleted_records_by_user_id, get_completed_records_by_user_id, get_career_statistic_data,
     add_or_update_career_statistic_data, get_daily_task, get_today_task_record_by_user,
     add_or_update_daily_task_record, get_unverified_records, get_bonus_record_with_team_magic_card_for_update,
-    get_team_id_by_record_id, get_season_by_date
+    get_team_id_by_record_id, get_season_by_date, get_bonus_record_with_team_magic_card_by_team_user
 )
 from app.crud.asset_manage import (
     consume_cpasset, get_register_card_price, get_cpasset_def_by_asset_id,
@@ -57,12 +57,16 @@ from app.db.models.competition import (
 from app.db.models.mailbox import Mailbox
 from app.db.models.user import User
 from app.services.mappers import equip_card_to_base_info
-from app.services.competition.common import _distribute_voucher_and_scores, compute_distance
+from app.services.competition.common import (
+    _distribute_voucher_and_scores, compute_distance, update_running_leaderboard_for_record,
+    send_running_match_rewards, compute_running_match_rewards
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import redis_client
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 import uuid, json, logging, random
+
 
 competition_logger = logging.getLogger("competition")
 leaderboard_logger = logging.getLogger("leaderboard")
@@ -702,124 +706,6 @@ async def start_team_competition_service(db: AsyncSession, user_id: str, info: R
         }
         await update_record_crud(db, record, update_data)
 
-# 插入新记录更新排行榜
-async def update_leaderboard_for_record(
-    record: RunningRaceRecord,
-    user_id: str,
-    gender: Gender
-):
-    try:
-        key = f"leaderboard:running:{record.track.track_id}:{gender.value}"
-        if record.status != RecordStatus.completed or record.duration_seconds is None:
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="record.data_error.leaderboard_update")
-        if record.track is None:
-            raise BizException(code=ErrorCode.RECORD_ERROR, message="record.data_error.leaderboard_update")
-        # 1. 查找旧成绩
-        best_score = None
-        best_member = None
-        members = await redis_client.zrange(key, 0, -1, withscores=True)
-        for m, score in members:
-            if m.startswith(f"{user_id}:"):
-                best_score = score
-                best_member = m
-                break  # 只会有一条
-        # 2. 比较成绩
-        if best_score is None or record.duration_seconds < best_score:
-            if best_member:
-                await redis_client.zrem(key, best_member)
-            member = f"{user_id}:{record.record_id}"
-            await redis_client.zadd(key, {member: record.duration_seconds})
-    except BizException as b:
-        leaderboard_logger.error(f"Failed to update leaderboard {key} for record {record.record_id}: {b.detail}")
-        raise
-    except Exception as e:
-        # todo: 记录错误日志，后续由定时任务补偿
-        leaderboard_logger.error(f"Failed to update leaderboard {key} for record {record.record_id}: {e}")
-        raise BizException(code=ErrorCode.UNKNOWN_ERROR, message="sys.unknown_error")
-
-# 比赛奖励结算
-async def settle_match_result(db: AsyncSession, record: RunningRaceRecord, user: User) -> MatchFinishInfo | None:
-    gender = user.real_name_info.gender if user.real_name_info else Gender.male
-    match_result = None
-    if record.duration_seconds is None:
-        return match_result
-    if record.status == RecordStatus.completed or record.status == RecordStatus.toBeVerified:
-        leaderboard_key = f"leaderboard:running:{record.track.track_id}:{gender.value}"
-        members = await redis_client.zrange(leaderboard_key, 0, -1, withscores=True)
-        # 查询用户的最佳成绩
-        user_best_time = None
-        for member, score in members:
-            if member.startswith(f"{user.user_id}:"):
-                user_best_time = score
-        # 查询赛道最佳成绩
-        track_best_time = None
-        if members:
-            _, track_best_time = members[0]
-        # 计算提升幅度和奖励
-        base_reward_coin = 50
-        improvement_bonus_coin = 0
-        # 随机选择一种 STONE 类型作为奖励类型
-        reward_stone_type = random.choice(
-            [CCAssetType.STONE1, CCAssetType.STONE2, CCAssetType.STONE3]
-        )
-        reward_stone = 0
-        is_track_best: bool = False
-        is_user_best: bool = False
-
-        if track_best_time is None:
-            is_track_best = True
-        elif record.duration_seconds < track_best_time:
-            is_track_best = True
-        else:
-            is_track_best = False
-        
-        if user_best_time is None:
-            is_user_best = True
-        elif record.duration_seconds < user_best_time:
-            is_user_best = True
-        else:
-            is_user_best = False
-
-        if is_track_best:
-            # 赛道最佳成绩：基础200金币 + 根据赛道成绩提升幅度计算的额外金币
-            base_reward_coin = 200
-            reward_stone = 2
-            improvement_ratio = (track_best_time - record.duration_seconds) / track_best_time if track_best_time else 0
-            improvement_bonus_coin = max(min(int(improvement_ratio * 100 * 10), 500), 0)
-        elif is_user_best:
-            # 用户最佳成绩：基础100金币 + 根据用户成绩提升幅度计算的额外金币
-            base_reward_coin = 100
-            reward_stone = 1
-            improvement_ratio = (user_best_time - record.duration_seconds) / user_best_time if user_best_time > 0 else 0
-            improvement_bonus_coin = max(min(int(improvement_ratio * 100 * 5), 250), 0)
-        else:
-            # 均不是：基础50金币 + 根据用户成绩提升幅度计算的额外金币
-            base_reward_coin = 50
-            improvement_ratio = (record.duration_seconds - user_best_time) / user_best_time if user_best_time > 0 else 0
-            improvement_bonus_coin = max(min(int((0.2 - improvement_ratio) * 100 * 3), 60), 0)
-
-        total_rewards = []
-        coin_balance = await reward_ccasset(db, CCAssetType.COIN, base_reward_coin + improvement_bonus_coin, user.id, "单次running比赛结算", AssetOperation.REWARD)
-        coin_reward = CCAssetRewardResponse(
-            ccasset_type=CCAssetType.COIN,
-            new_ccamount=coin_balance,
-            reward_amount=base_reward_coin + improvement_bonus_coin
-        )
-        total_rewards.append(coin_reward)
-        if reward_stone > 0:
-            stone_balance = await reward_ccasset(db, reward_stone_type, reward_stone, user.id, "单次running比赛结算", AssetOperation.REWARD)
-            stone_reward = CCAssetRewardResponse(
-                ccasset_type=reward_stone_type,
-                new_ccamount=stone_balance,
-                reward_amount=reward_stone
-            )
-            total_rewards.append(stone_reward)
-        match_result = MatchFinishInfo(
-            is_user_best=is_user_best,
-            is_track_best=is_track_best,
-            rewards=total_rewards
-        )
-    return match_result
 
 async def finish_single_competition_service(db: AsyncSession, info: RunningFinishInfo, user_id: str) -> MatchFinishResponse:
     try:
@@ -868,7 +754,7 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
                 "end_time": info.end_time,
                 "duration_seconds": final_time,
                 "validation_score": info.validation_score,
-                "is_finish_bonus_computing": True
+                "is_finish_bonus_computing": True       # 当前只有 team mode 的 magiccard 需要延迟收益计算
             }
             if record.status == RecordStatus.recording:
                 if info.validation_score >= 80:
@@ -886,22 +772,41 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
                 raise BizException(code=ErrorCode.TRACK_ERROR, message="track.data_error")
             card_price = await get_register_card_price(db, track.single_register_card_id)
             if card_price:
-                price_need_to_add = int(card_price.price / 5) if card_price.ccasset_type == CCAssetType.COIN else int(card_price.price / 2)
+                price_need_to_add = int(card_price.price / 5) if card_price.ccasset_type == CCAssetType.COIN else int(card_price.price / 2.5)
                 track.prize_pool += price_need_to_add
-            db.add(track)
-            # 更新个人统计数据 & 每日任务进度
+            
+            match_result = None
+            # 更新个人统计数据 & 每日任务进度 & 发放比赛结算奖励
             if record.status == RecordStatus.completed:
                 distance = compute_distance([p.base for p in info.path])
                 await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
                 await add_or_update_daily_task_record(db, user.id, distance, final_time)
-            # 发放比赛结算奖励
-            match_result = await settle_match_result(db, record, user)
+                reward_result = await compute_running_match_rewards(db, record)
+                if reward_result:
+                    rewards = reward_result[2]
+                    total_rewards = []
+                    for reward in rewards:
+                        balance = await reward_ccasset(db, reward.ccasset_type, reward.new_ccamount, user.id, "单次bike比赛结算", AssetOperation.REWARD)
+                        reward_response = CCAssetRewardResponse(
+                            ccasset_type=reward.ccasset_type,
+                            new_ccamount=balance,
+                            reward_amount=reward.new_ccamount
+                        )
+                        total_rewards.append(reward_response)
+                    match_result = MatchFinishInfo(
+                        is_user_best=reward_result[0],
+                        is_track_best=reward_result[1],
+                        rewards=total_rewards
+                    )
+    except BizException as be:
+        competition_logger.error(f"finish single running competition failed: {be}")
+        raise
     except Exception as e:
         competition_logger.error(f"finish single running competition failed: {e}")
-        return MatchFinishResponse(match_result=None)
+        raise BizException(code=ErrorCode.UNKNOWN_ERROR, message="sys.unknown_error")
     # 更新排行榜
     if record.duration_seconds is not None and record.status == RecordStatus.completed:
-        await update_leaderboard_for_record(record, user_id, gender)
+        await update_running_leaderboard_for_record(record)
     return MatchFinishResponse(match_result=match_result)
 
 
@@ -911,7 +816,6 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
             user = await get_user_by_id(db, user_id)
             if user is None:
                 raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
-            gender = user.real_name_info.gender if user.real_name_info else Gender.male
             
             # 先对 team 上锁
             team_id = await get_team_id_by_record_id(db, info.record_id)
@@ -941,7 +845,6 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
 
             # 待应用的 team bonus
             for bonus_info in record.card_bonus:
-                #print(f"applied bonus: {bonus_info.bonus_time}")
                 bonus_time += bonus_info.bonus_time
                 if bonus_info.bonus_ratio:
                     bonus_time += final_time * bonus_info.bonus_ratio
@@ -969,19 +872,33 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
             db.add(path)
             await db.flush()
             await db.refresh(path)
+
+            team_bonus_records = await get_bonus_record_with_team_magic_card_for_update(db, team_id)
+            team_bonus_record = None
+            is_finish_computed = True
+            for br in team_bonus_records:
+                if br.user_id == user.id and info.team_bonus:
+                    br.bonus_in_ratio = info.team_bonus.bonus_ratio
+                    br.bonus_in_seconds = info.team_bonus.bonus_seconds
+                    team_bonus_record = br
+                if br.user_id != user.id and not br.is_applied:
+                    is_finish_computed = False
+
+            if info.validation_score >= 80:
+                status = RecordStatus.completed
+            elif info.validation_score >= 50:
+                status = RecordStatus.toBeVerified
+            else:
+                status = RecordStatus.invalid
+            
             update_data = {
                 "path_id": path.id,
                 "end_time": info.end_time,
                 "duration_seconds": final_time,
-                "validation_score": info.validation_score
+                "status": status,
+                "validation_score": info.validation_score,
+                "is_finish_bonus_computing": is_finish_computed
             }
-            if record.status == RecordStatus.recording:
-                if info.validation_score >= 80:
-                    update_data["status"] = RecordStatus.completed
-                elif info.validation_score >= 50:
-                    update_data["status"] = RecordStatus.toBeVerified
-                else:
-                    update_data["status"] = RecordStatus.invalid
             await update_record_crud(db, record, update_data)
 
             # 如果其他队员都完成比赛则修改team状态
@@ -993,7 +910,7 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
             if all_completed:
                 team.status = TeamStatus.completed
 
-            # 更新奖金池
+            # 更新赛道奖金池
             track = await get_track_by_track_id_for_update(db, record.track.track_id)
             if track is None or track.event is None or track.event.season is None:
                 raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
@@ -1001,25 +918,50 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
                 raise BizException(code=ErrorCode.TRACK_ERROR, message="track.data_error")
             card_price = await get_register_card_price(db, track.team_register_card_id)
             if card_price:
-                price_need_to_add = int(card_price.price / 5) if card_price.ccasset_type == CCAssetType.COIN else int(card_price.price / 2)
+                price_need_to_add = int(card_price.price / 5) if card_price.ccasset_type == CCAssetType.COIN else int(card_price.price / 2.5)
                 track.prize_pool += price_need_to_add
-            db.add(track)
-            # 应用团队收益 & 更新个人统计数据 & 更新每日任务进度
+
+            match_result = None
             if record.status == RecordStatus.completed:
-                if info.team_bonus:
-                    await finish_competition_with_team_bonus_card_service(db, user.id, team_id, info.team_bonus)
-                distance = compute_distance([p.base for p in info.path])
-                await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
-                await add_or_update_daily_task_record(db, user.id, distance, final_time)
-            # 发放比赛结算奖励
-            match_result = await settle_match_result(db, record, user)
+                # pass validation task: 发放比赛结算奖励 & 更新排行榜 & 更新个人统计数据 & 更新每日任务进度
+                # 如果有效成绩准备好立即处理当前 record
+                if is_finish_computed:
+                    reward_result = await compute_running_match_rewards(db, record)
+                    if reward_result:
+                        rewards = reward_result[2]
+                        total_rewards = []
+                        for reward in rewards:
+                            balance = await reward_ccasset(db, reward.ccasset_type, reward.new_ccamount, user.id, "单次running比赛结算", AssetOperation.REWARD)
+                            reward_response = CCAssetRewardResponse(
+                                ccasset_type=reward.ccasset_type,
+                                new_ccamount=balance,
+                                reward_amount=reward.new_ccamount
+                            )
+                            total_rewards.append(reward_response)
+                        match_result = MatchFinishInfo(
+                            is_user_best=reward_result[0],
+                            is_track_best=reward_result[1],
+                            rewards=total_rewards
+                        )
+                    await update_running_leaderboard_for_record(record)
+                    distance = compute_distance([p.base for p in info.path])
+                    await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
+                    await add_or_update_daily_task_record(db, user.id, distance, final_time)
+                # 应用 team bonus
+                if info.team_bonus and team_bonus_record:
+                    await finish_competition_with_team_bonus_card_service(db, user, team_id, info.team_bonus)
+            elif record.status == RecordStatus.invalid:
+                # failed validation task: 有 team bonus 时标记为已应用
+                if info.team_bonus and team_bonus_record:
+                    team_bonus_record.is_applied = True
+            # tobevalid 状态交给手动处理
+            return MatchFinishResponse(match_result=match_result)
+    except BizException as be:
+        competition_logger.error(f"finish team running competition failed: {be}")
+        raise
     except Exception as e:
         competition_logger.error(f"finish team running competition failed: {e}")
-        return MatchFinishResponse(match_result=None)
-    # 更新排行榜
-    if record.duration_seconds is not None and record.status == RecordStatus.completed:
-        await update_leaderboard_for_record(record, user_id, gender)
-    return MatchFinishResponse(match_result=match_result)
+        raise BizException(code=ErrorCode.UNKNOWN_ERROR, message="sys.unknown_error")
 
 
 async def query_unverified_records_service(
@@ -1047,27 +989,48 @@ async def handle_record_verified_service(db: AsyncSession, record_id: str, resul
             raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
         if record.status != RecordStatus.toBeVerified:
             raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛状态错误")
-        if record.user is None:
-            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+        team_bonus_record = await get_bonus_record_with_team_magic_card_by_team_user(db, record.team_id, record.user_id)
         if result:
             record.status = RecordStatus.completed
-            points = []
-            if record.path and record.path.path:
-                points = [RunningPathPoint.model_validate(p) for p in record.path.path]
-            distance = compute_distance([p.base for p in points])
-            if record.duration_seconds is None:
-                raise BizException(code=ErrorCode.RECORD_ERROR, message="找不到比赛成绩")
-            track = await get_track_by_track_id(db, record.track.track_id)
-            if track is None or track.event is None or track.event.season is None:
-                raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
-            await add_or_update_career_statistic_data(db, track.event.season.id, record.user.id, distance, record.duration_seconds)
-            await add_or_update_daily_task_record(db, record.user.id, distance, record.duration_seconds)
-            # 更新排行榜
-            gender = record.user.real_name_info.gender if record.user.real_name_info else Gender.male
-            await update_leaderboard_for_record(record, record.user.user_id, gender)
-            # team 的状态交给定时清理
+            if record.is_finish_bonus_computing:
+                points = []
+                if record.path and record.path.path:
+                    points = [RunningPathPoint.model_validate(p) for p in record.path.path]
+                distance = compute_distance([p.base for p in points])
+                if record.duration_seconds is None:
+                    raise BizException(code=ErrorCode.RECORD_ERROR, message="比赛成绩为空")
+                track = await get_track_by_track_id(db, record.track.track_id)
+                if track is None or track.event is None or track.event.season is None:
+                    raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
+                await add_or_update_career_statistic_data(db, track.event.season.id, record.user.id, distance, record.duration_seconds)
+                await add_or_update_daily_task_record(db, record.user.id, distance, record.duration_seconds)
+                # 发放奖励
+                await send_running_match_rewards(db, record)
+                # 更新排行榜
+                await update_running_leaderboard_for_record(record)
+            # 应用 team bonus
+            if team_bonus_record and not team_bonus_record.is_applied:
+                team_bonus_record.is_applied = True
+                records = await get_records_by_team_id_for_update(db, record.team_id)
+                for r in records:
+                    if r.user_id != record.user.id:
+                        db.add(CardBonusInRunningRecord(
+                            record_id=r.id,
+                            card_id=team_bonus_record.card_id,
+                            bonus_ratio=team_bonus_record.bonus_in_ratio,
+                            bonus_time=team_bonus_record.bonus_in_seconds if team_bonus_record.bonus_in_seconds else 0
+                        ))
+                        # 已结束需要手动应用 bonus
+                        if r.duration_seconds and r.start_time and r.end_time:
+                            raw_duration = (r.end_time - r.start_time).total_seconds()
+                            if team_bonus_record.bonus_in_ratio:
+                                r.duration_seconds -= team_bonus_record.bonus_in_ratio * raw_duration
+                            r.duration_seconds -= team_bonus_record.bonus_in_seconds if team_bonus_record.bonus_in_seconds else 0
+                            r.duration_seconds = max(raw_duration * 0.8, r.duration_seconds)
         else:
             record.status = RecordStatus.invalid
+            if team_bonus_record:
+                team_bonus_record.is_applied = True
 
 
 async def get_team_expired_date_service(db: AsyncSession, record_id: str) -> RunningTeamExpiredResponse:
@@ -2225,7 +2188,7 @@ async def claimed_daily_task_reward_service(db: AsyncSession, user_id: str, stag
             )
         raise BizException(code=ErrorCode.REWARD_CLAIM_FAILED, message="reward.data_error")
 
-async def start_competition_with_team_bonus_card_service(db: AsyncSession, user_id: str, record_id: str):
+async def start_competition_with_team_bonus_card_service(db: AsyncSession, user_id: str, record_id: str, card_id: str):
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
@@ -2234,27 +2197,42 @@ async def start_competition_with_team_bonus_card_service(db: AsyncSession, user_
         raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
     if record.team_id is None:
         raise BizException(code=ErrorCode.TEAM_ERROR, message="team.not_found")
+    card = await get_equip_card_by_card_id(db, card_id)
+    if card is None:
+        raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.not_found")
     new_bonus_record = RunningBonusByTeamMember(
         team_id=record.team_id,
-        user_id=user.id
+        user_id=user.id,
+        card_id=card.id
     )
     db.add(new_bonus_record)
     await db.commit()
 
-async def finish_competition_with_team_bonus_card_service(db: AsyncSession, user_id: uuid.UUID, team_id: uuid.UUID, info: TeamMagicCardBonusInfo):
+async def finish_competition_with_team_bonus_card_service(
+    db: AsyncSession, 
+    user: User,
+    team_id: uuid.UUID, 
+    info: TeamMagicCardBonusInfo
+):
     bonus_records = await get_bonus_record_with_team_magic_card_for_update(db, team_id)
     is_all_completed = True
     for br in bonus_records:
-        if br.user_id == user_id:
-            br.bonus_in_ratio = info.bonus_ratio
-            br.bonus_in_seconds = info.bonus_seconds
+        if br.user_id == user.id:
             br.is_applied = True
-        if br.user_id != user_id and not br.is_applied:
+        if br.user_id != user.id and not br.is_applied:
             is_all_completed = False
             
     records = await get_records_by_team_id_for_update(db, team_id)
     for r in records:
-        if r.user_id != user_id:
+        if r.user_id != user.id:
+            card = await get_equip_card_by_card_id(db, info.card_id)
+            if card is not None:
+                db.add(CardBonusInRunningRecord(
+                    record_id=r.id,
+                    card_id=card.id,
+                    bonus_ratio=info.bonus_ratio,
+                    bonus_time=info.bonus_seconds if info.bonus_seconds else 0
+                ))
             # 已结束需要手动应用 bonus
             if r.duration_seconds and r.start_time and r.end_time:
                 raw_duration = (r.end_time - r.start_time).total_seconds()
@@ -2262,20 +2240,14 @@ async def finish_competition_with_team_bonus_card_service(db: AsyncSession, user
                     r.duration_seconds -= info.bonus_ratio * raw_duration
                 r.duration_seconds -= info.bonus_seconds if info.bonus_seconds else 0
                 r.duration_seconds = max(raw_duration * 0.8, r.duration_seconds)
-                #print(f"update duration_seconds to: {r.duration_seconds}")
             if is_all_completed:
                 r.is_finish_bonus_computing = True
-                #print(f"update record {r.record_id} is_completed to: {r.is_finish_bonus_computing}")
-            card = await get_equip_card_by_card_id(db, info.card_id)
-            if card is not None:
-                #print("add card bonus!")
-                db.add(CardBonusInRunningRecord(
-                    record_id=r.id,
-                    card_id=card.id,
-                    bonus_ratio=info.bonus_ratio,
-                    bonus_time=info.bonus_seconds if info.bonus_seconds else 0
-                ))
-        else:
-            if is_all_completed:
-                r.is_finish_bonus_computing = True
-                #print(f"update record {r.record_id} is_completed to: {r.is_finish_bonus_computing}")
+                if r.status == RecordStatus.completed:
+                    await send_running_match_rewards(db, r)
+                    await update_running_leaderboard_for_record(r)
+                    if r.user and r.path and r.path.path and r.duration_seconds:
+                        points = [RunningPathPoint.model_validate(p) for p in r.path.path]
+                        distance = compute_distance([p.base for p in points])
+                        await add_or_update_daily_task_record(db, r.user.id, distance, r.duration_seconds)
+                        if r.track and r.track.event and r.track.event.season:
+                            await add_or_update_career_statistic_data(db, r.track.event.season.id, r.user.id, distance, r.duration_seconds)
