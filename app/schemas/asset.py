@@ -133,6 +133,24 @@ class CPAssetDefCreateForm(ORMBase):
             extra_fields=extra_fields
         )
 
+class CPAssetDefUpdateForm(BaseModel):
+    asset_id: str
+    name: str
+    description: str
+
+    @classmethod
+    def as_form(
+        cls,
+        asset_id: str = Form(...),
+        name: str = Form(...),
+        description: str = Form(...)
+    ):
+        return cls(
+            asset_id=asset_id,
+            name=name,
+            description=description
+        )
+
 class CCAssetRewardRequest(ORMBase):
     user_id: str
     ccasset_type: CCAssetType
@@ -178,6 +196,36 @@ class EquipCardDefCreateForm(ORMBase):
             version=version,
             tags=tags,
             effect_config=effect_config
+        )
+
+class EquipCardDefUpdateForm(BaseModel):
+    def_id: str
+    name: str
+    description: str
+    skill1_description: str | None
+    skill2_description: str | None
+    skill3_description: str | None
+    version: str
+
+    @classmethod
+    def as_form(
+        cls,
+        def_id: str = Form(...),
+        name: str = Form(...),
+        description: str = Form(...),
+        skill1_description: str | None = Form(None),
+        skill2_description: str | None = Form(None),
+        skill3_description: str | None = Form(None),
+        version: str = Form(...)
+    ):
+        return cls(
+            def_id=def_id,
+            name=name,
+            description=description,
+            skill1_description=skill1_description,
+            skill2_description=skill2_description,
+            skill3_description=skill3_description,
+            version=version
         )
 
 class EquipCardDefInfo(ORMBase):

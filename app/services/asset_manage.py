@@ -21,8 +21,8 @@ from app.schemas.asset import (
     EquipCardDefCreateForm, EquipCardDefInfo, EquipCardDefResponse, EquipCardShopInternalResponse,
     EquipCardShopInfoCreateRequest, EquipCardShopInternalInfo, EquipCardShopResponse,
     EquipCardShopInfo, EquipCardsResponse, CC_ECARD_PurchaseResultResponse,
-    EquipCardUpgradeResponse, EquipCardUpgradePriceInfo,
-    EquipCardSkillUpgradeResponse
+    EquipCardUpgradeResponse, EquipCardUpgradePriceInfo, CPAssetDefUpdateForm,
+    EquipCardSkillUpgradeResponse, EquipCardDefUpdateForm
 )
 from app.schemas.common import EquipCardBaseInfo, SportType, CCAssetType, CCAssetBaseInfo
 from app.services.mappers import equip_card_to_base_info
@@ -304,6 +304,21 @@ async def create_cpasset_def_service(
         await create_cp_asset_def_with_subclass(db, parent_data, extra_fields_dict)
 
 
+async def update_cpasset_service(db: AsyncSession, asset: CPAssetDefUpdateForm, image_url: str):
+    cpasset = await get_cpasset_def_by_asset_id(db, asset.asset_id)
+    if cpasset is None:
+        raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.not_found")
+    try:
+        name_i18n = json.loads(asset.name)
+        description_i18n = json.loads(asset.description)
+    except:
+        raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"JSON格式错误")
+    cpasset.name_i18n = name_i18n
+    cpasset.description_i18n = description_i18n
+    cpasset.image_url = image_url
+    await db.commit()
+
+
 async def create_cp_asset_def_with_subclass(db: AsyncSession, parent_data: dict, extra_fields: dict):
     # 1. prop_type 统一为 CPAssetType 枚举
     prop_type = parent_data["prop_type"]
@@ -385,6 +400,30 @@ async def create_equip_card_def_service(
         effect_config=effect_data,
     )
     db.add(card)
+    await db.commit()
+
+
+async def update_equip_card_service(db: AsyncSession, form: EquipCardDefUpdateForm, image_url: str):
+    card = await get_equip_card_def_by_card_id(db, form.def_id)
+    if card is None:
+        raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.not_found")
+    try:
+        name_i18n = json.loads(form.name)
+        description_i18n = json.loads(form.description)
+        if form.skill1_description:
+            skill1_i18n = json.loads(form.skill1_description)
+            card.skill1_description_i18n = skill1_i18n
+        if form.skill2_description:
+            skill2_i18n = json.loads(form.skill2_description)
+            card.skill2_description_i18n = skill2_i18n
+        if form.skill3_description:
+            skill3_i18n = json.loads(form.skill3_description)
+            card.skill3_description_i18n = skill3_i18n
+    except:
+        raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"JSON格式错误")
+    card.name_i18n = name_i18n
+    card.description_i18n = description_i18n
+    card.image_url = image_url
     await db.commit()
 
 
