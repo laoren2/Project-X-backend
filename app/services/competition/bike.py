@@ -68,8 +68,7 @@ from datetime import datetime, timezone, timedelta
 import uuid, json, logging, random
 
 
-competition_logger = logging.getLogger("competition")
-leaderboard_logger = logging.getLogger("leaderboard")
+logger = logging.getLogger(__name__)
 
 
 async def create_season_service(db: AsyncSession, season_create: BikeSeasonCreateForm, image_url: str) -> str:
@@ -799,11 +798,8 @@ async def finish_single_competition_service(db: AsyncSession, info: BikeFinishIn
                         is_track_best=reward_result[1],
                         rewards=total_rewards
                     )
-    except BizException as be:
-        competition_logger.error(f"finish single bike competition failed: {be}")
-        raise
-    except Exception as e:
-        competition_logger.error(f"finish single bike competition failed: {e}")
+    except Exception:
+        logger.exception("finish single bike competition failed")
         raise BizException(code=ErrorCode.UNKNOWN_ERROR, message="sys.unknown_error")
     # 更新排行榜
     if record.duration_seconds is not None and record.status == RecordStatus.completed:
@@ -957,11 +953,8 @@ async def finish_team_competition_service(db: AsyncSession, info: BikeFinishInfo
                     team_bonus_record.is_applied = True
             # tobevalid 状态交给手动处理
             return MatchFinishResponse(match_result=match_result)
-    except BizException as be:
-        competition_logger.error(f"finish team bike competition failed: {be}")
-        raise
-    except Exception as e:
-        competition_logger.error(f"finish team bike competition failed: {e}")
+    except Exception:
+        logger.exception("finish team bike competition failed")
         raise BizException(code=ErrorCode.UNKNOWN_ERROR, message="sys.unknown_error")
 
 
@@ -2025,6 +2018,7 @@ async def get_record_detail_service(db: AsyncSession, lang: Language, record_id:
                     }
                     path_points.append(BikePathPoint.model_validate(bike_path_point_data))
         except Exception:
+            logger.exception("Handle path data failed in querying record detail info")
             path_points = []
     
     # 计算时间

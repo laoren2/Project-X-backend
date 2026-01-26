@@ -34,8 +34,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.header import Header
 from email.utils import formataddr
-import io, asyncio, jwt, json, uuid, random, smtplib, email
+import io, asyncio, jwt, json, uuid, random, smtplib, email, logging
 
+
+logger = logging.getLogger(__name__)
 
 async def distribute_newcomer_gift(db: AsyncSession, user_id: uuid.UUID):
     attachment = {
@@ -334,7 +336,8 @@ async def recognize_hk_idcard(image_bytes: bytes) -> dict:
         # 调用阿里云接口
         response = await asyncio.to_thread(client.recognize_hkidcard, request)
         return UtilClient.to_map(response)
-    except Exception as e:
+    except Exception:
+        logger.exception("HK ID card recognize failed with request error")
         raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.recognition_failed.realname")
 
 async def realname_hk_service(user_id: str, front_bytes: bytes, db: AsyncSession):
@@ -354,6 +357,7 @@ async def realname_hk_service(user_id: str, front_bytes: bytes, db: AsyncSession
             parsed = json.loads(raw_data)
             data = parsed.get("data", {}) if isinstance(parsed, dict) else {}
         except Exception:
+            logger.exception("HK ID card recognize failed with json.loads")
             data = {}
         # 3. 提取需要的字段
         name_Cn = data.get("nameCn", "")
@@ -410,8 +414,8 @@ async def verify_apple_identity_token(identity_token: str):
             issuer="https://appleid.apple.com"
         )
         return payload
-    except Exception as e:
-        print("Apple Token 验证失败:", e)
+    except Exception:
+        logger.exception("Apple Token verified failed when verified apple account")
         return None
 
 async def bind_phone_service(phone_number: str, user_id: str, db: AsyncSession):
@@ -683,10 +687,10 @@ async def send_email_code_service(to_email: str, lang: Language):
     try:
         # 线程池方式执行 SMTP 发送，避免阻塞 event loop
         await asyncio.wait_for(asyncio.to_thread(_send_smtp, username, password, receivers, msg.as_string()), timeout=5)
-        print("邮件发送成功:", to_email, code)
+        #print("邮件发送成功:", to_email, code)
         return
-    except Exception as e:
-        #print("异常:", str(e))
+    except Exception:
+        logger.exception("Email send task failed")
         raise BizException(code=ErrorCode.EMAIL_SERVICE_ERROR, message="sms.service_error")
 
 async def verify_email_code(email_address: str, code: str) -> bool:

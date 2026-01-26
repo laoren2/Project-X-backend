@@ -5,7 +5,9 @@ from appstoreserverlibrary.models.LastTransactionsItem import LastTransactionsIt
 from appstoreserverlibrary.models.JWSTransactionDecodedPayload import JWSTransactionDecodedPayload
 from appstoreserverlibrary.models.JWSRenewalInfoDecodedPayload import JWSRenewalInfoDecodedPayload
 from app.core.config import settings
-import os
+from app.schemas.base import BizException
+from app.core.errors import ErrorCode
+import os, httpx, asyncio
 
 
 def load_root_certificates() -> list[bytes]:
@@ -66,7 +68,13 @@ async def query_user_subscroption_status(
     transaction_id: str
 ) -> tuple[LastTransactionsItem | None, JWSTransactionDecodedPayload | None, JWSRenewalInfoDecodedPayload | None]:
     try:
-        response = await client.get_all_subscription_statuses(transaction_id)
+        try:
+            response = await asyncio.wait_for(client.get_all_subscription_statuses(transaction_id), timeout=5.0)
+        except asyncio.TimeoutError:
+            raise BizException(code=ErrorCode.APPLE_SERVICE_ERROR, message="apple.server_timeout")
+        except httpx.HTTPError:
+            raise BizException(code=ErrorCode.APPLE_SERVICE_ERROR, message="apple.server_error")
+
         if not response.data:
             return None, None, None
         for item in response.data:
@@ -86,6 +94,7 @@ async def query_user_subscroption_status(
                         latest_transaction_payload = transaction_payload
                         latest_tx = last_transaction
                 return latest_tx, latest_transaction_payload, latest_renew_payload
+    
     except VerificationException as e:
         #print(e)
         return None, None, None

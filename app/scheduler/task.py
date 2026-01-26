@@ -42,8 +42,8 @@ def stop_scheduler():
     try:
         scheduler.shutdown(wait=True)  # wait=True 确保所有任务完成后再关闭
         logger.info("📅 定时任务调度器已关闭")
-    except Exception as e:
-        logger.error(f"❌ 关闭定时任务调度器时出错: {e}")
+    except Exception:
+        logger.exception("❌ 关闭定时任务调度器时出错")
 
 async def generate_all_leaderboard_snapshots():
     """生成自行车排行榜快照的定时任务"""
@@ -52,8 +52,8 @@ async def generate_all_leaderboard_snapshots():
         async with AsyncSessionLocal() as db:
             await generate_all_leaderboard_snapshots_service(db)
                         
-    except Exception as e:
-        logger.error(f"❌ 定时任务执行失败: {e}")
+    except Exception:
+        logger.exception("❌ 定时任务执行失败")
 
 
 async def clean_expired_records():
@@ -61,13 +61,13 @@ async def clean_expired_records():
     try:
         async with AsyncSessionLocal() as db:
             await clean_expired_records_service(db)
-    except Exception as e:
-        logger.error(f"❌ 比赛记录清理任务执行失败: {e}")
+    except Exception:
+        logger.exception("❌ 比赛记录清理任务执行失败")
 
 async def clean_expired_teams():
     """清理过期或应结束的比赛队伍"""
     try:
         async with AsyncSessionLocal() as db:
             await clean_expired_teams_service(db)
-    except Exception as e:
-        logger.error(f"❌ 比赛队伍清理任务执行失败: {e}")
+    except Exception:
+        logger.exception("❌ 比赛队伍清理任务执行失败")

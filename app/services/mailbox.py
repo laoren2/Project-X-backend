@@ -15,8 +15,9 @@ from app.schemas.mailbox import (
 from app.schemas.asset import AssetRewardsResponse, CCAssetType, CCAssetBaseInfo, AssetOperation
 from app.api.deps import Language
 from datetime import datetime, timezone, timedelta
-import uuid, json
+import uuid, json, logging
 
+logger = logging.getLogger(__name__)
 
 async def get_mail_unread_status_service(
     db: AsyncSession,
@@ -172,7 +173,8 @@ async def commit_feedback_service(
                 is_handled=False
             )
             db.add(new_feedback)
-        except Exception as e:
+        except Exception:
+            logger.exception("Feedback commit failed")
             raise BizException(code=ErrorCode.FEEDBACK_COMMIT_ERROR, message="feedback.submission_failed")
 
 

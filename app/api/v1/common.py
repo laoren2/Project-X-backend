@@ -6,10 +6,11 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.api.deps import get_current_user, get_language
-import geoip2.database
+import geoip2.database, logging
 
 router = APIRouter(dependencies=[Depends(get_language)])
 
+logger = logging.getLogger(__name__)
 
 @router.get("/ping", response_model=BaseResponse[None], summary="用于检查客户端本地网络权限")
 async def ping():
@@ -38,6 +39,8 @@ async def query_ip_country(request: Request):
             country_iso = response.country.iso_code or "UNKNOWN"
     except Exception:
         country_iso = "UNKNOWN"
+        logger.exception("ip查询异常")
+        raise
 
     return BaseResponse.success(data=country_iso)
 

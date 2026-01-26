@@ -4,8 +4,11 @@ from app.core.errors import ErrorCode
 from app.schemas.base import BizException
 from datetime import date, datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
+import logging
 
 HK_TZ = ZoneInfo("Asia/Hong_Kong")
+
+logger = logging.getLogger(__name__)
 
 def get_today_hk_date():
     return datetime.now(HK_TZ).date()
@@ -56,6 +59,7 @@ def auto_cast_fields(subclass, data: dict):
                 try:
                     data[field] = int(value)
                 except Exception:
+                    logger.exception("Integer转换异常")
                     raise BizException(code=ErrorCode.PROPERTY_ERROR, message=f"{field} 字段无法转换为 int: {value}")
         # Float
         elif isinstance(column_type, Float):
@@ -63,6 +67,7 @@ def auto_cast_fields(subclass, data: dict):
                 try:
                     data[field] = float(value)
                 except Exception:
+                    logger.exception("Float转换异常")
                     raise BizException(code=ErrorCode.PROPERTY_ERROR, message=f"{field} 字段无法转换为 float: {value}")
         # String
         elif isinstance(column_type, String):

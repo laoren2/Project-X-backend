@@ -2,11 +2,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 import redis.asyncio as aioredis
+import logging
 
 redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
 
 engine = create_async_engine(settings.DATABASE_URL, future=True, echo=False)
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+logger = logging.getLogger("main")
 
 async def get_db():
     async with AsyncSessionLocal() as session:
@@ -17,22 +20,22 @@ async def test_redis_connection():
     try:
         await redis_client.ping()
         return True
-    except Exception as e:
-        print(f"Redis连接测试失败: {e}")
+    except Exception:
+        logger.exception("Redis connection test failed")
         return False
 
 async def close_redis_connection():
     """关闭Redis连接"""
     try:
         await redis_client.close()
-        print("Redis连接已关闭")
-    except Exception as e:
-        print(f"关闭Redis连接时出错: {e}")
+        logger.info("Redis connection closed")
+    except Exception:
+        logger.exception("Error while closing Redis connection")
 
 async def close_database_connection():
     """关闭数据库连接池"""
     try:
         await engine.dispose()
-        print("数据库连接池已关闭")
-    except Exception as e:
-        print(f"关闭数据库连接池时出错: {e}")
+        logger.info("Database engine closed")
+    except Exception:
+        logger.exception("Error while disposing database engine")

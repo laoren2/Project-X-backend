@@ -171,3 +171,7 @@ class IAPJWSRequest(BaseModel):
 
 class IAPTransactionRequest(BaseModel):
     transaction_id: str
+
+class SubscriptionQueryInfo(BaseModel):
+    enforce: bool
+    transaction_id: str | None = None

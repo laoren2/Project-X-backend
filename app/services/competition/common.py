@@ -314,15 +314,15 @@ async def generate_all_leaderboard_snapshots_service(db: AsyncSession):
         try:
             snapshot_key = await generate_bike_leaderboard_snapshot(db, track_id)
             scheduler_logger.info(f"✅ 已生成排行榜快照: {snapshot_key}")
-        except Exception as e:
-            scheduler_logger.error(f"❌ 生成排行榜快照失败: {track_id} , 错误: {e}")
+        except Exception:
+            scheduler_logger.exception(f"❌ 生成排行榜快照失败: {track_id}")
     running_track_ids = await get_running_active_track_ids(db)
     for track_id in running_track_ids:
         try:
             snapshot_key = await generate_running_leaderboard_snapshot(db, track_id)
             scheduler_logger.info(f"✅ 已生成排行榜快照: {snapshot_key}")
-        except Exception as e:
-            scheduler_logger.error(f"❌ 生成排行榜快照失败: {track_id} , 错误: {e}")
+        except Exception:
+            scheduler_logger.exception(f"❌ 生成排行榜快照失败: {track_id}")
 
 def _distribute_voucher_and_scores(
     prize_pool: int,
@@ -659,9 +659,9 @@ async def update_running_leaderboard_for_record(record: RunningRaceRecord):
                 await redis_client.zrem(key, best_member)
             member = f"{record.user.user_id}:{record.record_id}"
             await redis_client.zadd(key, {member: record.duration_seconds})
-    except Exception as e:
+    except Exception:
         # todo: 记录错误日志，后续由定时任务补偿
-        leaderboard_logger.error(f"Failed to update leaderboard {key} for record {record.record_id}: {e}")
+        leaderboard_logger.exception(f"Failed to update leaderboard {key} for record {record.record_id}")
         raise
 
 # 插入新记录更新排行榜
@@ -688,9 +688,9 @@ async def update_bike_leaderboard_for_record(record: BikeRaceRecord):
                 await redis_client.zrem(key, best_member)
             member = f"{record.user.user_id}:{record.record_id}"
             await redis_client.zadd(key, {member: record.duration_seconds})
-    except Exception as e:
+    except Exception:
         # todo: 记录错误日志，后续由定时任务补偿
-        leaderboard_logger.error(f"Failed to update leaderboard {key} for record {record.record_id}: {e}")
+        leaderboard_logger.exception(f"Failed to update leaderboard {key} for record {record.record_id}")
         raise
 
 async def compute_bike_match_rewards(db: AsyncSession, record: BikeRaceRecord) -> tuple[bool, bool, List[CCAssetBaseInfo]] | None:

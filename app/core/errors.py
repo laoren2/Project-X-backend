@@ -43,6 +43,7 @@ class ErrorCode:
     # 第三方服务
     SMS_SERVICE_ERROR = 5001
     EMAIL_SERVICE_ERROR = 5002
+    APPLE_SERVICE_ERROR = 5003
 
     # 后台管理业务逻辑专属
     TABLE_NOT_FOUND = 6001
@@ -604,6 +605,16 @@ ERROR_MESSAGES = {
         "zh-Hans": "验证码发送失败",
         "zh-Hant": "驗證碼發送失敗",
         "en": "Verification code failed to send"
+    },
+    "apple.server_timeout": {
+        "zh-Hans": "服务器连接超时",
+        "zh-Hant": "伺服器連線逾時",
+        "en": "Server connection timed out"
+    },
+    "apple.server_error": {
+        "zh-Hans": "服务器连接错误",
+        "zh-Hant": "伺服器連線錯誤",
+        "en": "Server connection error"
     },
 # 系统
     "sys.unknown_error": {

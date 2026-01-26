@@ -3,7 +3,7 @@ from app.db.models.user import User, UserSubscription
 from app.core.errors import ErrorCode
 from app.core.config import settings
 from app.schemas.base import BizException
-from app.schemas.user import SubscriptionStatusResponse
+from app.schemas.user import SubscriptionStatusResponse, SubscriptionQueryInfo
 from app.schemas.asset import AssetOperation, CouponShopResponse, CouponShopInfo
 from app.schemas.common import CCAssetType
 from app.crud.user import get_user_by_id, get_user_by_iap_token
@@ -18,56 +18,72 @@ import uuid, random, math, json, os
 async def query_subscription_status_service(
     db: AsyncSession,
     user_id: str,
-    enforce: bool
+    info: SubscriptionQueryInfo
 ) -> SubscriptionStatusResponse:
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
             raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
-        if user.subscription_info is None:
-            return SubscriptionStatusResponse(
-                is_active=False,
-                auto_renew=None,
-                started_at=None,
-                expired_at=None
-            )
-        if enforce and user.subscription_info.apple_original_transaction_id:
-            transaction, transaction_payload, renew_payload = await query_user_subscroption_status(user.subscription_info.apple_original_transaction_id)
-            if not transaction_payload or not renew_payload or not transaction:
-                return SubscriptionStatusResponse(
-                    is_active=user.subscription_info.is_active,
-                    auto_renew=user.subscription_info.auto_renew, 
-                    started_at=user.subscription_info.start_at.isoformat() if user.subscription_info.start_at else None,
-                    expired_at=user.subscription_info.end_at.isoformat() if user.subscription_info.end_at else None
-                )
-            if transaction_payload.appAccountToken == str(user.apple_iap_token):
-                is_active = (transaction.status == 1 or transaction.status == 4)
-                auto_renew = renew_payload.autoRenewStatus == 1
-                started_at = (
-                    datetime.fromtimestamp(renew_payload.recentSubscriptionStartDate / 1000, tz=timezone.utc)
-                    if renew_payload.recentSubscriptionStartDate
-                    else None
-                )
-                expired_at = (
-                    datetime.fromtimestamp(renew_payload.renewalDate / 1000, tz=timezone.utc)
-                    if renew_payload.renewalDate
-                    else None
-                )
-                user.subscription_info.product_id = renew_payload.productId
-                user.subscription_info.is_active = is_active
-                user.subscription_info.auto_renew = auto_renew
-                user.subscription_info.start_at = started_at
-                user.subscription_info.end_at = expired_at
-                user.subscription_info.apple_original_transaction_id = renew_payload.originalTransactionId
-                user.subscription_info.apple_latest_transaction_id = transaction_payload.transactionId
-                # 强制更新 updated_at
-                user.subscription_info.updated_at = datetime.now(timezone.utc)
+        
+        if info.enforce:
+            user_apple_original_transaction_id = user.subscription_info.apple_original_transaction_id if user.subscription_info else None
+            tid_need_to_query = info.transaction_id if info.transaction_id else user_apple_original_transaction_id
+            if tid_need_to_query:
+                transaction, transaction_payload, renew_payload = await query_user_subscroption_status(tid_need_to_query)
+                if not transaction_payload or not renew_payload or not transaction:
+                    return SubscriptionStatusResponse(
+                        is_active=user.subscription_info.is_active if user.subscription_info else False,
+                        auto_renew=user.subscription_info.auto_renew if user.subscription_info else None, 
+                        started_at=user.subscription_info.start_at.isoformat() if user.subscription_info and user.subscription_info.start_at else None,
+                        expired_at=user.subscription_info.end_at.isoformat() if user.subscription_info and user.subscription_info.end_at else None
+                    )
+                if transaction_payload.appAccountToken == str(user.apple_iap_token):
+                    is_active = (transaction.status == 1 or transaction.status == 4)
+                    auto_renew = renew_payload.autoRenewStatus == 1
+                    started_at = (
+                        datetime.fromtimestamp(renew_payload.recentSubscriptionStartDate / 1000, tz=timezone.utc)
+                        if renew_payload.recentSubscriptionStartDate
+                        else None
+                    )
+                    expired_at = (
+                        datetime.fromtimestamp(renew_payload.renewalDate / 1000, tz=timezone.utc)
+                        if renew_payload.renewalDate
+                        else None
+                    )
+                    if user.subscription_info:
+                        user.subscription_info.product_id = renew_payload.productId
+                        user.subscription_info.is_active = is_active
+                        user.subscription_info.auto_renew = auto_renew
+                        user.subscription_info.start_at = started_at
+                        user.subscription_info.end_at = expired_at
+                        user.subscription_info.apple_original_transaction_id = renew_payload.originalTransactionId
+                        user.subscription_info.apple_latest_transaction_id = transaction_payload.transactionId
+                        # 强制更新 updated_at
+                        user.subscription_info.updated_at = datetime.now(timezone.utc)
+                    else:
+                        new_subs_info = UserSubscription(
+                            user_id=user.id,
+                            product_id=renew_payload.productId,
+                            is_active = is_active,
+                            auto_renew = auto_renew,
+                            start_at = started_at,
+                            end_at = expired_at,
+                            apple_original_transaction_id = renew_payload.originalTransactionId,
+                            apple_latest_transaction_id = transaction_payload.transactionId
+                        )
+                        db.add(new_subs_info)
+                    return SubscriptionStatusResponse(
+                        is_active=is_active,
+                        auto_renew=auto_renew,
+                        started_at=started_at.isoformat() if started_at else None,
+                        expired_at=expired_at.isoformat() if expired_at else None,
+                    )
 
         return SubscriptionStatusResponse(
-            is_active=user.subscription_info.is_active,
-            auto_renew=user.subscription_info.auto_renew, 
-            started_at=user.subscription_info.start_at.isoformat() if user.subscription_info.start_at else None,
-            expired_at=user.subscription_info.end_at.isoformat() if user.subscription_info.end_at else None
+            is_active=user.subscription_info.is_active if user.subscription_info else False,
+            auto_renew=user.subscription_info.auto_renew if user.subscription_info else None, 
+            started_at=user.subscription_info.start_at.isoformat() if user.subscription_info and user.subscription_info.start_at else None,
+            expired_at=user.subscription_info.end_at.isoformat() if user.subscription_info and user.subscription_info.end_at else None
         )
 
 
