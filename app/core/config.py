@@ -8,7 +8,7 @@ class CustomStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope) -> FileResponse:
         response: FileResponse = await super().get_response(path, scope)
         
-        if path.endswith(".png"):
+        if path.endswith(".png") or path.endswith(".jpg"):
             response.headers["Cache-Control"] = "public, max-age=86400"  # 1 day
         else:
             response.headers["Cache-Control"] = "public, max-age=3600"  # 1 hour
@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     APPLE_IAP_ISSUER_ID: str
     NOREPLY_EMAIL_ADDRESS: str
     NOREPLY_EMAIL_PASSWORD: str
+    LOG_LEVEL: str
+    LOG_FILE: str
 
     class Config:
         env_file = ".env"  # 默认从项目根目录的 .env 文件中读取

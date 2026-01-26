@@ -5,7 +5,7 @@ from datetime import datetime
 from app.db.session import get_db
 from app.api.deps import get_current_user, get_language
 from app.schemas.base import BaseResponse
-from app.schemas.user import AuthContext, SubscriptionStatusResponse, IAPJWSRequest, IAPTransactionRequest
+from app.schemas.user import AuthContext, SubscriptionStatusResponse, IAPJWSRequest, IAPTransactionRequest, SubscriptionQueryInfo
 from app.schemas.asset import CouponShopResponse
 from app.services.iap import (
     verify_auto_subscription_transaction_service, verify_coupon_transaction_service,
@@ -17,13 +17,13 @@ router = APIRouter(dependencies=[Depends(get_language)])
 
 
 # 查询用户订阅状态
-@router.get("/query_subscription_status",response_model=BaseResponse[SubscriptionStatusResponse],summary="查询用户订阅状态")
+@router.post("/query_subscription_status",response_model=BaseResponse[SubscriptionStatusResponse],summary="查询用户订阅状态")
 async def query_subscription_status(
-    enforce: bool = Query(...),
+    queryInfo: SubscriptionQueryInfo,
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await query_subscription_status_service(db, auth.payload["user_id"], enforce)
+    result = await query_subscription_status_service(db, auth.payload["user_id"], queryInfo)
     return BaseResponse.success(token=auth.new_token, data=result, message="success")
 
 

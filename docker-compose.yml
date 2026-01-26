@@ -39,6 +39,7 @@ services:
       - ./alembic.ini:/app/alembic.ini
       - ./resources:/app/resources
       - ./certs:/app/certs
+      - ./log:/app/log
     ports:
       - "8000:8000"
     env_file:

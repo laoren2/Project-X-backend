@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter
-from app.core.config import CustomStaticFiles
+from app.core.config import CustomStaticFiles, settings
 from app.core.errors import ERROR_MESSAGES
 from app.schemas.base import BizException, pick_i18n_text
 from fastapi import Request
@@ -15,14 +15,18 @@ from app.core.logging_config import setup_logging
 import logging
 
 logger = logging.getLogger("main")
+biz_logger = logging.getLogger("BizException")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 在 lifespan 开始时配置日志
+    setup_logging(
+        level=settings.LOG_LEVEL,
+        log_file=settings.LOG_FILE or None
+    )
+
     # 启动时的初始化操作
     logger.info("🚀 正在启动应用...")
-    
-    # 在 lifespan 开始时配置日志
-    setup_logging(level="INFO")
 
     # 测试Redis连接
     try:
@@ -97,7 +101,7 @@ async def biz_exception_handler(request: Request, exc: BizException):
             message = template.format(**params)
         except Exception:
             message = template
-
+    biz_logger.warning(f"⚠️ 业务错误 | path={request.url.path} | code={detail['code']} | message={message}")
     return JSONResponse(
         status_code=exc.status_code,
         content={

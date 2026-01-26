@@ -6,7 +6,9 @@ from alibabacloud_dysmsapi20180501.client import Client as DysmsapiClient
 from alibabacloud_tea_openapi import models as open_api_models
 from alibabacloud_dysmsapi20180501 import models as dysmsapi_models
 from alibabacloud_tea_util.client import Client as UtilClient
-import asyncio, random
+import asyncio, random, logging
+
+logger = logging.getLogger(__name__)
 
 
 def create_dysmsapi_client() -> DysmsapiClient:
@@ -36,8 +38,9 @@ async def send_message_to_globe(
     try:
         response = await asyncio.wait_for(asyncio.to_thread(client.send_message_to_globe, request), timeout=5)
         return response.body.response_code == "OK"
-    except Exception as e:
+    except Exception:
         #print(f"send_message_to_globe failed with error: {e}")
+        logger.exception("Gloabl sms send task failed")
         raise BizException(code=ErrorCode.SMS_SERVICE_ERROR, message="sms.service_error")
 
 async def send_sms_code_service(phone_number: str):
