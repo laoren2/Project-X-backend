@@ -18,8 +18,12 @@ class CustomStaticFiles(StaticFiles):
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "SportsX 用户中心"
+    ENV: str
     DATABASE_URL: str
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 5
     REDIS_URL: str
+    REDIS_MAX_CONNECTIONS: int = 50
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200    # 默认 30 天
     MIN_APP_VERSION: str = "1.0.0"              # 默认最低版本
