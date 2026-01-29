@@ -52,6 +52,16 @@ jobs:
           done
           echo "✅ Postgres is ready"
 
+          echo "⏳ remove old backend migrations..."
           docker compose down backend
+
+          echo "⏳ alembic upgrade head..."
           docker compose run --rm backend alembic upgrade head
+          echo "✅ upgrade success"
+
+          echo "⏳ Restarting backend..."
           docker compose up -d --force-recreate backend
+
+          echo "⏳ Ensuring Caddy is running..."
+          docker compose up -d caddy
+          echo "✅ Caddy is running"
