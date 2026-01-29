@@ -601,6 +601,11 @@ ERROR_MESSAGES = {
         "en": "Please do not claim it repeatedly"
     },
 # 三方服务
+    "sms.too_frequent": {
+        "zh-Hans": "验证码发送过于频繁，请稍后再试",
+        "zh-Hant": "驗證碼發送失敗，請稍後再試",
+        "en": "Verification code failed to send, please try again later."
+    },
     "sms.service_error": {
         "zh-Hans": "验证码发送失败",
         "zh-Hant": "驗證碼發送失敗",

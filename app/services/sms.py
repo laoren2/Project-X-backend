@@ -1,6 +1,6 @@
 from app.core.config import settings
 from app.core.errors import ErrorCode
-from app.schemas.base import BizException
+from app.schemas.base import BizException, Language
 from app.db.session import redis_client
 from alibabacloud_dysmsapi20180501.client import Client as DysmsapiClient
 from alibabacloud_tea_openapi import models as open_api_models
@@ -43,17 +43,33 @@ async def send_message_to_globe(
         logger.exception("Gloabl sms send task failed")
         raise BizException(code=ErrorCode.SMS_SERVICE_ERROR, message="sms.service_error")
 
-async def send_sms_code_service(phone_number: str):
-    key = f"sms:{phone_number}"
+async def send_sms_code_service(phone_number: str, lang: Language):
+    key = f"sms:{phone_number}"              # 验证码key（5分钟有效）
+    rate_key = f"sms:rate:{phone_number}"   # 发送频率限制key（60秒）
+
+    # 60秒内限制重复发送
+    if await redis_client.get(rate_key):
+        raise BizException(code=ErrorCode.SMS_SERVICE_ERROR, message="sms.too_frequent")
+
     code = await redis_client.get(key)
-    #    raise BizException(code=ErrorCode.SMS_SERVICE_ERROR, message="请勿频繁请求验证码")
     if not code:
         code = str(random.randint(100000, 999999))
-        await redis_client.set(key, code, ex=300)  # 5分钟有效
-    # 这里应调用短信服务商API发送验证码
+        # 先写入验证码（5分钟有效）
+        await redis_client.set(key, code, ex=300)
+    # 设置发送频率限制（60秒）
+    await redis_client.set(rate_key, "1", ex=60)
+    
+    if lang == Language.en:
+        msg = f"Sporreer: Your verification code is: {code}. It will expire in 5 minutes. Do not share this code with anyone."
+    elif lang == Language.zh_hant:
+        msg = f"【Sporreer】您的驗證碼是：{code}，請在5分鐘內輸入此碼完成操作。如非本人操作，請忽略本短信。"
+    else:
+        msg = f"【Sporreer】您的验证码是：{code}，请在5分钟内输入此码完成操作。如非本人操作，请忽略本短信。"
+    if settings.ENV.lower() == "dev":
+        msg += "（测试）"
     result = await send_message_to_globe(
         to=f"852{phone_number}",
-        message=f"【Sporreer】您的驗證碼是：{code}，請在 5 分鐘內輸入此碼完成操作。如非本人操作，請忽略本短信。",
+        message=msg,
         from_="ValbaraTech"
     )
     if not result:

@@ -643,6 +643,9 @@ async def send_email_code_service(to_email: str, lang: Language):
         title3 = "如果您没有提出这样的请求，您可以忽略这封邮件，请勿回复此邮件。"
         title4 = "Sporreer 团队"
 
+    if settings.ENV.lower() == "dev":
+        title0 += "（测试）"
+
     # 构建邮件
     msg = MIMEMultipart('alternative')
     msg['Subject'] = Header(f"【Sporreer】{title0}", "UTF-8")

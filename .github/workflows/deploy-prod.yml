@@ -1,0 +1,49 @@
+name: Deploy Production
+
+on:
+  push:
+    tags:
+      - "v*.*.*"   # 只有形如 v1.0.0 的 tag 才触发
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 登录 Docker Hub
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    # 构建生产镜像（带版本号 tag）
+    - name: Extract version from tag
+      id: meta
+      run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: |
+          ${{ secrets.DOCKERHUB_USERNAME }}/sporreer_backend:latest
+          ${{ secrets.DOCKERHUB_USERNAME }}/sporreer_backend:${{ steps.meta.outputs.VERSION }}
+
+    # SSH 到生产服务器部署
+    - name: Deploy to Production Server
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.PROD_SERVER_HOST }}
+        username: ${{ secrets.PROD_SERVER_USER }}
+        key: ${{ secrets.PROD_SERVER_SSH_KEY }}
+        script: |
+          cd /opt/sporreer_prod
+          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/sporreer_backend:latest
+          docker compose down backend
+          docker compose run --rm backend alembic upgrade head
+          docker compose up -d --force-recreate backend

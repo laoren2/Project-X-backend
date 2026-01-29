@@ -45,8 +45,11 @@ async def get_anyone_card(
     return BaseResponse.success(message="成功获取用户信息卡片", data=PersonInfoResponseList(users=result))
 
 @router.post("/send_sms_code", response_model=BaseResponse[schemas_user.SendCodeResponse], summary="发送短信验证码")
-async def send_sms_code(data: schemas_user.SMSCodeRequest):
-    code = await send_sms_code_service(data.phone_number)
+async def send_sms_code(
+    data: schemas_user.SMSCodeRequest,
+    lang: Language = Depends(get_language)
+):
+    code = await send_sms_code_service(data.phone_number, lang)
     return BaseResponse.success(message="验证码已发送", data=schemas_user.SendCodeResponse(code=code))
 
 @router.post("/login/sms", response_model=BaseResponse[schemas_user.LoginResponse], summary="短信验证码登录/注册")

@@ -41,7 +41,7 @@ def read_private_key() -> bytes:
 root_certificates = load_root_certificates()
 enable_online_checks = True
 bundle_id = "com.valbara.sporreer"
-environment = Environment.SANDBOX
+environment = Environment.PRODUCTION if settings.ENV.lower() == "prod" else Environment.SANDBOX
 app_apple_id = 6755963833 # appAppleId must be provided for the Production environment
 private_key = read_private_key()
 key_id = "5RY6JV82K7"
