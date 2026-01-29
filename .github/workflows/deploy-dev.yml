@@ -37,6 +37,14 @@ jobs:
         script: |
           cd /opt/sporreer_dev
           docker pull ${{ secrets.DOCKERHUB_USERNAME }}/sporreer_backend:dev-latest
+          docker compose up -d db redis
+
+          echo "⏳ Waiting for Postgres to be ready..."
+          until docker compose exec -T db sh -c 'pg_isready -U "$POSTGRES_USER"' > /dev/null 2>&1; do
+            sleep 2
+          done
+          echo "✅ Postgres is ready"
+
           docker compose down backend
           docker compose run --rm backend alembic upgrade head
           docker compose up -d --force-recreate backend
