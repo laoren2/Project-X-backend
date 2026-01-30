@@ -186,8 +186,8 @@ async def create_user(db: AsyncSession, phone_number: str):
         user_id=user_id,
         nickname=nickname,
         phone_number=phone_number,
-        avatar_image_url="/resources/placeholder/avatar.png",
-        background_image_url="/resources/placeholder/background.png"
+        avatar_image_url="/resources/placeholder/avatar.jpg",
+        background_image_url="/resources/placeholder/background.jpg"
     )
     db.add(user)
     await db.flush()
@@ -204,8 +204,8 @@ async def create_user_with_apple(db: AsyncSession, apple_id: str, email: str) ->
         nickname=nickname,
         apple_id=apple_id,
         apple_email=email,
-        avatar_image_url="/resources/placeholder/avatar.png",
-        background_image_url="/resources/placeholder/background.png"
+        avatar_image_url="/resources/placeholder/avatar.jpg",
+        background_image_url="/resources/placeholder/background.jpg"
     )
     db.add(user)
     await db.flush()
@@ -221,8 +221,8 @@ async def create_user_with_email(db: AsyncSession, email_address: str) -> User:
         user_id=user_id,
         nickname=nickname,
         email=email_address,
-        avatar_image_url="/resources/placeholder/avatar.png",
-        background_image_url="/resources/placeholder/background.png"
+        avatar_image_url="/resources/placeholder/avatar.jpg",
+        background_image_url="/resources/placeholder/background.jpg"
     )
     db.add(user)
     await db.flush()

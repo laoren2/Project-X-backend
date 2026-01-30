@@ -75,3 +75,24 @@ def auto_cast_fields(subclass, data: dict):
                 data[field] = str(value)
         # 其他类型可按需扩展
     return data
+
+def format_time_duration(seconds: float | int | None) -> str:
+    """
+    将秒数转换为更友好的时间字符串：
+    < 1小时  -> MM:SS.xx
+    >=1小时 -> H:MM:SS.xx
+    其中 xx 为百分之一秒（2位小数）
+    """
+    if seconds is None:
+        return "00:00.00"
+
+    total_seconds = float(seconds)
+
+    hours = int(total_seconds // 3600)
+    minutes = int((total_seconds % 3600) // 60)
+    secs = total_seconds % 60  # 带小数
+
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{secs:05.2f}"
+    else:
+        return f"{minutes:02d}:{secs:05.2f}"

@@ -26,6 +26,7 @@ from app.db.models.competition import (
     BikeTrack, RunningTrack, BikeTeam, RunningTeam, Region,
     BikeSeason, RunningSeason
 )
+from app.core.tools import format_time_duration
 from math import radians, sin, cos, sqrt, atan2
 from sqlalchemy.orm import selectinload
 import logging, json, random, uuid
@@ -853,23 +854,24 @@ async def send_running_match_rewards(db: AsyncSession, record: RunningRaceRecord
         for reward in rewards:
             attachment[f"{reward.ccasset_type.value}"] = reward.new_ccamount
         content = {}
+        final_duration = format_time_duration(record.duration_seconds)
         if is_track_best:
             content = {
-                "en": f"Congratulations! You have just broken the {pick_i18n_text(record.track.name_i18n, Language.en)} running track record and become the new track record holder, the score is: {record.duration_seconds}. Please accept your reward!", 
-                "zh-Hans": f"恭喜！你刚刚成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 跑步赛道最好成绩，成为赛道记录的保持者，成绩为：{record.duration_seconds}，请收下你的奖励！",
-                "zh-Hant": f"恭喜！你剛剛成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 跑步賽道最佳成績，成為賽道記錄的保持者，成績為：{record.duration_seconds}，請收下你的獎勵！"
+                "en": f"Congratulations! You have just broken the {pick_i18n_text(record.track.name_i18n, Language.en)} running track record and become the new track record holder, the score is: {final_duration}. Please accept your reward!", 
+                "zh-Hans": f"恭喜！你刚刚成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 跑步赛道最好成绩，成为赛道记录的保持者，成绩为：{final_duration}，请收下你的奖励！",
+                "zh-Hant": f"恭喜！你剛剛成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 跑步賽道最佳成績，成為賽道記錄的保持者，成績為：{final_duration}，請收下你的獎勵！"
             }
         elif is_user_best:
             content = {
-                "en": f"Congratulations! You have just broken your personal best in {pick_i18n_text(record.track.name_i18n, Language.en)} running track, the score is: {record.duration_seconds}, please accept your reward and keep up the good work!", 
-                "zh-Hans": f"恭喜！你刚刚在 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 跑步赛道成功刷新了自己的最好成绩，成绩为：{record.duration_seconds}，请收下你的奖励，再接再厉！",
-                "zh-Hant": f"恭喜！你剛剛在 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 跑步賽道成功刷新了自己的最佳成績，成績為：{record.duration_seconds}，請收下你的獎勵，再接再厲！"
+                "en": f"Congratulations! You have just broken your personal best in {pick_i18n_text(record.track.name_i18n, Language.en)} running track, the score is: {final_duration}, please accept your reward and keep up the good work!", 
+                "zh-Hans": f"恭喜！你刚刚在 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 跑步赛道成功刷新了自己的最好成绩，成绩为：{final_duration}，请收下你的奖励，再接再厉！",
+                "zh-Hant": f"恭喜！你剛剛在 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 跑步賽道成功刷新了自己的最佳成績，成績為：{final_duration}，請收下你的獎勵，再接再厲！"
             }
         else:
             content = {
-                "en": f"You have just finished a running race on track {pick_i18n_text(record.track.name_i18n, Language.en)}, the score is: {record.duration_seconds}. You're just a little bit away from your best score, we look forward to your next challenge!", 
-                "zh-Hans": f"你刚刚完成了一场 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 赛道的跑步比赛，成绩为：{record.duration_seconds}，距离自己的最好成绩只差一点点了，期待你的下一次挑战！",
-                "zh-Hant": f"你剛剛完成了一場 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 賽道的跑步比賽，成績為：{record.duration_seconds}，距離自己的最好成績只差一點點了，期待你的下一個挑戰！"
+                "en": f"You have just finished a running race on track {pick_i18n_text(record.track.name_i18n, Language.en)}, the score is: {final_duration}. You're just a little bit away from your best score, we look forward to your next challenge!", 
+                "zh-Hans": f"你刚刚完成了一场 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 赛道的跑步比赛，成绩为：{final_duration}，距离自己的最好成绩只差一点点了，期待你的下一次挑战！",
+                "zh-Hant": f"你剛剛完成了一場 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 賽道的跑步比賽，成績為：{final_duration}，距離自己的最好成績只差一點點了，期待你的下一個挑戰！"
             }
         mail = Mailbox(
             mail_id=f"mail_{uuid.uuid4()}",
@@ -895,23 +897,24 @@ async def send_bike_match_rewards(db: AsyncSession, record: BikeRaceRecord):
         for reward in rewards:
             attachment[f"{reward.ccasset_type.value}"] = reward.new_ccamount
         content = {}
+        final_duration = format_time_duration(record.duration_seconds)
         if is_track_best:
             content = {
-                "en": f"Congratulations! You have just broken the {pick_i18n_text(record.track.name_i18n, Language.en)} bike track record and become the new track record holder, the score is: {record.duration_seconds}. Please accept your reward!", 
-                "zh-Hans": f"恭喜！你刚刚成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 自行车赛道最好成绩，成为赛道记录的保持者，成绩为：{record.duration_seconds}，请收下你的奖励！",
-                "zh-Hant": f"恭喜！你剛剛成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 自行車賽道最佳成績，成為賽道記錄的保持者，成績為：{record.duration_seconds}，請收下你的獎勵！"
+                "en": f"Congratulations! You have just broken the {pick_i18n_text(record.track.name_i18n, Language.en)} bike track record and become the new track record holder, the score is: {final_duration}. Please accept your reward!", 
+                "zh-Hans": f"恭喜！你刚刚成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 自行车赛道最好成绩，成为赛道记录的保持者，成绩为：{final_duration}，请收下你的奖励！",
+                "zh-Hant": f"恭喜！你剛剛成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 自行車賽道最佳成績，成為賽道記錄的保持者，成績為：{final_duration}，請收下你的獎勵！"
             }
         elif is_user_best:
             content = {
-                "en": f"Congratulations! You have just broken your personal best in {pick_i18n_text(record.track.name_i18n, Language.en)} bike track, the score is: {record.duration_seconds}, please accept your reward and keep up the good work!", 
-                "zh-Hans": f"恭喜！你刚刚在 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 自行车赛道成功刷新了自己的最好成绩，成绩为：{record.duration_seconds}，请收下你的奖励，再接再厉！",
-                "zh-Hant": f"恭喜！你剛剛在 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 自行車賽道成功刷新了自己的最佳成績，成績為：{record.duration_seconds}，請收下你的獎勵，再接再厲！"
+                "en": f"Congratulations! You have just broken your personal best in {pick_i18n_text(record.track.name_i18n, Language.en)} bike track, the score is: {final_duration}, please accept your reward and keep up the good work!", 
+                "zh-Hans": f"恭喜！你刚刚在 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 自行车赛道成功刷新了自己的最好成绩，成绩为：{final_duration}，请收下你的奖励，再接再厉！",
+                "zh-Hant": f"恭喜！你剛剛在 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 自行車賽道成功刷新了自己的最佳成績，成績為：{final_duration}，請收下你的獎勵，再接再厲！"
             }
         else:
             content = {
-                "en": f"You have just finished a bike race on track {pick_i18n_text(record.track.name_i18n, Language.en)}, the score is: {record.duration_seconds}. You're just a little bit away from your best score, we look forward to your next challenge!", 
-                "zh-Hans": f"你刚刚完成了一场 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 赛道的自行车比赛，成绩为：{record.duration_seconds}，距离自己的最好成绩只差一点点了，期待你的下一次挑战！",
-                "zh-Hant": f"你剛剛完成了一場 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 賽道的自行車比賽，成績為：{record.duration_seconds}，距離自己的最好成績只差一點點了，期待你的下一個挑戰！"
+                "en": f"You have just finished a bike race on track {pick_i18n_text(record.track.name_i18n, Language.en)}, the score is: {final_duration}. You're just a little bit away from your best score, we look forward to your next challenge!", 
+                "zh-Hans": f"你刚刚完成了一场 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 赛道的自行车比赛，成绩为：{final_duration}，距离自己的最好成绩只差一点点了，期待你的下一次挑战！",
+                "zh-Hant": f"你剛剛完成了一場 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 賽道的自行車比賽，成績為：{final_duration}，距離自己的最好成績只差一點點了，期待你的下一個挑戰！"
             }
         mail = Mailbox(
             mail_id=f"mail_{uuid.uuid4()}",

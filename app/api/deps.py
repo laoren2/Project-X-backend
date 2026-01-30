@@ -34,7 +34,7 @@ async def get_current_user(
     )
     user = result_db.scalar_one_or_none()
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+        raise BizException(code=ErrorCode.USER_DELETED, message="user.deleted")
     if user.status == UserStatus.banned:
         ban_history = await get_banned_history_by_user_id(db, user.id)
         now = datetime.datetime.now(datetime.timezone.utc)
