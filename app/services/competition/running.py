@@ -1107,7 +1107,7 @@ async def query_leaderboard_in_page(
             record_id=record_id,
             user_info=PersonInfoResponse(
                 user_id=user_id,
-                avatar_image_url=user.avatar_image_url if user else "/resources/placeholder/avatar.png",
+                avatar_image_url=user.avatar_image_url if user else "/resources/placeholder/avatar.jpg",
                 nickname=user.nickname if user else "未知"
             ),
             duration_seconds=duration_seconds,

@@ -124,8 +124,8 @@ async def update_me(
     db: AsyncSession = Depends(get_db)
 ):
     user_id = auth.payload["user_id"]
-    avatar_url = "/resources/placeholder/avatar.png"
-    background_url = "/resources/placeholder/background.png"
+    avatar_url = "/resources/placeholder/avatar.jpg"
+    background_url = "/resources/placeholder/background.jpg"
 
     # 更新图片资源
     user_folder = Path("resources/user") / user_id

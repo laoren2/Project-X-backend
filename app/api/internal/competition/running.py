@@ -34,7 +34,7 @@ async def create_season(
     auth: AuthContext = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    image_url = "/resources/placeholder/season.png"
+    image_url = "/resources/placeholder/season.jpg"
     new_season_id = await create_season_service(db, season, image_url)
 
     if season_image:
@@ -61,7 +61,7 @@ async def create_event(
     auth: AuthContext = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    image_url = "/resources/placeholder/event.png"
+    image_url = "/resources/placeholder/event.jpg"
     new_event_id = await create_event_service(db, event, image_url)
 
     if event_image:
@@ -94,7 +94,7 @@ async def update_event(
     auth: AuthContext = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    image_url = "/resources/placeholder/event.png"
+    image_url = "/resources/placeholder/event.jpg"
     if event_image:
         event_folder = Path("resources/competition/running/event") / event.event_id
         event_folder.mkdir(parents=True, exist_ok=True)
@@ -142,7 +142,7 @@ async def create_track(
     auth: AuthContext = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    image_url = "/resources/placeholder/track.png"
+    image_url = "/resources/placeholder/track.jpg"
     new_track_id = await create_track_service(db, track, image_url)
 
     if track_image:
@@ -170,7 +170,7 @@ async def update_track(
     auth: AuthContext = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    image_url = "/resources/placeholder/track.png"
+    image_url = "/resources/placeholder/track.jpg"
     if track_image:
         track_folder = Path("resources/competition/running/track") / track.track_id
         track_folder.mkdir(parents=True, exist_ok=True)

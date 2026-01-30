@@ -47,7 +47,7 @@ class BikeEventCreateForm:
     end_date: datetime
     season_id: str
     region_id: str
-    image_url: str
+    image_url: str | None
 
     def __init__(
         self,

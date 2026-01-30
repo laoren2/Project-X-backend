@@ -95,6 +95,11 @@ ERROR_MESSAGES = {
         "zh-Hant": "帳號已封禁\n剩餘時間：{remaining}",
         "en": "Account has been banned\nremaining time:{remaining}"
     },
+    "user.deleted": {
+        "zh-Hans": "账号已注销",
+        "zh-Hant": "帳號已註銷",
+        "en": "Account has been deleted"
+    },
 # 身份校验
     "identity.verify_failed.test_account": {
         "zh-Hans": "账号信息错误",
