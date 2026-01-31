@@ -247,6 +247,20 @@ async def query_events_by_region(db: AsyncSession, lang: Language, region_id: st
     ) for e in events]
 
 
+async def query_event_detail_service(db: AsyncSession, lang: Language, event_id: str) -> RunningEventBaseInfo:
+    event = await get_event_by_event_id(db, event_id)
+    if not event:
+        raise BizException(code=ErrorCode.EVENT_ERROR, message="event.not_found")
+    return RunningEventBaseInfo(
+        event_id=event.event_id,
+        name=pick_i18n_text(event.name_i18n, lang),
+        description=pick_i18n_text(event.description_i18n, lang),
+        start_date=event.start_date.isoformat(),
+        end_date=event.end_date.isoformat(),
+        image_url=event.image_url
+    )
+
+
 async def create_track_service(db: AsyncSession, track_form: RunningTrackCreateForm, image_url: str) -> str:
     event = await get_event_by_event_id(db, track_form.event_id)
     if event is None:

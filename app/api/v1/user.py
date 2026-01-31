@@ -65,7 +65,9 @@ async def send_email_code(
     data: schemas_user.EmailCodeRequest,
     lang: Language = Depends(get_language)
 ):
-    await send_email_code_service(data.email_address, lang)
+    # 跳过 apple 审核账号
+    if data.email_address != "sporreer_test0@valbara.top":
+        await send_email_code_service(data.email_address, lang)
     return BaseResponse.success(message="发送成功", data=None)
 
 @router.post("/login/email", response_model=BaseResponse[schemas_user.LoginResponse], summary="邮箱验证码登录/注册")
