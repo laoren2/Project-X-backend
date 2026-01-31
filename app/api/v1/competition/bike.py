@@ -13,7 +13,7 @@ from app.schemas.competition.bike import (
     BikeTeamStatusUpdateInfo, BikeTeamMembersResponse, BikeTeamAppliedRequest,
     BikeTeamExpiredResponse, BikeRecordDetailInfo, BikeSummaryRecordResponse,
     BikeHistorySeasonResponse, BikeCareerRecordResponse, BikeScoreLeaderboardResponse,
-    BikeCareerDataInfo
+    BikeCareerDataInfo, BikeEventBaseInfo
 )
 from app.schemas.asset import CPAssetResponse, DailyTaskRewardResponse
 from app.schemas.user import AuthContext, Gender
@@ -33,7 +33,7 @@ from app.services.competition.bike import (
     get_current_best_records_service, get_history_seasons_service, get_career_records_service,
     query_leaderboard_history_in_page, get_score_leaderboard_service, get_career_data_service,
     get_completed_records_all, query_daily_task_status_service, claimed_daily_task_reward_service,
-    start_competition_with_team_bonus_card_service
+    start_competition_with_team_bonus_card_service, query_event_detail_service
 )
 from app.api.deps import get_current_user, get_language, Language
 from typing import Optional
@@ -61,6 +61,17 @@ async def query_events(
 ):
     events = await query_events_by_region(db, lang, region_id)
     return BaseResponse.success(data=BikeEventListResponse(events=events))
+
+
+# 查询赛事详情
+@router.get("/query_event_detail", response_model=BaseResponse[BikeEventBaseInfo], summary="查询bike赛事详情")
+async def query_event_detail(
+    event_id: str = Query(...),
+    lang: Language = Depends(get_language),
+    db: AsyncSession = Depends(get_db)
+):
+    event_info = await query_event_detail_service(db, lang, event_id)
+    return BaseResponse.success(data=event_info)
 
 
 # 查询赛道
