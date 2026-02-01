@@ -837,7 +837,7 @@ async def upgrade_equip_card_skill2_service(
         price = get_skill_upgrade_price(2, card.skill2_level)
         if price is None:
             raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.upgrade_failed")
-        new_amount = await consume_ccasset(db, price.ccasset_type, price.new_ccamount, user.id, f"升级卡牌 {pick_i18n_text(card.equipment_def.name, Language.zh_hans)} 技能2")
+        new_amount = await consume_ccasset(db, price.ccasset_type, price.new_ccamount, user.id, f"升级卡牌 {pick_i18n_text(card.equipment_def.name_i18n, Language.zh_hans)} 技能2")
         card.skill2_level += 1
         card.multiplier_skill2 += 0.001 * sample_upgrade_amplitude(card.lucky_value)
         db.add(card)
