@@ -325,6 +325,36 @@ async def generate_all_leaderboard_snapshots_service(db: AsyncSession):
         except Exception:
             scheduler_logger.exception(f"❌ 生成排行榜快照失败: {track_id}")
 
+def calculate_points(rank: int, total_players: int, total_score: int) -> int:
+    """
+    根据排名百分比发放阶梯式积分
+    :param rank: 名次
+    :param total_players: 参赛总人数
+    :param total_score: 参积分
+    """
+    if total_players <= 0 or rank <= 0 or rank > total_players:
+        return 0
+
+    percentile = rank / total_players  # 排名百分比（越小越强）
+
+    tiers = [
+        (0.01, total_score),  # 前1%
+        (0.02, total_score * 0.8),   # 前2%
+        (0.03, total_score * 0.7),
+        (0.05, total_score * 0.6),
+        (0.10, total_score * 0.5),
+        (0.20, total_score * 0.4),
+        (0.40, total_score * 0.3),
+        (0.60, total_score * 0.2),
+        (0.80, total_score * 0.1),
+        (1.00, total_score * 0.05),    # 其余所有完赛者
+    ]
+
+    for threshold, points in tiers:
+        if percentile <= threshold:
+            return int(points)
+    return 0
+
 def _distribute_voucher_and_scores(
     prize_pool: int,
     base_score: int,
@@ -360,20 +390,12 @@ def _distribute_voucher_and_scores(
     # 分配奖金（向下取整，保证不超额，暂忽略剩余零头）
     vouchers = [int(prize_pool * (w / total_w)) for w in weights]
 
-    # 分配积分（保底+平滑衰减）
-    min_score = max(int(base_score / leaderboard_len), 1)
-    scores = []
-    if leaderboard_len == 1:
-        scores = [base_score]
-    else:
-        for i in range(leaderboard_len):
-            score = base_score - i * (base_score - min_score) / (leaderboard_len - 1)
-            scores.append(int(round(score)))
-
     # 组装结果
     settled = []
     for i, (user_id, record_id, duration) in enumerate(entries):
-        settled.append((user_id, record_id, duration, vouchers[i], scores[i], 1 + i))
+        # 阶梯式分配积分
+        score = calculate_points(1 + i, leaderboard_len, base_score)
+        settled.append((user_id, record_id, duration, vouchers[i], score, 1 + i))
     return settled
 
 async def get_bike_active_track_ids(db: AsyncSession) -> List[str]:
