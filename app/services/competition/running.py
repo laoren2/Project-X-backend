@@ -726,7 +726,6 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
             user = await get_user_by_id(db, user_id)
             if user is None:
                 raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
-            gender = user.real_name_info.gender if user.real_name_info else Gender.male
             record = await get_record_by_record_id(db, info.record_id)
             if record is None:
                 raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
@@ -762,21 +761,30 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
             db.add(path)
             await db.flush()  # 先flush，让对象持久化
             await db.refresh(path)  # 再refresh，获取数据库生成的值
+
+            # 审核账号直接通过
+            validation_score = info.validation_score if user_id != "176987647574535" else 100
+
             update_data = {
                 "path_id": path.id,
                 "end_time": info.end_time,
                 "duration_seconds": final_time,
-                "validation_score": info.validation_score,
+                "validation_score": validation_score,
                 "is_finish_bonus_computing": True       # 当前只有 team mode 的 magiccard 需要延迟收益计算
             }
             if record.status == RecordStatus.recording:
-                if info.validation_score >= 80:
+                if validation_score >= 80:
                     update_data["status"] = RecordStatus.completed
-                elif info.validation_score >= 50:
+                elif validation_score >= 50:
                     update_data["status"] = RecordStatus.toBeVerified
                 else:
                     update_data["status"] = RecordStatus.invalid
             await update_record_crud(db, record, update_data)
+
+            # 审核账号直接返回
+            if user_id == "176987647574535":
+                return MatchFinishResponse(match_result=None)
+
             # 更新奖金池
             track = await get_track_by_track_id_for_update(db, record.track.track_id)
             if track is None or track.event is None or track.event.season is None:

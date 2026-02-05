@@ -1,4 +1,4 @@
-from appstoreserverlibrary.api_client import AsyncAppStoreServerAPIClient
+from appstoreserverlibrary.api_client import AsyncAppStoreServerAPIClient, APIException
 from appstoreserverlibrary.signed_data_verifier import SignedDataVerifier, VerificationException
 from appstoreserverlibrary.models.Environment import Environment
 from appstoreserverlibrary.models.LastTransactionsItem import LastTransactionsItem
@@ -7,7 +7,9 @@ from appstoreserverlibrary.models.JWSRenewalInfoDecodedPayload import JWSRenewal
 from app.core.config import settings
 from app.schemas.base import BizException
 from app.core.errors import ErrorCode
-import os, httpx, asyncio
+import os, httpx, asyncio, logging
+
+logger = logging.getLogger(__name__)
 
 
 def load_root_certificates() -> list[bytes]:
@@ -30,7 +32,7 @@ def load_root_certificates() -> list[bytes]:
 
 def read_private_key() -> bytes:
     key_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "certs")
-    key_filename = "SubscriptionKey_5RY6JV82K7.p8"
+    key_filename = "SubscriptionKey_CZVQY5KJ7Z.p8"
     path = os.path.join(key_dir, key_filename)
     if not os.path.isfile(path):
         raise FileNotFoundError(f"Private key not found: {path}")
@@ -41,24 +43,40 @@ def read_private_key() -> bytes:
 root_certificates = load_root_certificates()
 enable_online_checks = True
 bundle_id = "com.valbara.sporreer"
-environment = Environment.PRODUCTION if settings.ENV.lower() == "prod" else Environment.SANDBOX
-app_apple_id = 6755963833 # appAppleId must be provided for the Production environment
+app_apple_id = 6755963833
 private_key = read_private_key()
-key_id = "5RY6JV82K7"
+key_id = "CZVQY5KJ7Z"
 issuer_id = settings.APPLE_IAP_ISSUER_ID
 
-client = AsyncAppStoreServerAPIClient(
+
+prod_client = AsyncAppStoreServerAPIClient(
     private_key,
     key_id,
     issuer_id,
     bundle_id,
-    environment
+    Environment.PRODUCTION
 )
 
-signed_data_verifier = SignedDataVerifier(
-    root_certificates, 
+sandbox_client = AsyncAppStoreServerAPIClient(
+    private_key,
+    key_id,
+    issuer_id,
+    bundle_id,
+    Environment.SANDBOX
+)
+
+prod_verifier = SignedDataVerifier(
+    root_certificates,
     enable_online_checks,
-    environment,
+    Environment.PRODUCTION,
+    bundle_id,
+    app_apple_id
+)
+
+sandbox_verifier = SignedDataVerifier(
+    root_certificates,
+    enable_online_checks,
+    Environment.SANDBOX,
     bundle_id,
     app_apple_id
 )
@@ -68,10 +86,33 @@ async def query_user_subscroption_status(
     transaction_id: str
 ) -> tuple[LastTransactionsItem | None, JWSTransactionDecodedPayload | None, JWSRenewalInfoDecodedPayload | None]:
     try:
+        async def _call_api(api_client: AsyncAppStoreServerAPIClient):
+            return await asyncio.wait_for(
+                api_client.get_all_subscription_statuses(transaction_id),
+                timeout=5.0
+            )
+
         try:
-            response = await asyncio.wait_for(client.get_all_subscription_statuses(transaction_id), timeout=5.0)
+            response = await _call_api(prod_client)
+            active_verifier = prod_verifier
         except asyncio.TimeoutError:
             raise BizException(code=ErrorCode.APPLE_SERVICE_ERROR, message="apple.server_timeout")
+        except APIException as e:
+            status_code = getattr(e, "http_status_code", None)
+            logger.error(f"[IAP] Subscription status query failed, http_status_code={status_code}")
+            # Python 官方库不会暴露 errorCode，只能用 HTTP 状态码判断环境
+            # 404 = 该环境查不到 transaction → 尝试 Sandbox
+            # 401 = 正式发布前无法访问生产环境 api 的 fallback → 尝试 Sandbox
+            if status_code in (404, 401):
+                try:
+                    response = await _call_api(sandbox_client)
+                    active_verifier = sandbox_verifier
+                except asyncio.TimeoutError:
+                    raise BizException(code=ErrorCode.APPLE_SERVICE_ERROR, message="apple.server_timeout")
+                except Exception:
+                    return None, None, None
+            else:
+                raise BizException(code=ErrorCode.APPLE_SERVICE_ERROR, message="apple.server_error")
         except httpx.HTTPError:
             raise BizException(code=ErrorCode.APPLE_SERVICE_ERROR, message="apple.server_error")
 
@@ -85,8 +126,8 @@ async def query_user_subscroption_status(
                 latest_transaction_payload = None
                 latest_signed_date = -1
                 for last_transaction in item.lastTransactions:
-                    transaction_payload = signed_data_verifier.verify_and_decode_signed_transaction(last_transaction.signedTransactionInfo)
-                    renew_payload = signed_data_verifier.verify_and_decode_renewal_info(last_transaction.signedRenewalInfo)
+                    transaction_payload = active_verifier.verify_and_decode_signed_transaction(last_transaction.signedTransactionInfo)
+                    renew_payload = active_verifier.verify_and_decode_renewal_info(last_transaction.signedRenewalInfo)
                     signed_date = renew_payload.signedDate if renew_payload.signedDate else 0
                     if signed_date > latest_signed_date:
                         latest_signed_date = signed_date
@@ -104,9 +145,14 @@ async def verify_and_decode_transaction_service(
     jws: str
 ) -> JWSTransactionDecodedPayload | None:
     try:
-        payload = signed_data_verifier.verify_and_decode_signed_transaction(jws)
-        #print(payload)
-    except VerificationException as e:
-        #print(e)
-        return None
-    return payload
+        # First try Production
+        payload = prod_verifier.verify_and_decode_signed_transaction(jws)
+        return payload
+    except VerificationException:
+        logger.error(f"[IAP] Transaction VerificationException")
+        try:
+            # Fallback to Sandbox
+            payload = sandbox_verifier.verify_and_decode_signed_transaction(jws)
+            return payload
+        except VerificationException:
+            return None

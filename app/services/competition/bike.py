@@ -727,7 +727,6 @@ async def finish_single_competition_service(db: AsyncSession, info: BikeFinishIn
             user = await get_user_by_id(db, user_id)
             if user is None:
                 raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
-            gender = user.real_name_info.gender if user.real_name_info else Gender.male
             record = await get_record_by_record_id(db, info.record_id)
             if record is None:
                 raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
