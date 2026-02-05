@@ -29,5 +29,16 @@ async def query_region_id(
     lon: float = Query(...),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await query_region_with_coordinate_service(db, lat, lon)
+    result = await query_region_with_coordinate_service(db, None, lat, lon)
+    return BaseResponse.success(data=result)
+
+# 查询坐标对应的地区（需登录）
+@router.get("/query_region_id_force", response_model=BaseResponse[RegionResponse], summary="查询坐标对应的地区（需登录）")
+async def query_region_id_force(
+    lat: float = Query(...),
+    lon: float = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_region_with_coordinate_service(db, auth.payload["user_id"], lat, lon)
     return BaseResponse.success(data=result)

@@ -623,7 +623,16 @@ async def query_regions_with_events_service(db: AsyncSession, sport_type: str, c
     return result
 
 
-async def query_region_with_coordinate_service(db: AsyncSession, lat: float, lon: float) -> RegionResponse:
+async def query_region_with_coordinate_service(db: AsyncSession, user_id: str | None, lat: float, lon: float) -> RegionResponse:
+    if user_id == "176987647574535":
+        # 审核账号更新测试赛道信息
+        track = await running.get_track_by_track_id(db, "track_8b576bc44ff0")
+        if track:
+            track.from_lat = lat
+            track.from_lng = lon
+            track.to_lat = lat + 1
+            track.to_lng = lon + 1
+            await db.commit()
     region = await get_region_by_coordinate(db, lat, lon)
     result = RegionResponse(
         region_id=region.region_id if region else None,
