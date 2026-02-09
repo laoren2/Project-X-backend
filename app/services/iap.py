@@ -11,9 +11,9 @@ from app.crud.asset_manage import get_coupon_prices_all, reward_ccasset, get_cou
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone
 from app.services.app_store_api_tool import query_user_subscroption_status, verify_and_decode_transaction_service
-import uuid, random, math, json, os
+import uuid, random, math, json, os, logging
 
-
+logger = logging.getLogger(__name__)
 
 async def query_subscription_status_service(
     db: AsyncSession,
@@ -31,6 +31,11 @@ async def query_subscription_status_service(
             if tid_need_to_query:
                 transaction, transaction_payload, renew_payload = await query_user_subscroption_status(tid_need_to_query)
                 if not transaction_payload or not renew_payload or not transaction:
+                    # 订单查询异常
+                    logger.error(f"订单查询异常 {tid_need_to_query}")
+                    if user.subscription_info:
+                        user.subscription_info.is_active = False
+                        user.subscription_info.auto_renew = False
                     return SubscriptionStatusResponse(
                         is_active=user.subscription_info.is_active if user.subscription_info else False,
                         auto_renew=user.subscription_info.auto_renew if user.subscription_info else None, 

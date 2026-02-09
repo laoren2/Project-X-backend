@@ -20,7 +20,7 @@ from app.core.errors import ErrorCode
 from app.schemas import user as schemas_user
 from app.schemas.common import PersonInfoResponse, CCAssetBaseInfo, PersonInfoResponseList
 from app.schemas.base import BaseResponse, BizException
-from app.schemas.asset import SignInStatusResponse
+from app.schemas.asset import SignInStatusResponse, SignInRewardResponse
 from typing import Optional
 from pathlib import Path
 from datetime import datetime
@@ -282,7 +282,7 @@ async def sign_in_status(
     return BaseResponse.success(token=auth.new_token, data=result)
 
 # 非会员签到
-@router.post("/sign_in/today",response_model=BaseResponse[CCAssetBaseInfo], summary="非会员签到")
+@router.post("/sign_in/today",response_model=BaseResponse[SignInRewardResponse], summary="非会员签到")
 async def sign_in_today(
     auth: schemas_user.AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -291,7 +291,7 @@ async def sign_in_today(
     return BaseResponse.success(token=auth.new_token, message="领取成功", data=result)
 
 # 订阅会员签到
-@router.post("/sign_in_vip/today",response_model=BaseResponse[CCAssetBaseInfo], summary="订阅会员签到")
+@router.post("/sign_in_vip/today",response_model=BaseResponse[SignInRewardResponse], summary="订阅会员签到")
 async def sign_in_today_vip(
     auth: schemas_user.AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)

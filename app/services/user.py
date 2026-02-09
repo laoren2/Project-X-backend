@@ -14,7 +14,7 @@ from app.core.security import create_access_token
 from app.schemas.common import SportType, CCAssetBaseInfo
 from app.schemas.user import UserUpdateForm, UserBaseInfo, UserStatus, Gender
 from app.schemas.base import BizException
-from app.schemas.asset import SignInStatusResponse, AssetOperation, SignInItemInfo
+from app.schemas.asset import SignInStatusResponse, AssetOperation, SignInItemInfo, SignInRewardResponse
 from app.schemas.mailbox import MailType
 from app.db.models.user import UserRealNameHK, UserSetting, UserSignIn, UserSubscription
 from app.db.models.mailbox import Mailbox
@@ -252,6 +252,12 @@ async def get_me_info(user_id: str, db: AsyncSession) -> tuple[UserBaseInfo, str
                 user.subscription_info.apple_latest_transaction_id = transaction_payload.transactionId
                 # 强制更新 updated_at
                 user.subscription_info.updated_at = datetime.now(timezone.utc)
+            else:
+                # 订单查询异常
+                logger.error(f"订单查询异常 {user.subscription_info.apple_original_transaction_id}")
+                subscription_status = False
+                user.subscription_info.is_active = subscription_status
+                user.subscription_info.auto_renew = False
         user_info.is_vip = subscription_status
         return user_info, user.subscription_info.apple_original_transaction_id if user.subscription_info else None
 
@@ -542,6 +548,7 @@ async def sign_in_status_service(db: AsyncSession, user_id: str) -> SignInStatus
             raise BizException(code=ErrorCode.REWARD_CLAIM_FAILED, message="reward.data_error")
         items.append(SignInItemInfo(
             date=(today + timedelta(days=i)).strftime("%Y-%m-%d"),
+            is_today=(i == 0),
             ccasset_type=reward.reward_type,
             ccasset_reward=reward.reward_count,
             ccasset_type_vip=reward.reward_type_vip,
@@ -554,7 +561,7 @@ async def sign_in_status_service(db: AsyncSession, user_id: str) -> SignInStatus
         items=items
     )
 
-async def sign_in_today_service(db: AsyncSession, user_id: str) -> CCAssetBaseInfo:
+async def sign_in_today_service(db: AsyncSession, user_id: str) -> SignInRewardResponse:
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
@@ -573,9 +580,9 @@ async def sign_in_today_service(db: AsyncSession, user_id: str) -> CCAssetBaseIn
         continuous_days = await compute_continuous_days(db, user.id)
         reward = await get_sign_in_reward_by_day(db, today, continuous_days)
         new_amount = await reward_ccasset(db, reward.reward_type, reward.reward_count, user.id, "签到奖励", AssetOperation.REWARD)
-        return CCAssetBaseInfo(ccasset_type=reward.reward_type, new_ccamount=new_amount)
+        return SignInRewardResponse(ccasset_type=reward.reward_type, new_ccamount=new_amount, date=today.strftime("%Y-%m-%d"))
 
-async def sign_in_today_vip_service(db: AsyncSession, user_id: str) -> CCAssetBaseInfo:
+async def sign_in_today_vip_service(db: AsyncSession, user_id: str) -> SignInRewardResponse:
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
@@ -596,7 +603,7 @@ async def sign_in_today_vip_service(db: AsyncSession, user_id: str) -> CCAssetBa
         continuous_days = await compute_continuous_days(db, user.id)
         reward = await get_sign_in_reward_by_day(db, today, continuous_days)
         new_amount = await reward_ccasset(db, reward.reward_type_vip, reward.reward_count_vip, user.id, "签到奖励", AssetOperation.REWARD)
-        return CCAssetBaseInfo(ccasset_type=reward.reward_type_vip, new_ccamount=new_amount)
+        return SignInRewardResponse(ccasset_type=reward.reward_type_vip, new_ccamount=new_amount, date=today.strftime("%Y-%m-%d"))
 
 
 def _send_smtp(username, password, receivers, msg_str):
