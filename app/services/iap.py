@@ -51,8 +51,8 @@ async def query_subscription_status_service(
                         else None
                     )
                     expired_at = (
-                        datetime.fromtimestamp(renew_payload.renewalDate / 1000, tz=timezone.utc)
-                        if renew_payload.renewalDate
+                        datetime.fromtimestamp(transaction_payload.expiresDate / 1000, tz=timezone.utc)
+                        if transaction_payload.expiresDate
                         else None
                     )
                     if user.subscription_info:
@@ -139,8 +139,8 @@ async def verify_auto_subscription_transaction_service(
                 else None
             )
             expired_at = (
-                datetime.fromtimestamp(renew_payload.renewalDate / 1000, tz=timezone.utc)
-                if renew_payload.renewalDate
+                datetime.fromtimestamp(transaction_payload.expiresDate / 1000, tz=timezone.utc)
+                if transaction_payload.expiresDate
                 else None
             )
             if user.subscription_info:

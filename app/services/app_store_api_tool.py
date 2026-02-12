@@ -128,7 +128,7 @@ async def query_user_subscroption_status(
                 for last_transaction in item.lastTransactions:
                     transaction_payload = active_verifier.verify_and_decode_signed_transaction(last_transaction.signedTransactionInfo)
                     renew_payload = active_verifier.verify_and_decode_renewal_info(last_transaction.signedRenewalInfo)
-                    signed_date = renew_payload.signedDate if renew_payload.signedDate else 0
+                    signed_date = transaction_payload.signedDate or 0 #renew_payload.signedDate if renew_payload.signedDate else 0
                     if signed_date > latest_signed_date:
                         latest_signed_date = signed_date
                         latest_renew_payload = renew_payload
