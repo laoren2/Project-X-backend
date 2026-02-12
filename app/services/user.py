@@ -239,8 +239,8 @@ async def get_me_info(user_id: str, db: AsyncSession) -> tuple[UserBaseInfo, str
                     else None
                 )
                 expired_at = (
-                    datetime.fromtimestamp(renew_payload.renewalDate / 1000, tz=timezone.utc)
-                    if renew_payload.renewalDate
+                    datetime.fromtimestamp(transaction_payload.expiresDate / 1000, tz=timezone.utc)
+                    if transaction_payload.expiresDate
                     else None
                 )
                 user.subscription_info.product_id = renew_payload.productId
