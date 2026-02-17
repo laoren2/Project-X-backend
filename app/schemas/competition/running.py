@@ -8,7 +8,7 @@ from app.schemas.competition.common import(
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class RunningTrackTerrainType(str, Enum):
@@ -303,6 +303,8 @@ class RunningPathPoint(BaseModel):
     touchdown_time: float | None = None
     step_size: float | None = None
     estimate_step_count: float = 0
+
+    card_bonus: List[CardBonusItem] = Field(default_factory=list)
 
 class RunningFinishInfo(BaseModel):
     record_id: str
