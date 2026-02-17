@@ -8,7 +8,7 @@ from app.schemas.competition.common import (
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class BikeTrackTerrainType(str, Enum):
@@ -300,6 +300,8 @@ class BikePathPoint(BaseModel):
     power: float | None = None
     pedal_cadence: float | None = None
     estimate_pedal_count: float = 0
+
+    card_bonus: List[CardBonusItem] = Field(default_factory=list)
 
 class BikeFinishInfo(BaseModel):
     record_id: str

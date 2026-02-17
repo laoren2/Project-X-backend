@@ -2021,34 +2021,8 @@ async def get_record_detail_service(db: AsyncSession, lang: Language, record_id:
         try:
             path_points = []
             for point_data in record.path.path:
-                # 兼容新旧数据格式
-                # 新格式：{"base": {...}, "power": ..., "step_cadence": ..., ...}
-                # 旧格式：所有字段在同一层级
-                if "base" in point_data:
-                    # 新格式，直接验证
-                    path_points.append(RunningPathPoint.model_validate(point_data))
-                else:
-                    # 旧格式，转换为新格式
-                    # 提取 PathPoint 的字段
-                    base_data = {
-                        "lat": point_data.get("lat"),
-                        "lon": point_data.get("lon"),
-                        "speed": point_data.get("speed"),
-                        "altitude": point_data.get("altitude"),
-                        "heart_rate": point_data.get("heart_rate"),
-                        "timestamp": point_data.get("timestamp")
-                    }
-                    # 提取 RunningPathPoint 特有的字段
-                    running_path_point_data = {
-                        "base": base_data,
-                        "power": point_data.get("power"),
-                        "step_cadence": point_data.get("step_cadence"),
-                        "vertical_amplitude": point_data.get("vertical_amplitude"),
-                        "touchdown_time": point_data.get("touchdown_time"),
-                        "step_size": point_data.get("step_size"),
-                        "estimate_step_count": point_data.get("estimate_step_count")
-                    }
-                    path_points.append(RunningPathPoint.model_validate(running_path_point_data))
+                # 注意兼容新旧数据格式
+                path_points.append(RunningPathPoint.model_validate(point_data))
         except Exception:
             logger.exception("Handle path data failed in querying record detail info")
             path_points = []
