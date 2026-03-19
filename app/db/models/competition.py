@@ -22,7 +22,7 @@ class Region(Base):
     region_id = Column(String, unique=True, index=True, nullable=False)
     name = Column(String, nullable=False, unique=True)  # 暂时存客户端的本地化字符串key
     country_code = Column(String, nullable=False)
-    boundary = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=False)
+    boundary = Column(Geometry("MULTIPOLYGON", srid=4326, spatial_index=False), nullable=False)
     grid_count = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

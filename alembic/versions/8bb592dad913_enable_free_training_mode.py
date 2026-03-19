@@ -53,7 +53,11 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('country_code', 'grid_code', name='uq_country_grid_cells_country_code_grid_code')
     )
-    op.create_index('idx_country_grid_cells_geom', 'country_grid_cells', ['geom'], unique=False, postgresql_using='gist')
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS idx_country_grid_cells_geom
+        ON country_grid_cells
+        USING gist (geom)
+    """)
     op.create_index(op.f('ix_country_grid_cells_country_code'), 'country_grid_cells', ['country_code'], unique=False)
 
     op.create_table('running_free_training_paths',
