@@ -487,6 +487,9 @@ class BikeRecordDetailInfo(BaseModel):
     path: List[BikePathPoint]
     card_bonus: List[CardBonusInfo]
     team_member_scores: List[MemberScoreInfo]
+    settlements: dict[str, Any] | None      # 记录的结算信息
+    familiarity_time: float
+    training_state_time: float
 
 class BikeUnverifiedRecordInfo(ORMBase):
     is_vip: bool
@@ -545,4 +548,5 @@ class BikeCareerDataInfo(ORMBase):
     total_voucher: int
     total_distance: float
     total_time: float
+    total_xp: int
     

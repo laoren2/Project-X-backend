@@ -8,6 +8,7 @@ import app.crud.competition.running as running
 import app.schemas.competition.bike as bike_schema
 import app.schemas.competition.running as running_schema
 from app.core.errors import ErrorCode
+from app.core.tools import get_user_local_date
 from app.db.models.user import User
 from app.db.models.mailbox import Mailbox
 from app.schemas.base import BizException, Language, pick_i18n_text
@@ -108,6 +109,7 @@ async def clean_expired_records_service(db: AsyncSession):
                 BikeRaceRecord.start_time.is_not(None),
                 BikeRaceRecord.start_time < timeout_threshold,
             )
+            .options(selectinload(BikeRaceRecord.user))
         )
         running_recording_stmt = (
             select(RunningRaceRecord)
@@ -116,6 +118,7 @@ async def clean_expired_records_service(db: AsyncSession):
                 RunningRaceRecord.start_time.is_not(None),
                 RunningRaceRecord.start_time < timeout_threshold,
             )
+            .options(selectinload(RunningRaceRecord.user))
         )
 
         bike_recording_records = (await db.execute(bike_recording_stmt)).scalars().all()
@@ -127,6 +130,7 @@ async def clean_expired_records_service(db: AsyncSession):
                 "status": RecordStatus.expired,
                 "end_time": end_time,
                 "duration_seconds": 2 * 60 * 60,
+                "local_date": get_user_local_date(r.user, end_time)
             })
             # 处理队伍里使用组队 magiccard 的记录
             if r.team_id:
@@ -140,6 +144,7 @@ async def clean_expired_records_service(db: AsyncSession):
                 "status": RecordStatus.expired,
                 "end_time": end_time,
                 "duration_seconds": 2 * 60 * 60,
+                "local_date": get_user_local_date(r.user, end_time)
             })
             if r.team_id:
                 running_team_bonus_record = await running.get_bonus_record_with_team_magic_card_by_team_user(db, r.team_id, r.user_id)
@@ -187,7 +192,7 @@ async def clean_expired_records_service(db: AsyncSession):
         for r in running_recording_records:
             await handle_not_finish_computed_running_records(db, r)
 
-        scheduler_logger.info(f"比赛记录清理完成")
+        scheduler_logger.info(f"✅ 比赛记录清理完成")
 
 
 async def handle_not_finish_computed_bike_records(db: AsyncSession, record: BikeRaceRecord):
@@ -206,7 +211,7 @@ async def handle_not_finish_computed_bike_records(db: AsyncSession, record: Bike
             points = [bike_schema.BikePathPoint.model_validate(p) for p in record.path.path]
             distance = compute_distance([p.base for p in points])
             await bike.add_or_update_career_statistic_data(db, record.track.event.season.id, record.user.id, distance, record.duration_seconds)
-            await bike.add_or_update_daily_task_record(db, record.user.id, distance, record.duration_seconds)
+            await bike.add_or_update_daily_task_record(db, record.user, distance, record.duration_seconds)
 
 async def handle_not_finish_computed_running_records(db: AsyncSession, record: RunningRaceRecord):
     # 处理is_finished_computed & 结算
@@ -224,7 +229,7 @@ async def handle_not_finish_computed_running_records(db: AsyncSession, record: R
             points = [running_schema.RunningPathPoint.model_validate(p) for p in record.path.path]
             distance = compute_distance([p.base for p in points])
             await running.add_or_update_career_statistic_data(db, record.track.event.season.id, record.user.id, distance, record.duration_seconds)
-            await running.add_or_update_daily_task_record(db, record.user.id, distance, record.duration_seconds)
+            await running.add_or_update_daily_task_record(db, record.user, distance, record.duration_seconds)
 
 
 async def clean_expired_teams_service(db: AsyncSession):
@@ -307,7 +312,7 @@ async def clean_expired_teams_service(db: AsyncSession):
         for team in running_recording:
             await running.update_team_crud(db, team, {"status": TeamStatus.completed})
         
-        scheduler_logger.info("比赛队伍清理完成")
+        scheduler_logger.info("✅ 比赛队伍清理完成")
 
 async def generate_all_leaderboard_snapshots_service(db: AsyncSession):
     bike_track_ids = await get_bike_active_track_ids(db)
@@ -399,14 +404,10 @@ def _distribute_voucher_and_scores(
     return settled
 
 async def get_bike_active_track_ids(db: AsyncSession) -> List[str]:
-    bike_seasons = await bike.get_season_now(db)
-    if not bike_seasons:
-        scheduler_logger.info("❌ 当前没有进行中的bike赛季")
+    bike_season = await bike.get_season_now(db)
+    if not bike_season:
+        scheduler_logger.warning("❌ 当前没有进行中的bike赛季")
         return []
-    if len(bike_seasons) > 1:
-        scheduler_logger.info("❌ 当前时间存在多个进行中的bike赛季")
-        return []
-    bike_season: BikeSeason = bike_seasons[0]
     events = await bike.get_active_events_by_season_id(db, bike_season.id)
     track_ids = []
     for event in events:
@@ -417,14 +418,10 @@ async def get_bike_active_track_ids(db: AsyncSession) -> List[str]:
 
 
 async def get_running_active_track_ids(db: AsyncSession) -> List[str]:
-    running_seasons = await running.get_season_now(db)
-    if not running_seasons:
-        scheduler_logger.info("❌ 当前没有进行中的running赛季")
+    running_season = await running.get_season_now(db)
+    if not running_season:
+        scheduler_logger.warning("❌ 当前没有进行中的running赛季")
         return []
-    if len(running_seasons) > 1:
-        scheduler_logger.info("❌ 当前时间存在多个进行中的running赛季")
-        return []
-    running_season: RunningSeason = running_seasons[0]
     events = await running.get_active_events_by_season_id(db, running_season.id)
     track_ids = []
     for event in events:
@@ -725,13 +722,10 @@ async def update_bike_leaderboard_for_record(record: BikeRaceRecord):
         leaderboard_logger.exception(f"Failed to update leaderboard {key} for record {record.record_id}")
         raise
 
-async def compute_bike_match_rewards(db: AsyncSession, record: BikeRaceRecord) -> tuple[bool, bool, List[CCAssetBaseInfo]] | None:
+
+async def query_pb_and_tb_in_bike_track(record: BikeRaceRecord) -> tuple[float | None, float | None]:
     user = record.user
     gender = user.real_name_info.gender if user.real_name_info else Gender.male
-    reward_result = []
-    if record.duration_seconds is None:
-        return None
-    
     leaderboard_key = f"leaderboard:bike:{record.track.track_id}:{gender.value}"
     members = await redis_client.zrange(leaderboard_key, 0, -1, withscores=True)
     # 查询用户的最佳成绩
@@ -743,6 +737,64 @@ async def compute_bike_match_rewards(db: AsyncSession, record: BikeRaceRecord) -
     track_best_time = None
     if members:
         _, track_best_time = members[0]
+    return user_best_time, track_best_time
+
+# 结算单场比赛完成后的 XP
+async def settle_bike_match_xp(db: AsyncSession, record: BikeRaceRecord) -> tuple[int, int]:
+    if record.duration_seconds is None:
+        return 0
+    user = record.user
+    track = record.track
+    gender = user.real_name_info.gender if user.real_name_info else Gender.male
+    season_data = await bike.get_score_by_season_and_user(db, user.id, track.event.season_id)
+    current_xp = season_data.xp if season_data else 0
+
+    user_best_time, track_best_time = await query_pb_and_tb_in_bike_track(record)
+    # 1 基础XP
+    BASE_XP = 30
+
+    # 2 段位衰减
+    tier = current_xp // 100
+    rank_factor = max(0.3, 1 - tier * 0.03)
+
+    # 3 表现奖励
+    performance_factor = 1.0
+
+    # 刷新个人记录
+    if user_best_time and record.duration_seconds < user_best_time:
+        performance_factor += 1.0
+
+        improvement = (user_best_time - record.duration_seconds) / user_best_time
+        improvement_bonus = min(improvement * 5, 1)
+
+        performance_factor += improvement_bonus
+
+    # 刷新赛道记录
+    if track_best_time and record.duration_seconds < track_best_time:
+        performance_factor += 1.0
+
+    # 4 赛道信息加成
+    track_factor = 1.0
+    track_improvement = max(0, min(0.15, (track.distance - 5.0) / 100.0))
+    track_factor += track_improvement
+
+    # 5 最终XP
+    xp = BASE_XP * rank_factor * performance_factor * track_factor
+    xp = int(round(xp))
+    xp = max(0, min(120, xp))
+
+    settlements = record.settlement_rewards or {}
+    settlements["xp"] = xp
+    record.settlement_rewards = settlements
+    await bike.add_or_update_career_xp(db, track.event.season_id, gender, user.id, xp)
+    return current_xp, xp
+
+# 计算单场比赛完成后的奖励结算信息
+async def compute_bike_match_rewards(record: BikeRaceRecord) -> tuple[bool, bool, List[CCAssetBaseInfo]] | None:
+    reward_result = []
+    if record.duration_seconds is None:
+        return None
+    
     # 计算提升幅度和奖励
     base_reward_coin = 50
     improvement_bonus_coin = 0
@@ -751,6 +803,8 @@ async def compute_bike_match_rewards(db: AsyncSession, record: BikeRaceRecord) -
         [CCAssetType.STONE1, CCAssetType.STONE2, CCAssetType.STONE3]
     )
     reward_stone = 0
+
+    user_best_time, track_best_time = await query_pb_and_tb_in_bike_track(record)
     is_track_best: bool = False
     is_user_best: bool = False
 
@@ -786,26 +840,27 @@ async def compute_bike_match_rewards(db: AsyncSession, record: BikeRaceRecord) -
         improvement_ratio = (record.duration_seconds - user_best_time) / user_best_time if user_best_time and user_best_time > 0 else 0
         improvement_bonus_coin = max(min(int((0.2 - improvement_ratio) * 100 * 3), 60), 0)
 
+    settlements = record.settlement_rewards or {}
+    settlements["coin"] = base_reward_coin + improvement_bonus_coin
+
     coin_reward = CCAssetBaseInfo(
         ccasset_type=CCAssetType.COIN,
         new_ccamount=base_reward_coin + improvement_bonus_coin
     )
     reward_result.append(coin_reward)
     if reward_stone > 0:
+        settlements[reward_stone_type.value] = reward_stone
         stone_reward = CCAssetBaseInfo(
             ccasset_type=reward_stone_type,
             new_ccamount=reward_stone
         )
         reward_result.append(stone_reward)
+    record.settlement_rewards = settlements
     return is_user_best, is_track_best, reward_result
 
-async def compute_running_match_rewards(db: AsyncSession, record: RunningRaceRecord) -> tuple[bool, bool, List[CCAssetBaseInfo]] | None:
+async def query_pb_and_tb_in_running_track(record: RunningRaceRecord) -> tuple[float | None, float | None]:
     user = record.user
     gender = user.real_name_info.gender if user.real_name_info else Gender.male
-    reward_result = []
-    if record.duration_seconds is None:
-        return None
-    
     leaderboard_key = f"leaderboard:running:{record.track.track_id}:{gender.value}"
     members = await redis_client.zrange(leaderboard_key, 0, -1, withscores=True)
     # 查询用户的最佳成绩
@@ -817,6 +872,67 @@ async def compute_running_match_rewards(db: AsyncSession, record: RunningRaceRec
     track_best_time = None
     if members:
         _, track_best_time = members[0]
+    return user_best_time, track_best_time
+
+async def settle_running_match_xp(db: AsyncSession, record: RunningRaceRecord) -> tuple[int, int]:
+    if record.duration_seconds is None:
+        return 0
+    user = record.user
+    track = record.track
+    gender = user.real_name_info.gender if user.real_name_info else Gender.male
+    season_data = await running.get_score_by_season_and_user(db, user.id, track.event.season_id)
+    current_xp = season_data.xp if season_data else 0
+
+    user_best_time, track_best_time = await query_pb_and_tb_in_running_track(record)
+    # 1 基础XP
+    BASE_XP = 30
+
+    # 2 段位衰减
+    tier = current_xp // 100
+    rank_factor = max(0.3, 1 - tier * 0.03)
+
+    # 3 表现奖励
+    performance_factor = 1.0
+
+    if user_best_time and record.duration_seconds > user_best_time:
+        base_decreasement = (record.duration_seconds - user_best_time) / record.duration_seconds
+        base_decreasement_bonus = min(base_decreasement, 0.5)
+        performance_factor -= base_decreasement_bonus
+
+    # 刷新个人记录
+    if user_best_time and record.duration_seconds < user_best_time:
+        performance_factor += 1.0
+
+        improvement = (user_best_time - record.duration_seconds) / user_best_time
+        improvement_bonus = min(improvement * 5, 1)
+
+        performance_factor += improvement_bonus
+
+    # 刷新赛道记录
+    if track_best_time and record.duration_seconds < track_best_time:
+        performance_factor += 1.0
+
+    # 4 赛道信息加成
+    track_factor = 1.0
+    track_improvement = max(0, min(0.15, (track.distance - 5.0) / 100.0))
+    track_factor += track_improvement
+
+    # 5 最终XP
+    xp = BASE_XP * rank_factor * performance_factor * track_factor
+    xp = int(round(xp))
+    xp = max(0, min(120, xp))
+
+    settlements = record.settlement_rewards or {}
+    settlements["xp"] = xp
+    record.settlement_rewards = settlements
+    await running.add_or_update_career_xp(db, track.event.season_id, gender, user.id, xp)
+    return current_xp, xp
+
+async def compute_running_match_rewards(record: RunningRaceRecord) -> tuple[bool, bool, List[CCAssetBaseInfo]] | None:
+    reward_result = []
+    if record.duration_seconds is None:
+        return None
+    
     # 计算提升幅度和奖励
     base_reward_coin = 50
     improvement_bonus_coin = 0
@@ -825,6 +941,8 @@ async def compute_running_match_rewards(db: AsyncSession, record: RunningRaceRec
         [CCAssetType.STONE1, CCAssetType.STONE2, CCAssetType.STONE3]
     )
     reward_stone = 0
+
+    user_best_time, track_best_time = await query_pb_and_tb_in_running_track(record)
     is_track_best: bool = False
     is_user_best: bool = False
 
@@ -860,27 +978,33 @@ async def compute_running_match_rewards(db: AsyncSession, record: RunningRaceRec
         improvement_ratio = (record.duration_seconds - user_best_time) / user_best_time if user_best_time and user_best_time > 0 else 0
         improvement_bonus_coin = max(min(int((0.2 - improvement_ratio) * 100 * 3), 60), 0)
 
+    settlements = record.settlement_rewards or {}
+    settlements["coin"] = base_reward_coin + improvement_bonus_coin
+
     coin_reward = CCAssetBaseInfo(
         ccasset_type=CCAssetType.COIN,
         new_ccamount=base_reward_coin + improvement_bonus_coin
     )
     reward_result.append(coin_reward)
     if reward_stone > 0:
+        settlements[reward_stone_type.value] = reward_stone
         stone_reward = CCAssetBaseInfo(
             ccasset_type=reward_stone_type,
             new_ccamount=reward_stone
         )
         reward_result.append(stone_reward)
+    record.settlement_rewards = settlements
     return is_user_best, is_track_best, reward_result
 
 async def send_running_match_rewards(db: AsyncSession, record: RunningRaceRecord):
-    reward_results = await compute_running_match_rewards(db, record)
+    await settle_running_match_xp(db, record)
+    reward_results = await compute_running_match_rewards(record)
     if reward_results:
         is_user_best = reward_results[0]
         is_track_best = reward_results[1]
         rewards = reward_results[2]
         attachment = {
-            "description": "running赛道奖励结算"
+            "description": "running赛道记录结算"
         }
         for reward in rewards:
             attachment[f"{reward.ccasset_type.value}"] = reward.new_ccamount
@@ -890,25 +1014,28 @@ async def send_running_match_rewards(db: AsyncSession, record: RunningRaceRecord
             content = {
                 "en": f"Congratulations! You have just broken the {pick_i18n_text(record.track.name_i18n, Language.en)} running track record and become the new track record holder, the score is: {final_duration}. Please accept your reward!", 
                 "zh-Hans": f"恭喜！你刚刚成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 跑步赛道最好成绩，成为赛道记录的保持者，成绩为：{final_duration}，请收下你的奖励！",
-                "zh-Hant": f"恭喜！你剛剛成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 跑步賽道最佳成績，成為賽道記錄的保持者，成績為：{final_duration}，請收下你的獎勵！"
+                "zh-Hant": f"恭喜！你剛剛成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 跑步賽道最佳成績，成為賽道記錄的保持者，成績為：{final_duration}，請收下你的獎勵！",
+                "ko": f"축하합니다! 방금 {pick_i18n_text(record.track.name_i18n, Language.ko)} 육상 트랙에서 개인 최고 기록을 경신하여 트랙 기록 보유자가 되셨습니다. 기록은 {final_duration}입니다. 보상을 받으세요!"
             }
         elif is_user_best:
             content = {
                 "en": f"Congratulations! You have just broken your personal best in {pick_i18n_text(record.track.name_i18n, Language.en)} running track, the score is: {final_duration}, please accept your reward and keep up the good work!", 
                 "zh-Hans": f"恭喜！你刚刚在 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 跑步赛道成功刷新了自己的最好成绩，成绩为：{final_duration}，请收下你的奖励，再接再厉！",
-                "zh-Hant": f"恭喜！你剛剛在 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 跑步賽道成功刷新了自己的最佳成績，成績為：{final_duration}，請收下你的獎勵，再接再厲！"
+                "zh-Hant": f"恭喜！你剛剛在 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 跑步賽道成功刷新了自己的最佳成績，成績為：{final_duration}，請收下你的獎勵，再接再厲！",
+                "ko": f"축하합니다! 방금 {pick_i18n_text(record.track.name_i18n, Language.ko)} 육상 트랙에서 개인 최고 기록을 경신하셨습니다. 기록은 {final_duration}입니다. 축하 메시지를 받으시고 앞으로도 좋은 성적을 유지하시길 바랍니다!"
             }
         else:
             content = {
                 "en": f"You have just finished a running race on track {pick_i18n_text(record.track.name_i18n, Language.en)}, the score is: {final_duration}. You're just a little bit away from your best score, we look forward to your next challenge!", 
                 "zh-Hans": f"你刚刚完成了一场 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 赛道的跑步比赛，成绩为：{final_duration}，距离自己的最好成绩只差一点点了，期待你的下一次挑战！",
-                "zh-Hant": f"你剛剛完成了一場 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 賽道的跑步比賽，成績為：{final_duration}，距離自己的最好成績只差一點點了，期待你的下一個挑戰！"
+                "zh-Hant": f"你剛剛完成了一場 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 賽道的跑步比賽，成績為：{final_duration}，距離自己的最好成績只差一點點了，期待你的下一個挑戰！",
+                "ko": f"방금 {pick_i18n_text(record.track.name_i18n, Language.ko)} 트랙에서 열린 달리기 경주를 {final_duration}의 기록으로 완주하셨습니다. 아쉽게도 개인 최고 기록에는 약간 못 미쳤지만, 다음 도전을 기대하겠습니다!"
             }
         mail = Mailbox(
             mail_id=f"mail_{uuid.uuid4()}",
             user_id=record.user_id,
             mail_type=MailType.REWARD,
-            title_i18n={"en": "Track Rewards Settlement", "zh-Hans": "赛道奖励结算", "zh-Hant": "賽道獎勵結算"},
+            title_i18n={"en": "Successfully completed match", "zh-Hans": "成功完成比赛", "zh-Hant": "成功完成比賽", "ko": "대회가 성공적으로 마무리되었습니다"},
             content_i18n=content,
             attachment = attachment,
             is_received = False,
@@ -917,13 +1044,14 @@ async def send_running_match_rewards(db: AsyncSession, record: RunningRaceRecord
         db.add(mail)
 
 async def send_bike_match_rewards(db: AsyncSession, record: BikeRaceRecord):
-    reward_results = await compute_bike_match_rewards(db, record)
+    await settle_bike_match_xp(db, record)
+    reward_results = await compute_bike_match_rewards(record)
     if reward_results:
         is_user_best = reward_results[0]
         is_track_best = reward_results[1]
         rewards = reward_results[2]
         attachment = {
-            "description": "bike赛道奖励结算"
+            "description": "bike赛道记录结算"
         }
         for reward in rewards:
             attachment[f"{reward.ccasset_type.value}"] = reward.new_ccamount
@@ -933,25 +1061,28 @@ async def send_bike_match_rewards(db: AsyncSession, record: BikeRaceRecord):
             content = {
                 "en": f"Congratulations! You have just broken the {pick_i18n_text(record.track.name_i18n, Language.en)} bike track record and become the new track record holder, the score is: {final_duration}. Please accept your reward!", 
                 "zh-Hans": f"恭喜！你刚刚成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 自行车赛道最好成绩，成为赛道记录的保持者，成绩为：{final_duration}，请收下你的奖励！",
-                "zh-Hant": f"恭喜！你剛剛成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 自行車賽道最佳成績，成為賽道記錄的保持者，成績為：{final_duration}，請收下你的獎勵！"
+                "zh-Hant": f"恭喜！你剛剛成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 自行車賽道最佳成績，成為賽道記錄的保持者，成績為：{final_duration}，請收下你的獎勵！",
+                "ko": f"축하합니다! 방금 {pick_i18n_text(record.track.name_i18n, Language.ko)} 사이클 트랙에서 최고 기록을 경신하여 트랙 레코드 보유자가 되셨습니다. 기록은 {final_duration}입니다. 보상을 받으세요!"
             }
         elif is_user_best:
             content = {
                 "en": f"Congratulations! You have just broken your personal best in {pick_i18n_text(record.track.name_i18n, Language.en)} bike track, the score is: {final_duration}, please accept your reward and keep up the good work!", 
                 "zh-Hans": f"恭喜！你刚刚在 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 自行车赛道成功刷新了自己的最好成绩，成绩为：{final_duration}，请收下你的奖励，再接再厉！",
-                "zh-Hant": f"恭喜！你剛剛在 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 自行車賽道成功刷新了自己的最佳成績，成績為：{final_duration}，請收下你的獎勵，再接再厲！"
+                "zh-Hant": f"恭喜！你剛剛在 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 自行車賽道成功刷新了自己的最佳成績，成績為：{final_duration}，請收下你的獎勵，再接再厲！",
+                "ko": f"축하합니다! {pick_i18n_text(record.track.name_i18n, Language.ko)} 사이클 트랙에서 개인 최고 기록을 경신하셨습니다. 기록은 {final_duration}입니다. 축하드립니다! 앞으로도 좋은 성적 기대하겠습니다!"
             }
         else:
             content = {
                 "en": f"You have just finished a bike race on track {pick_i18n_text(record.track.name_i18n, Language.en)}, the score is: {final_duration}. You're just a little bit away from your best score, we look forward to your next challenge!", 
                 "zh-Hans": f"你刚刚完成了一场 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 赛道的自行车比赛，成绩为：{final_duration}，距离自己的最好成绩只差一点点了，期待你的下一次挑战！",
-                "zh-Hant": f"你剛剛完成了一場 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 賽道的自行車比賽，成績為：{final_duration}，距離自己的最好成績只差一點點了，期待你的下一個挑戰！"
+                "zh-Hant": f"你剛剛完成了一場 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 賽道的自行車比賽，成績為：{final_duration}，距離自己的最好成績只差一點點了，期待你的下一個挑戰！",
+                "ko": f"방금 {pick_i18n_text(record.track.name_i18n, Language.ko)} 트랙에서 자전거 경주를 마쳤습니다. 결과는 {final_duration}입니다. 아쉽게도 개인 최고 기록에는 약간 못 미치네요. 다음 도전을 기대하겠습니다!"
             }
         mail = Mailbox(
             mail_id=f"mail_{uuid.uuid4()}",
             user_id=record.user_id,
             mail_type=MailType.REWARD,
-            title_i18n={"en": "Track Rewards Settlement", "zh-Hans": "赛道奖励结算", "zh-Hant": "賽道獎勵結算"},
+            title_i18n={"en": "Successfully completed match", "zh-Hans": "成功完成比赛", "zh-Hant": "成功完成比賽", "ko": "대회가 성공적으로 마무리되었습니다"},
             content_i18n=content,
             attachment = attachment,
             is_received = False,

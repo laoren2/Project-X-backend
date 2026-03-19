@@ -9,6 +9,7 @@ from app.db.base import Base
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from geoalchemy2 import Geometry
+from sqlalchemy.ext.mutable import MutableDict
 import uuid
 
 
@@ -22,6 +23,7 @@ class Region(Base):
     name = Column(String, nullable=False, unique=True)  # 暂时存客户端的本地化字符串key
     country_code = Column(String, nullable=False)
     boundary = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=False)
+    grid_count = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     bike_events = relationship("BikeEvent", primaryjoin="Region.id==foreign(BikeEvent.region_id)", back_populates="region")
@@ -179,6 +181,10 @@ class BikeRaceRecord(Base):
     end_time = Column(DateTime(timezone=True), nullable=True)
     duration_seconds = Column(Float, nullable=True)                 # 有效成绩
     is_finish_bonus_computing = Column(Boolean, nullable=True)      # 是否完成有效成绩计算
+    local_date = Column(Date, index=True, nullable=True)            # 本地日期，以结束时间为准
+    settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=True)               # 此次记录的结算奖励
+    familiarity_time = Column(Float, nullable=True)                 # 赛道熟悉度成绩增益
+    training_state_time = Column(Float, nullable=True)              # 训练状态成绩增益
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -187,7 +193,7 @@ class BikeRaceRecord(Base):
     track = relationship("BikeTrack", primaryjoin="foreign(BikeRaceRecord.track_id)==BikeTrack.id")
     team = relationship("BikeTeam", primaryjoin="foreign(BikeRaceRecord.team_id)==BikeTeam.id")
     path = relationship("BikeRacePath", primaryjoin="foreign(BikeRaceRecord.path_id)==BikeRacePath.id")
-    card_bonus = relationship("CardBonusInBikeRecord", primaryjoin="BikeRaceRecord.id==foreign(CardBonusInBikeRecord.record_id)")
+    card_bonus = relationship("CardBonusInBikeRecord", primaryjoin="BikeRaceRecord.id==foreign(CardBonusInBikeRecord.record_id)", uselist=True)
 
 
 '''class BikeRaceRecordHistory(Base):
@@ -230,6 +236,10 @@ class RunningRaceRecord(Base):
     end_time = Column(DateTime(timezone=True), nullable=True)
     duration_seconds = Column(Float, nullable=True)
     is_finish_bonus_computing = Column(Boolean, nullable=True)
+    local_date = Column(Date, index=True, nullable=True)
+    settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=True)
+    familiarity_time = Column(Float, nullable=True)
+    training_state_time = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -238,7 +248,7 @@ class RunningRaceRecord(Base):
     track = relationship("RunningTrack", primaryjoin="foreign(RunningRaceRecord.track_id)==RunningTrack.id")
     team = relationship("RunningTeam", primaryjoin="foreign(RunningRaceRecord.team_id)==RunningTeam.id")
     path = relationship("RunningRacePath", primaryjoin="foreign(RunningRaceRecord.path_id)==RunningRacePath.id")
-    card_bonus = relationship("CardBonusInRunningRecord", primaryjoin="RunningRaceRecord.id==foreign(CardBonusInRunningRecord.record_id)")
+    card_bonus = relationship("CardBonusInRunningRecord", primaryjoin="RunningRaceRecord.id==foreign(CardBonusInRunningRecord.record_id)", uselist=True)
 
 
 '''class RunningRaceRecordHistory(Base):
@@ -531,6 +541,7 @@ class BikeCareerScore(Base):
     user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
     score = Column(Integer, default=0, nullable=False)
     voucher_bonus = Column(Integer, default=0, nullable=False)
+    xp = Column(Integer, default=0, nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -593,6 +604,7 @@ class RunningCareerScore(Base):
     user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
     score = Column(Integer, default=0, nullable=False)
     voucher_bonus = Column(Integer, default=0, nullable=False)
+    xp = Column(Integer, default=0, nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

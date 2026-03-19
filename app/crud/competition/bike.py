@@ -14,7 +14,7 @@ from typing import Optional, List
 from datetime import date, timedelta, datetime
 from sqlalchemy.dialects.postgresql import insert
 from app.schemas.user import Gender
-from app.core.tools import get_today_hk_date
+from app.core.tools import get_today_hk_date, get_user_local_date
 import uuid
 
 
@@ -34,7 +34,7 @@ async def update_season_crud(db: AsyncSession, season: BikeSeason, update_data: 
     await db.refresh(season)
 
 
-async def get_season_now(db: AsyncSession) -> List[BikeSeason]:
+async def get_season_now(db: AsyncSession) -> BikeSeason | None:
     current_time = func.now()
     stmt = select(BikeSeason).where(
         and_(
@@ -43,8 +43,7 @@ async def get_season_now(db: AsyncSession) -> List[BikeSeason]:
         )
     )
     result = await db.execute(stmt)
-    seasons = result.scalars().all()
-    return seasons
+    return result.scalar_one_or_none()
 
 async def get_history_seasons(db: AsyncSession) -> List[BikeSeason]:
     result = await db.execute(
@@ -184,6 +183,7 @@ async def get_track_by_track_id(db: AsyncSession, track_id: str) -> BikeTrack | 
         .where(BikeTrack.track_id == track_id)
         .options(
             selectinload(BikeTrack.event).selectinload(BikeEvent.season),
+            selectinload(BikeTrack.event).selectinload(BikeEvent.region),
             selectinload(BikeTrack.single_register_card_def),
             selectinload(BikeTrack.team_register_card_def)
         )
@@ -392,6 +392,9 @@ async def get_record_by_record_id(db: AsyncSession, record_id: str) -> BikeRaceR
                 .selectinload(BikeTrack.single_register_card_def),
             selectinload(BikeRaceRecord.track)
                 .selectinload(BikeTrack.team_register_card_def),
+            selectinload(BikeRaceRecord.track)
+                .selectinload(BikeTrack.event)
+                .selectinload(BikeEvent.region),
             selectinload(BikeRaceRecord.user)
                 .selectinload(User.real_name_info),
             selectinload(BikeRaceRecord.team)
@@ -442,7 +445,8 @@ async def get_records_by_team_id_for_update(db: AsyncSession, team_id: uuid.UUID
         select(BikeRaceRecord)
         .where(BikeRaceRecord.team_id == team_id)
         .options(
-            selectinload(BikeRaceRecord.track),
+            selectinload(BikeRaceRecord.track)
+                .selectinload(BikeTrack.event),
             selectinload(BikeRaceRecord.user)
                 .selectinload(User.real_name_info),
             selectinload(BikeRaceRecord.team)
@@ -712,10 +716,17 @@ async def get_leaderboad_records_in_page(
     )
     return result.scalars().all()
 
-async def get_score_by_user_id(db: AsyncSession, user_id: uuid.UUID):
+async def get_score_by_season_and_user(db: AsyncSession, user_id: uuid.UUID, season_id: uuid.UUID | None = None) -> BikeCareerScore | None:
+    real_season_id = season_id
+    if not real_season_id:
+        season = await get_season_now(db)
+        if not season:
+            return None
+        real_season_id = season.id
     result = await db.execute(
         select(BikeCareerScore)
         .where(
+            BikeCareerScore.season_id == real_season_id,
             BikeCareerScore.user_id == user_id
         )
     )
@@ -748,7 +759,7 @@ async def get_score_and_rank_by_season_id_and_user(
     season_id: uuid.UUID,
     user_id: uuid.UUID,
     gender: Gender
-) -> tuple[int | None, int | None, int | None]:
+) -> tuple[int | None, int | None, int | None, int | None]:
     rank_col = func.rank().over(
         partition_by=BikeCareerScore.gender,
         order_by=(BikeCareerScore.score.desc(), BikeCareerScore.updated_at.asc())
@@ -759,6 +770,7 @@ async def get_score_and_rank_by_season_id_and_user(
             BikeCareerScore.user_id,
             BikeCareerScore.score,
             BikeCareerScore.voucher_bonus,
+            BikeCareerScore.xp,
             rank_col.label("rank")
         )
         .where(
@@ -768,14 +780,14 @@ async def get_score_and_rank_by_season_id_and_user(
         .subquery()
     )
     # 再查出目标用户
-    stmt = select(subq.c.score, subq.c.rank, subq.c.voucher_bonus).where(subq.c.user_id == user_id)
+    stmt = select(subq.c.score, subq.c.rank, subq.c.voucher_bonus, subq.c.xp).where(subq.c.user_id == user_id)
     result = await db.execute(stmt)
     row = result.first()
 
     if row is None:
-        return None, None, None
-    score, rank, voucher_bonus = row
-    return score, rank, voucher_bonus
+        return None, None, None, None
+    score, rank, voucher_bonus, xp = row
+    return score, rank, voucher_bonus, xp
 
 async def add_or_update_career_score(
     db: AsyncSession, 
@@ -790,13 +802,36 @@ async def add_or_update_career_score(
         gender=gender,
         user_id=user_id,
         score=score,
-        voucher_bonus=voucher
+        voucher_bonus=voucher,
+        xp=0
     ).on_conflict_do_update(
         index_elements=[BikeCareerScore.season_id, BikeCareerScore.user_id],
         set_={
             "score": BikeCareerScore.score + score,
             "voucher_bonus": BikeCareerScore.voucher_bonus + voucher,
             "gender": gender  # 冲突时强制更新为新 gender
+        }
+    )
+    await db.execute(stmt)
+
+async def add_or_update_career_xp(
+    db: AsyncSession, 
+    season_id: uuid.UUID,
+    gender: Gender, 
+    user_id: uuid.UUID, 
+    xp: int
+):
+    stmt = insert(BikeCareerScore).values(
+        season_id=season_id,
+        gender=gender,
+        user_id=user_id,
+        score=0,
+        voucher_bonus=0,
+        xp=xp
+    ).on_conflict_do_update(
+        index_elements=[BikeCareerScore.season_id, BikeCareerScore.user_id],
+        set_={
+            "xp": BikeCareerScore.xp + xp
         }
     )
     await db.execute(stmt)
@@ -839,8 +874,9 @@ async def get_career_statistic_data(
 def decide_task_type_by_date(date: date) -> DailyTaskType:
     return DailyTaskType.distance if date.day % 2 == 1 else DailyTaskType.time
 
-async def get_daily_task(db: AsyncSession) -> BikeDailyTask | None:
-    today = get_today_hk_date()
+async def get_daily_task(db: AsyncSession, user: User) -> BikeDailyTask | None:
+    # 用户的local日期
+    today = get_user_local_date(user, None)
     # 根据日期的奇偶决定 每日任务 的类型
     # 奇数日：distance，偶数日：time
     task_type = decide_task_type_by_date(today)
@@ -854,14 +890,14 @@ async def get_daily_task(db: AsyncSession) -> BikeDailyTask | None:
 
 async def get_today_task_record_by_user(
     db: AsyncSession, 
-    user_id: uuid.UUID
+    user: User
 ) -> BikeDailyTaskRecord | None:
-    today = get_today_hk_date()
+    today = get_user_local_date(user, None)
     task_type = decide_task_type_by_date(today)
     result = await db.execute(
         select(BikeDailyTaskRecord)
         .where(
-            BikeDailyTaskRecord.user_id == user_id,
+            BikeDailyTaskRecord.user_id == user.id,
             BikeDailyTaskRecord.date == today,
             BikeDailyTaskRecord.type == task_type
         )
@@ -870,17 +906,17 @@ async def get_today_task_record_by_user(
 
 async def add_or_update_daily_task_record(
     db: AsyncSession,
-    user_id: uuid.UUID,
+    user: User,
     distance_progress: float,
     time_progress: float
 ):
-    today = get_today_hk_date()
+    today = get_user_local_date(user, None)
     task_type = decide_task_type_by_date(today)
     progress = distance_progress if task_type == DailyTaskType.distance else time_progress
     result = await db.execute(
         select(BikeDailyTaskRecord)
         .where(
-            BikeDailyTaskRecord.user_id == user_id,
+            BikeDailyTaskRecord.user_id == user.id,
             BikeDailyTaskRecord.date == today,
             BikeDailyTaskRecord.type == task_type
         )
@@ -888,7 +924,7 @@ async def add_or_update_daily_task_record(
     record = result.scalar_one_or_none()
     if record is None:
         new_record = BikeDailyTaskRecord(
-            user_id=user_id,
+            user_id=user.id,
             type=task_type,
             progress=progress,
             date=today

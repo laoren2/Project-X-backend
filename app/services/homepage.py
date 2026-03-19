@@ -43,14 +43,16 @@ async def create_banner_ad_service(
     form: AdCreateForm,
     url_hans: str,
     url_hant: str,
-    url_en: str
+    url_en: str,
+    url_ko: str
 ):
     new_ad = BannerAds(
         ad_id=f"ad_{str(uuid.uuid4())[:8]}",
         image_url_i18n={
             "en": url_en, 
             "zh-Hans": url_hans,
-            "zh-Hant": url_hant
+            "zh-Hant": url_hant,
+            "ko": url_ko,
         },
         web_url=form.web_url,
         is_displayed=form.is_displayed

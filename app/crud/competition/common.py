@@ -1,8 +1,10 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy import select, func
 from geoalchemy2.functions import ST_Contains
 from geoalchemy2 import WKTElement
 from app.db.models.competition import Region
+from app.db.models.training import RegionGridCell, UserGridFamiliarityBike
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
 import uuid
@@ -38,3 +40,27 @@ async def get_regions_by_country_code(db: AsyncSession, country_code: str) -> Li
     )
     result = await db.execute(stmt)
     return result.scalars().all()
+
+async def get_region_boundary_geojson_by_region_id(
+    db: AsyncSession,
+    region_id: str
+) -> tuple[Region | None, dict | None]:
+    result = await db.execute(
+        select(
+            Region,
+            func.json_build_object(
+                'type', 'Feature',
+                'geometry',
+                func.ST_AsGeoJSON(
+                    func.ST_Simplify(Region.boundary, 0.0001)
+                ).cast(JSON),
+                'properties',
+                func.json_build_object()
+            )
+        ).where(Region.region_id == region_id)
+    )
+    row = result.first()
+    if row is None:
+        return None, None
+    region, boundary_geojson = row
+    return region, boundary_geojson

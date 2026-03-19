@@ -87,6 +87,8 @@ class MatchFinishInfo(BaseModel):
     is_user_best: bool
     is_track_best: bool
     rewards: List[CCAssetRewardResponse]
+    xp_before: int
+    xp_delta: int
 
 class MatchFinishResponse(BaseModel):
     match_result: MatchFinishInfo | None = None

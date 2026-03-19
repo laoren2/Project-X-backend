@@ -1,14 +1,22 @@
 from sqlalchemy import Boolean, Enum, Integer, Float, String
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from app.core.errors import ErrorCode
+from app.core.config import settings
+from app.db.models.user import User
 from app.schemas.base import BizException
-from datetime import date, datetime, timezone, timedelta
+from datetime import date, datetime, UTC, timedelta
 from zoneinfo import ZoneInfo
-import logging
+from functools import lru_cache
+import logging, hashlib
 
 HK_TZ = ZoneInfo("Asia/Hong_Kong")
 
 logger = logging.getLogger(__name__)
+
+
+def hash_card_id(card_id: str) -> str:
+    salt = settings.REALNAME_SECRET_SALT
+    return hashlib.sha256((salt + card_id).encode()).hexdigest()
 
 def get_today_hk_date():
     return datetime.now(HK_TZ).date()
@@ -96,3 +104,16 @@ def format_time_duration(seconds: float | int | None) -> str:
         return f"{hours}:{minutes:02d}:{secs:05.2f}"
     else:
         return f"{minutes:02d}:{secs:05.2f}"
+
+@lru_cache
+def get_tz(tz_name: str):
+    return ZoneInfo(tz_name)
+
+def get_user_local_time(user: User, utc_time=None):
+    if utc_time is None:
+        utc_time = datetime.now(UTC)
+    tz = get_tz(user.timezone)
+    return utc_time.astimezone(tz)
+
+def get_user_local_date(user: User, utc_time=None):
+    return get_user_local_time(user, utc_time).date()
