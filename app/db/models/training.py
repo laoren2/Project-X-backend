@@ -21,7 +21,7 @@ class CountryGridCell(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     country_code = Column(String, index=True, nullable=False)  # 例如 HK, TW
     grid_code = Column(String, nullable=False)  # 例如 HK_100_99(x:100, y:99)，后续可优化为存储 grid_x, grid_y 先过滤
-    geom = Column(Geometry("POLYGON", srid=4326), nullable=False)
+    geom = Column(Geometry("POLYGON", srid=4326, spatial_index=False), nullable=False)      # 关闭自动的 index 并手动创建管理
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
