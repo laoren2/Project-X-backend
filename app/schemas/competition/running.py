@@ -490,6 +490,9 @@ class RunningRecordDetailInfo(BaseModel):
     path: List[RunningPathPoint]
     card_bonus: List[CardBonusInfo]
     team_member_scores: List[MemberScoreInfo]
+    settlements: dict[str, Any] | None
+    familiarity_time: float
+    training_state_time: float
 
 class RunningUnverifiedRecordInfo(ORMBase):
     is_vip: bool
@@ -548,3 +551,4 @@ class RunningCareerDataInfo(ORMBase):
     total_voucher: int
     total_distance: float
     total_time: float
+    total_xp: int

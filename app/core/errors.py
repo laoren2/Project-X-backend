@@ -68,7 +68,8 @@ ERROR_MESSAGES = {
     "user.not_found": {
         "zh-Hans": "用户不存在",
         "zh-Hant": "用戶不存在",
-        "en": "User does not exist"
+        "en": "User does not exist",
+        "ko": "사용자가 존재하지 않습니다"
     },
     "user.info_error": {
         "zh-Hans": "用户信息错误",
@@ -93,7 +94,8 @@ ERROR_MESSAGES = {
     "user.banned": {
         "zh-Hans": "账号已封禁\n剩余时间：{remaining}",
         "zh-Hant": "帳號已封禁\n剩餘時間：{remaining}",
-        "en": "Account has been banned\nremaining time:{remaining}"
+        "en": "Account has been banned\nremaining time: {remaining}",
+        "ko": "계정이 정지되었습니다\n남은 시간: {remaining}"
     },
     "user.deleted": {
         "zh-Hans": "账号已注销",
@@ -109,7 +111,8 @@ ERROR_MESSAGES = {
     "identity.verify_failed.sms": {
         "zh-Hans": "验证码错误",
         "zh-Hant": "驗證碼錯誤",
-        "en": "Verification code error"
+        "en": "Verification code error",
+        "ko": "인증 코드가 올바르지 않습니다"
     },
     "identity.verify_failed.apple": {
         "zh-Hans": "Apple 登录校验失败",
@@ -119,12 +122,14 @@ ERROR_MESSAGES = {
     "identity.verify_failed.token": {
         "zh-Hans": "登录校验失败",
         "zh-Hant": "登錄校驗失敗",
-        "en": "Login verification failed"
+        "en": "Login verification failed",
+        "ko": "로그인 인증에 실패했습니다"
     },
     "identity.expired.token": {
         "zh-Hans": "登录已过期",
         "zh-Hant": "登錄已過期",
-        "en": "Login expired"
+        "en": "Login expired",
+        "ko": "로그인이 만료되었습니다"
     },
     "identity.recognition_failed.realname": {
         "zh-Hans": "证件识别失败",
@@ -309,6 +314,11 @@ ERROR_MESSAGES = {
         "zh-Hans": "比赛时间非法",
         "zh-Hant": "比賽時間非法",
         "en": "Game time is illegal"
+    },
+    "record.invalid.too_short": {
+        "zh-Hans": "记录过短，无法保存",
+        "zh-Hant": "記錄過短，無法保存",
+        "en": "Record is too short to save"
     },
 
     "record.status_error.cancel_register": {
@@ -609,32 +619,38 @@ ERROR_MESSAGES = {
     "sms.too_frequent": {
         "zh-Hans": "验证码发送过于频繁，请稍后再试",
         "zh-Hant": "驗證碼發送失敗，請稍後再試",
-        "en": "Verification code failed to send, please try again later."
+        "en": "Verification code failed to send, please try again later.",
+        "ko": "인증 코드 요청이 너무 많습니다. 잠시 후 다시 시도해주세요"
     },
     "sms.service_error": {
         "zh-Hans": "验证码发送失败",
         "zh-Hant": "驗證碼發送失敗",
-        "en": "Verification code failed to send"
+        "en": "Verification code failed to send",
+        "ko": "인증 코드 전송에 실패했습니다"
     },
     "apple.server_timeout": {
         "zh-Hans": "服务器连接超时",
         "zh-Hant": "伺服器連線逾時",
-        "en": "Server connection timed out"
+        "en": "Server connection timed out",
+        "ko": "서버 연결 시간이 초과되었습니다"
     },
     "apple.server_error": {
         "zh-Hans": "服务器连接错误",
         "zh-Hant": "伺服器連線錯誤",
-        "en": "Server connection error"
+        "en": "Server connection error",
+        "ko": "서버 연결 오류"
     },
 # 系统
     "sys.unknown_error": {
         "zh-Hans": "未知错误",
         "zh-Hant": "未知錯誤",
-        "en": "Unknown error"
+        "en": "Unknown error",
+        "ko": "알 수 없는 오류가 발생했습니다"
     },
     "sys.request_timeout": {
         "zh-Hans": "请求超时，请重试",
         "zh-Hant": "請求超時，請重試",
-        "en": "Request timed out, please try again."
+        "en": "Request timed out, please try again.",
+        "ko": "요청 시간이 초과되었습니다. 다시 시도해주세요"
     }
 }

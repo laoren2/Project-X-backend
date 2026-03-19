@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     NOREPLY_EMAIL_PASSWORD: str
     LOG_LEVEL: str
     LOG_FILE: str
+    REALNAME_SECRET_SALT: str
 
     class Config:
         env_file = ".env"  # 默认从项目根目录的 .env 文件中读取

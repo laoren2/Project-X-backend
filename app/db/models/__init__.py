@@ -4,3 +4,4 @@ from .asset import *
 from .mailbox import *
 from .homepage import *
 from .common import *
+from .training import *

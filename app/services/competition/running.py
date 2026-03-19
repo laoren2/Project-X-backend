@@ -19,6 +19,7 @@ from app.crud.competition.running import (
     add_or_update_daily_task_record, get_unverified_records, get_bonus_record_with_team_magic_card_for_update,
     get_team_id_by_record_id, get_season_by_date, get_bonus_record_with_team_magic_card_by_team_user
 )
+from app.crud.training.running import get_familiarity_by_track_and_user, get_training_state_by_user
 from app.crud.asset_manage import (
     consume_cpasset, get_register_card_price, get_cpasset_def_by_asset_id,
     reward_cpasset, get_team_card_def, get_equip_card_by_card_id, get_cpasset_def_by_id,
@@ -26,6 +27,7 @@ from app.crud.asset_manage import (
 )
 from app.crud.user import get_user_by_id, get_users_by_ids, get_users_by_user_ids, get_exist_user_by_id
 from app.core.errors import ErrorCode
+from app.core.tools import get_user_local_date
 from app.schemas.base import BizException, Language, pick_i18n_text
 from app.schemas.common import PersonInfoResponse, EquipCardBaseInfo, SportType, CCAssetType, CCAssetRewardResponse
 from app.schemas.mailbox import MailType
@@ -59,7 +61,7 @@ from app.db.models.user import User
 from app.services.mappers import equip_card_to_base_info
 from app.services.competition.common import (
     _distribute_voucher_and_scores, compute_distance, update_running_leaderboard_for_record,
-    send_running_match_rewards, compute_running_match_rewards
+    send_running_match_rewards, compute_running_match_rewards, settle_running_match_xp
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import redis_client
@@ -104,12 +106,9 @@ async def update_season_image_url(db: AsyncSession, season_id: str, image_url: s
 
 
 async def query_current_season_service(db: AsyncSession, lang: Language) -> RunningSeasonBaseInfo:
-    seasons = await get_season_now(db)
-    if not seasons:
+    season = await get_season_now(db)
+    if not season:
         raise BizException(code=ErrorCode.SEASON_ERROR, message="season.out_of_season")
-    if len(seasons) > 1:
-        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.data_error")
-    season: RunningSeason = seasons[0]
     return RunningSeasonBaseInfo(
         season_id=season.season_id,
         name=pick_i18n_text(season.name_i18n, lang),
@@ -223,13 +222,10 @@ async def query_events_service(
 
 
 async def query_events_by_region(db: AsyncSession, lang: Language, region_id: str) -> List[RunningEventBaseInfo]:
-    seasons = await get_season_now(db)
-    if not seasons:
+    season = await get_season_now(db)
+    if not season:
         raise BizException(code=ErrorCode.SEASON_ERROR, message="season.out_of_season")
-    if len(seasons) > 1:
-        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.data_error")
     
-    season = seasons[0]
     region = await get_region_by_region_id(db, region_id)
     if region is None:
         raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
@@ -735,7 +731,8 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
                 raise BizException(code=ErrorCode.RECORD_ERROR, message="record.invalid_time")
             if record.status != RecordStatus.recording and record.status != RecordStatus.expired:
                 raise BizException(code=ErrorCode.RECORD_ERROR, message="record.status_error.finish_match")
-            final_time = (info.end_time - record.start_time).total_seconds()
+            original_time = (info.end_time - record.start_time).total_seconds()
+            final_time = original_time
             bonus_time = 0
 
             for item in info.bonus_in_cards:
@@ -747,11 +744,22 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
                         card_id=card.id,
                         bonus_time=item.bonus_time
                     ))
-            # 奖励时间上限为20%
-            if bonus_time / final_time > 0.2:
+            # 卡牌奖励时间上限为20%
+            if bonus_time / original_time > 0.2:
                 final_time = final_time * 0.8
             else:
                 final_time -= bonus_time
+
+            # 赛道熟悉度收益 & 训练状态收益
+            familiarity = await get_familiarity_by_track_and_user(db, record.track, user.id)
+            training_state = await get_training_state_by_user(db, user.id)
+            training_state_value = training_state.current_value if training_state else 0
+            familiarity_ratio = familiarity * 0.02
+            training_state_ratio = training_state_value * 0.02 / 100
+            familiarity_time = original_time * familiarity_ratio
+            training_state_time = original_time * training_state_ratio
+            final_time -= (familiarity_time + training_state_time)
+
             path_data = [p.model_dump() for p in info.path]
             path = RunningRacePath(
                 path_id=f"path_{uuid.uuid4()}",
@@ -770,7 +778,10 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
                 "end_time": info.end_time,
                 "duration_seconds": final_time,
                 "validation_score": validation_score,
-                "is_finish_bonus_computing": True       # 当前只有 team mode 的 magiccard 需要延迟收益计算
+                "is_finish_bonus_computing": True,       # 当前只有 team mode 的 magiccard 需要延迟收益计算
+                "local_date": get_user_local_date(user, info.end_time),
+                "familiarity_time": familiarity_time,
+                "training_state_time": training_state_time
             }
             if record.status == RecordStatus.recording:
                 if validation_score >= 80:
@@ -797,17 +808,18 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
                 track.prize_pool += price_need_to_add
             
             match_result = None
-            # 更新个人统计数据 & 每日任务进度 & 发放比赛结算奖励
+            # 更新个人统计数据 & 每日任务进度 & 发放比赛结算奖励 & 更新排行榜
             if record.status == RecordStatus.completed:
                 distance = compute_distance([p.base for p in info.path])
                 await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
-                await add_or_update_daily_task_record(db, user.id, distance, final_time)
-                reward_result = await compute_running_match_rewards(db, record)
+                await add_or_update_daily_task_record(db, user, distance, final_time)
+                xp_before, xp_delta = await settle_running_match_xp(db, record)
+                reward_result = await compute_running_match_rewards(record)
                 if reward_result:
                     rewards = reward_result[2]
                     total_rewards = []
                     for reward in rewards:
-                        balance = await reward_ccasset(db, reward.ccasset_type, reward.new_ccamount, user.id, "单次bike比赛结算", AssetOperation.REWARD)
+                        balance = await reward_ccasset(db, reward.ccasset_type, reward.new_ccamount, user.id, "单次running比赛结算", AssetOperation.REWARD)
                         reward_response = CCAssetRewardResponse(
                             ccasset_type=reward.ccasset_type,
                             new_ccamount=balance,
@@ -817,15 +829,17 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
                     match_result = MatchFinishInfo(
                         is_user_best=reward_result[0],
                         is_track_best=reward_result[1],
-                        rewards=total_rewards
+                        rewards=total_rewards,
+                        xp_before=xp_before,
+                        xp_delta=xp_delta
                     )
+                # 更新排行榜
+                if record.duration_seconds is not None:
+                    await update_running_leaderboard_for_record(record)
+            return MatchFinishResponse(match_result=match_result)
     except Exception:
         logger.exception("finish single running competition failed")
         raise BizException(code=ErrorCode.UNKNOWN_ERROR, message="sys.unknown_error")
-    # 更新排行榜
-    if record.duration_seconds is not None and record.status == RecordStatus.completed:
-        await update_running_leaderboard_for_record(record)
-    return MatchFinishResponse(match_result=match_result)
 
 
 async def finish_team_competition_service(db: AsyncSession, info: RunningFinishInfo, user_id: str) -> MatchFinishResponse:
@@ -858,7 +872,8 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
             if record.status != RecordStatus.recording and record.status != RecordStatus.expired:
                 raise BizException(code=ErrorCode.RECORD_ERROR, message="record.status_error.finish_match")
             
-            final_time = (info.end_time - record.start_time).total_seconds()
+            original_time = (info.end_time - record.start_time).total_seconds()
+            final_time = original_time
             bonus_time = 0
 
             # 待应用的 team bonus
@@ -876,11 +891,22 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
                         card_id=card.id,
                         bonus_time=item.bonus_time
                     ))
-            # 奖励时间上限为20%
-            if bonus_time / final_time > 0.2:
+            # 卡牌奖励时间上限为20%
+            if bonus_time / original_time > 0.2:
                 final_time = final_time * 0.8
             else:
                 final_time -= bonus_time
+
+            # 赛道熟悉度收益 & 训练状态收益
+            familiarity = await get_familiarity_by_track_and_user(db, record.track, user.id)
+            training_state = await get_training_state_by_user(db, user.id)
+            training_state_value = training_state.current_value if training_state else 0
+            familiarity_ratio = familiarity * 0.02
+            training_state_ratio = training_state_value * 0.02 / 100
+            familiarity_time = original_time * familiarity_ratio
+            training_state_time = original_time * training_state_ratio
+            final_time -= (familiarity_time + training_state_time)
+
             path_data = [p.model_dump() for p in info.path]
             path = RunningRacePath(
                 path_id=f"path_{uuid.uuid4()}",
@@ -915,7 +941,10 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
                 "duration_seconds": final_time,
                 "status": status,
                 "validation_score": info.validation_score,
-                "is_finish_bonus_computing": is_finish_computed
+                "is_finish_bonus_computing": is_finish_computed,
+                "local_date": get_user_local_date(user, info.end_time),
+                "familiarity_time": familiarity_time,
+                "training_state_time": training_state_time
             }
             await update_record_crud(db, record, update_data)
 
@@ -944,7 +973,8 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
                 # pass validation task: 发放比赛结算奖励 & 更新排行榜 & 更新个人统计数据 & 更新每日任务进度
                 # 如果有效成绩准备好立即处理当前 record
                 if is_finish_computed:
-                    reward_result = await compute_running_match_rewards(db, record)
+                    xp_before, xp_delta = await settle_running_match_xp(db, record)
+                    reward_result = await compute_running_match_rewards(record)
                     if reward_result:
                         rewards = reward_result[2]
                         total_rewards = []
@@ -959,12 +989,14 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
                         match_result = MatchFinishInfo(
                             is_user_best=reward_result[0],
                             is_track_best=reward_result[1],
-                            rewards=total_rewards
+                            rewards=total_rewards,
+                            xp_before=xp_before,
+                            xp_delta=xp_delta
                         )
                     await update_running_leaderboard_for_record(record)
                     distance = compute_distance([p.base for p in info.path])
                     await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
-                    await add_or_update_daily_task_record(db, user.id, distance, final_time)
+                    await add_or_update_daily_task_record(db, user, distance, final_time)
                 # 应用 team bonus
                 if info.team_bonus and team_bonus_record:
                     await finish_competition_with_team_bonus_card_service(db, user, team_id, info.team_bonus)
@@ -1018,7 +1050,7 @@ async def handle_record_verified_service(db: AsyncSession, record_id: str, resul
                 if track is None or track.event is None or track.event.season is None:
                     raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
                 await add_or_update_career_statistic_data(db, track.event.season.id, record.user.id, distance, record.duration_seconds)
-                await add_or_update_daily_task_record(db, record.user.id, distance, record.duration_seconds)
+                await add_or_update_daily_task_record(db, record.user, distance, record.duration_seconds)
                 # 发放奖励
                 await send_running_match_rewards(db, record)
                 # 更新排行榜
@@ -1594,11 +1626,12 @@ async def settle_running_leaderboard_service(db: AsyncSession, track_id: str) ->
                         mail_id=f"mail_{uuid.uuid4()}",
                         user_id=user.id,
                         mail_type=MailType.REWARD,
-                        title_i18n={"en": "Running race settlement rewards", "zh-Hans": "跑步赛事结算奖励", "zh-Hant": "跑步賽事結算獎勵"},
+                        title_i18n={"en": "Running race settlement", "zh-Hans": "跑步赛事结算", "zh-Hant": "跑步賽事結算", "ko": "달리기 경주 상금 정산"},
                         content_i18n={
                             "en": f"Congratulations on achieving rank {rank} in the {pick_i18n_text(track.event.name_i18n, Language.en)} - {pick_i18n_text(track.name_i18n, Language.en)} competition! Please claim your reward as soon as possible:", 
                             "zh-Hans": f"恭喜您在 {pick_i18n_text(track.event.name_i18n, Language.zh_hans)} - {pick_i18n_text(track.name_i18n, Language.zh_hans)} 比赛中获得第 {rank} 名，请尽快领取奖励:", 
-                            "zh-Hant": f"恭喜您在 {pick_i18n_text(track.event.name_i18n, Language.zh_hant)} - {pick_i18n_text(track.name_i18n, Language.zh_hant)} 比賽中獲得第 {rank} 名，請盡快領取獎勵:"
+                            "zh-Hant": f"恭喜您在 {pick_i18n_text(track.event.name_i18n, Language.zh_hant)} - {pick_i18n_text(track.name_i18n, Language.zh_hant)} 比賽中獲得第 {rank} 名，請盡快領取獎勵:",
+                            "ko": f"{pick_i18n_text(track.event.name_i18n, Language.ko)} - {pick_i18n_text(track.name_i18n, Language.ko)} 대회에서 {rank}위를 달성하신 것을 진심으로 축하드립니다! 가능한 한 빨리 상품을 수령해 가세요:"
                         },
                         attachment={"voucher": voucher, "description": "比赛结算奖励"},
                         is_read=False,
@@ -2042,16 +2075,16 @@ async def get_record_detail_service(db: AsyncSession, lang: Language, record_id:
         is_finish_computed=record.is_finish_bonus_computing if record.is_finish_bonus_computing else False,
         path=path_points,
         card_bonus=card_bonus_list,
-        team_member_scores=team_member_scores_list
+        team_member_scores=team_member_scores_list,
+        settlements=record.settlement_rewards,
+        familiarity_time=record.familiarity_time if record.familiarity_time else 0,
+        training_state_time=record.training_state_time if record.training_state_time else 0
     )
 
 async def get_current_best_records_service(db: AsyncSession, lang: Language, user_id: str) -> RunningSummaryRecordResponse:
-    seasons = await get_season_now(db)
-    if not seasons:
+    season = await get_season_now(db)
+    if not season:
         return RunningSummaryRecordResponse(records=[])
-    if len(seasons) > 1:
-        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.data_error")
-    season: RunningSeason = seasons[0]
     events = await get_active_events_by_season_id(db, season.id)
     records = []
     for event in events:
@@ -2104,21 +2137,22 @@ async def get_career_data_service(db: AsyncSession, season_id: str, user_id: str
         raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
     gender = user.real_name_info.gender if user.real_name_info else Gender.male
     statistic_data = await get_career_statistic_data(db, season.id, user.id)
-    score, rank, voucher_bonus = await get_score_and_rank_by_season_id_and_user(db, season.id, user.id, gender)
+    score, rank, voucher_bonus, xp = await get_score_and_rank_by_season_id_and_user(db, season.id, user.id, gender)
     return RunningCareerDataInfo(
         total_score=score if score else 0, 
         total_rank=rank if rank else None, 
         total_voucher=voucher_bonus if voucher_bonus else 0,
         total_distance=statistic_data.total_distance if statistic_data else 0,
-        total_time=statistic_data.total_time if statistic_data else 0
+        total_time=statistic_data.total_time if statistic_data else 0,
+        total_xp=xp if xp else 0
     )
 
 async def query_daily_task_status_service(db: AsyncSession, user_id: str) -> DailyTaskResponse | None:
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
-    task = await get_daily_task(db)
-    task_record = await get_today_task_record_by_user(db, user.id)
+    task = await get_daily_task(db, user)
+    task_record = await get_today_task_record_by_user(db, user)
     if task:
         cpasset_def = await get_cpasset_def_by_id(db, task.reward_stage3_id)
         return DailyTaskResponse(
@@ -2144,8 +2178,8 @@ async def claimed_daily_task_reward_service(db: AsyncSession, user_id: str, stag
             raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         if stage < 1 or stage > 3:
             raise BizException(code=ErrorCode.REWARD_CLAIM_FAILED, message="reward.data_error")
-        task = await get_daily_task(db)
-        task_record = await get_today_task_record_by_user(db, user.id)
+        task = await get_daily_task(db, user)
+        task_record = await get_today_task_record_by_user(db, user)
         if task is None or task_record is None:
             raise BizException(code=ErrorCode.REWARD_CLAIM_FAILED, message="reward.data_error")
         if stage == 1 and (task_record.progress / task.total_progress > 1/3):
@@ -2238,6 +2272,27 @@ async def finish_competition_with_team_bonus_card_service(
                     if r.user and r.path and r.path.path and r.duration_seconds:
                         points = [RunningPathPoint.model_validate(p) for p in r.path.path]
                         distance = compute_distance([p.base for p in points])
-                        await add_or_update_daily_task_record(db, r.user.id, distance, r.duration_seconds)
+                        await add_or_update_daily_task_record(db, r.user, distance, r.duration_seconds)
                         if r.track and r.track.event and r.track.event.season:
                             await add_or_update_career_statistic_data(db, r.track.event.season.id, r.user.id, distance, r.duration_seconds)
+
+async def query_record_familiarity_service(db: AsyncSession, user_id: str, record_id: str) -> float:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    record = await get_record_by_record_id(db, record_id)
+    if record is None:
+        raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
+    familiarity = await get_familiarity_by_track_and_user(db, record.track, user.id)
+    return familiarity
+
+
+async def query_track_familiarity_service(db: AsyncSession, user_id: str, track_id: str) -> float:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    track = await get_track_by_track_id(db, track_id)
+    if track is None:
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
+    familiarity = await get_familiarity_by_track_and_user(db, track, user.id)
+    return familiarity

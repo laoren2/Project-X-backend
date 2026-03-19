@@ -13,6 +13,7 @@ class Language(str, Enum):
     zh_hans = "zh-Hans"
     zh_hant = "zh-Hant"
     en = "en"
+    ko = "ko"
 
 DEFAULT_LANGUAGE = Language.en
 

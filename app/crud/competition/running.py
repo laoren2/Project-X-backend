@@ -14,7 +14,7 @@ from typing import Optional, List
 from datetime import timedelta, date, datetime
 from sqlalchemy.dialects.postgresql import insert
 from app.schemas.user import Gender
-from app.core.tools import get_today_hk_date
+from app.core.tools import get_today_hk_date, get_user_local_date
 import uuid
 
 
@@ -33,7 +33,7 @@ async def update_season_crud(db: AsyncSession, season: RunningSeason, update_dat
     await db.refresh(season)
 
 
-async def get_season_now(db: AsyncSession) -> List[RunningSeason]:
+async def get_season_now(db: AsyncSession) -> RunningSeason | None:
     current_time = func.now()
     stmt = select(RunningSeason).where(
         and_(
@@ -42,8 +42,7 @@ async def get_season_now(db: AsyncSession) -> List[RunningSeason]:
         )
     )
     result = await db.execute(stmt)
-    seasons = result.scalars().all()
-    return seasons
+    return result.scalar_one_or_none()
 
 async def get_history_seasons(db: AsyncSession) -> List[RunningSeason]:
     result = await db.execute(
@@ -183,6 +182,7 @@ async def get_track_by_track_id(db: AsyncSession, track_id: str) -> RunningTrack
         .where(RunningTrack.track_id == track_id)
         .options(
             selectinload(RunningTrack.event).selectinload(RunningEvent.season),
+            selectinload(RunningTrack.event).selectinload(RunningEvent.region),
             selectinload(RunningTrack.single_register_card_def),
             selectinload(RunningTrack.team_register_card_def)
         )
@@ -391,6 +391,9 @@ async def get_record_by_record_id(db: AsyncSession, record_id: str) -> RunningRa
                 .selectinload(RunningTrack.single_register_card_def),
             selectinload(RunningRaceRecord.track)
                 .selectinload(RunningTrack.team_register_card_def),
+            selectinload(RunningRaceRecord.track)
+                .selectinload(RunningTrack.event)
+                .selectinload(RunningEvent.region),
             selectinload(RunningRaceRecord.team)
                 .selectinload(RunningTeam.members),
             selectinload(RunningRaceRecord.path),
@@ -441,7 +444,8 @@ async def get_records_by_team_id_for_update(db: AsyncSession, team_id: uuid.UUID
         select(RunningRaceRecord)
         .where(RunningRaceRecord.team_id == team_id)
         .options(
-            selectinload(RunningRaceRecord.track),
+            selectinload(RunningRaceRecord.track)
+                .selectinload(RunningTrack.event),
             selectinload(RunningRaceRecord.user)
                 .selectinload(User.real_name_info),
             selectinload(RunningRaceRecord.team)
@@ -712,10 +716,17 @@ async def get_leaderboad_records_in_page(
     )
     return result.scalars().all()
 
-async def get_score_by_user_id(db: AsyncSession, user_id: uuid.UUID):
+async def get_score_by_season_and_user(db: AsyncSession, user_id: uuid.UUID, season_id: uuid.UUID | None = None) -> RunningCareerScore | None:
+    real_season_id = season_id
+    if not real_season_id:
+        season = await get_season_now(db)
+        if not season:
+            return None
+        real_season_id = season.id
     result = await db.execute(
         select(RunningCareerScore)
         .where(
+            RunningCareerScore.season_id == real_season_id,
             RunningCareerScore.user_id == user_id
         )
     )
@@ -748,7 +759,7 @@ async def get_score_and_rank_by_season_id_and_user(
     season_id: uuid.UUID,
     user_id: uuid.UUID,
     gender: Gender
-) -> tuple[int | None, int | None, int | None]:
+) -> tuple[int | None, int | None, int | None, int | None]:
     rank_col = func.rank().over(
         partition_by=RunningCareerScore.gender,
         order_by=(RunningCareerScore.score.desc(), RunningCareerScore.updated_at.asc())
@@ -759,6 +770,7 @@ async def get_score_and_rank_by_season_id_and_user(
             RunningCareerScore.user_id,
             RunningCareerScore.score,
             RunningCareerScore.voucher_bonus,
+            RunningCareerScore.xp,
             rank_col.label("rank")
         )
         .where(
@@ -768,14 +780,14 @@ async def get_score_and_rank_by_season_id_and_user(
         .subquery()
     )
     # 再查出目标用户
-    stmt = select(subq.c.score, subq.c.rank, subq.c.voucher_bonus).where(subq.c.user_id == user_id)
+    stmt = select(subq.c.score, subq.c.rank, subq.c.voucher_bonus, subq.c.xp).where(subq.c.user_id == user_id)
     result = await db.execute(stmt)
     row = result.first()
 
     if row is None:
-        return None, None, None
-    score, rank, voucher_bonus = row
-    return score, rank, voucher_bonus
+        return None, None, None, None
+    score, rank, voucher_bonus, xp = row
+    return score, rank, voucher_bonus, xp
 
 async def add_or_update_career_score(
     db: AsyncSession, 
@@ -790,13 +802,36 @@ async def add_or_update_career_score(
         gender=gender,
         user_id=user_id,
         score=score,
-        voucher_bonus=voucher
+        voucher_bonus=voucher,
+        xp=0
     ).on_conflict_do_update(
         index_elements=[RunningCareerScore.season_id, RunningCareerScore.user_id],
         set_={
             "score": RunningCareerScore.score + score,
             "voucher_bonus": RunningCareerScore.voucher_bonus + voucher,
             "gender": gender  # 冲突时强制更新为新 gender
+        }
+    )
+    await db.execute(stmt)
+
+async def add_or_update_career_xp(
+    db: AsyncSession, 
+    season_id: uuid.UUID,
+    gender: Gender, 
+    user_id: uuid.UUID, 
+    xp: int
+):
+    stmt = insert(RunningCareerScore).values(
+        season_id=season_id,
+        gender=gender,
+        user_id=user_id,
+        score=0,
+        voucher_bonus=0,
+        xp=xp
+    ).on_conflict_do_update(
+        index_elements=[RunningCareerScore.season_id, RunningCareerScore.user_id],
+        set_={
+            "xp": RunningCareerScore.xp + xp
         }
     )
     await db.execute(stmt)
@@ -839,8 +874,8 @@ async def get_career_statistic_data(
 def decide_task_type_by_date(date: date) -> DailyTaskType:
     return DailyTaskType.distance if date.day % 2 == 1 else DailyTaskType.time
 
-async def get_daily_task(db: AsyncSession) -> RunningDailyTask | None:
-    today = get_today_hk_date()
+async def get_daily_task(db: AsyncSession, user: User) -> RunningDailyTask | None:
+    today = get_user_local_date(user, None)
     # 根据日期的奇偶决定 每日任务 的类型
     # 奇数日：distance，偶数日：time
     task_type = decide_task_type_by_date(today)
@@ -854,14 +889,14 @@ async def get_daily_task(db: AsyncSession) -> RunningDailyTask | None:
 
 async def get_today_task_record_by_user(
     db: AsyncSession, 
-    user_id: uuid.UUID
+    user: User
 ) -> RunningDailyTaskRecord | None:
-    today = get_today_hk_date()
+    today = get_user_local_date(user, None)
     task_type = decide_task_type_by_date(today)
     result = await db.execute(
         select(RunningDailyTaskRecord)
         .where(
-            RunningDailyTaskRecord.user_id == user_id,
+            RunningDailyTaskRecord.user_id == user.id,
             RunningDailyTaskRecord.date == today,
             RunningDailyTaskRecord.type == task_type
         )
@@ -870,17 +905,17 @@ async def get_today_task_record_by_user(
 
 async def add_or_update_daily_task_record(
     db: AsyncSession,
-    user_id: uuid.UUID,
+    user: User,
     distance_progress: float,
     time_progress: float
 ):
-    today = get_today_hk_date()
+    today = get_user_local_date(user, None)
     task_type = decide_task_type_by_date(today)
     progress = distance_progress if task_type == DailyTaskType.distance else time_progress
     result = await db.execute(
         select(RunningDailyTaskRecord)
         .where(
-            RunningDailyTaskRecord.user_id == user_id,
+            RunningDailyTaskRecord.user_id == user.id,
             RunningDailyTaskRecord.date == today,
             RunningDailyTaskRecord.type == task_type
         )
@@ -888,7 +923,7 @@ async def add_or_update_daily_task_record(
     record = result.scalar_one_or_none()
     if record is None:
         new_record = RunningDailyTaskRecord(
-            user_id=user_id,
+            user_id=user.id,
             type=task_type,
             progress=progress,
             date=today

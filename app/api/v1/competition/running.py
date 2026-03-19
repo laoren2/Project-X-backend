@@ -34,7 +34,7 @@ from app.services.competition.running import (
     query_leaderboard_history_in_page, get_score_leaderboard_service, get_career_data_service,
     get_completed_records_all, get_incompleted_records_all, query_daily_task_status_service,
     claimed_daily_task_reward_service, start_competition_with_team_bonus_card_service,
-    query_event_detail_service
+    query_event_detail_service, query_record_familiarity_service, query_track_familiarity_service
 )
 from app.api.deps import get_current_user, get_language, Language
 from typing import Optional
@@ -562,3 +562,23 @@ async def start_competition_with_team_bonus_card(
 ):
     await start_competition_with_team_bonus_card_service(db, auth.payload["user_id"], record_id, card_id)
     return BaseResponse.success(token=auth.new_token)
+
+# 查询记录对应赛道的熟悉度
+@router.get("/query_record_familiarity",response_model=BaseResponse[float],summary="查询记录对应赛道的熟悉度")
+async def query_record_familiarity(
+    record_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    value = await query_record_familiarity_service(db, auth.payload["user_id"], record_id)
+    return BaseResponse.success(token=auth.new_token, data=value)
+
+# 查询赛道熟悉度
+@router.get("/query_track_familiarity",response_model=BaseResponse[float],summary="查询赛道熟悉度")
+async def query_track_familiarity(
+    track_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    value = await query_track_familiarity_service(db, auth.payload["user_id"], track_id)
+    return BaseResponse.success(token=auth.new_token, data=value)

@@ -10,7 +10,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from enum import Enum
-import datetime
+from datetime import datetime, timezone
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/user/login")
@@ -37,7 +37,7 @@ async def get_current_user(
         raise BizException(code=ErrorCode.USER_DELETED, message="user.deleted")
     if user.status == UserStatus.banned:
         ban_history = await get_banned_history_by_user_id(db, user.id)
-        now = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.now(timezone.utc)
         if ban_history and ban_history.unban_time <= now:
             # 自动解封
             user.status = UserStatus.normal
@@ -77,17 +77,19 @@ def get_language(
     accept_language: str | None = Header(default=None)
 ) -> Language:
     lang = DEFAULT_LANGUAGE
-
+    
     if accept_language:
         raw = accept_language.split(",")[0].split(";")[0].lower()
-
-        if raw.startswith("zh"):
+        primary = raw.split("-")[0]
+        if primary == "zh":
             if "tw" in raw or "hk" in raw or "hant" in raw:
                 lang = Language.zh_hant
             else:
                 lang = Language.zh_hans
-        elif raw.startswith("en"):
+        elif primary == "en":
             lang = Language.en
+        elif primary == "ko":
+            lang = Language.ko
 
     request.state.lang = lang
     return lang

@@ -1,11 +1,11 @@
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.models.user import User, UserBanHistory, UserRealNameHK, UserSetting, UserSignIn, SignInReward, TestAccount
+from app.db.models.user import User, UserBanHistory, UserRealNameIdentity, UserSetting, UserSignIn, SignInReward, TestAccount
 from typing import Optional, List
 from sqlalchemy.orm import selectinload
-from app.schemas.user import UserStatus
+from app.schemas.user import RealNameMethod, UserStatus
 from datetime import date, datetime, timezone, timedelta
-from app.core.tools import get_today_hk_date
+from app.core.tools import get_today_hk_date, get_user_local_date
 import uuid, random, time
 
 
@@ -179,11 +179,12 @@ async def generate_unique_user_nickname(db: AsyncSession) -> str:
         if not existing_user:
             return nickname
 
-async def create_user(db: AsyncSession, phone_number: str):
+async def create_user(db: AsyncSession, phone_number: str, timezone: str):
     user_id = await generate_unique_user_id(db)
     nickname = await generate_unique_user_nickname(db)
     user = User(
         user_id=user_id,
+        timezone=timezone,
         nickname=nickname,
         phone_number=phone_number,
         avatar_image_url="/resources/placeholder/avatar.jpg",
@@ -196,11 +197,12 @@ async def create_user(db: AsyncSession, phone_number: str):
     db.add(user_setting)
     return user
 
-async def create_user_with_apple(db: AsyncSession, apple_id: str, email: str) -> User:
+async def create_user_with_apple(db: AsyncSession, apple_id: str, email: str, timezone: str) -> User:
     user_id = await generate_unique_user_id(db)
     nickname = await generate_unique_user_nickname(db)
     user = User(
         user_id=user_id,
+        timezone=timezone,
         nickname=nickname,
         apple_id=apple_id,
         apple_email=email,
@@ -214,11 +216,12 @@ async def create_user_with_apple(db: AsyncSession, apple_id: str, email: str) ->
     db.add(user_setting)
     return user
 
-async def create_user_with_email(db: AsyncSession, email_address: str) -> User:
+async def create_user_with_email(db: AsyncSession, email_address: str, timezone: str) -> User:
     user_id = await generate_unique_user_id(db)
     nickname = await generate_unique_user_nickname(db)
     user = User(
         user_id=user_id,
+        timezone=timezone,
         nickname=nickname,
         email=email_address,
         avatar_image_url="/resources/placeholder/avatar.jpg",
@@ -245,12 +248,24 @@ async def get_banned_history_by_user_id(db: AsyncSession, user_id: uuid.UUID):
     )
     return result.scalar_one_or_none()
 
-async def get_realname_info_by_user_id(db: AsyncSession, user_id: uuid.UUID) -> UserRealNameHK | None:
-    result = await db.execute(select(UserRealNameHK).where(UserRealNameHK.user_id == user_id))
+async def get_realname_info_by_user_id(db: AsyncSession, user_id: uuid.UUID) -> UserRealNameIdentity | None:
+    result = await db.execute(select(UserRealNameIdentity).where(UserRealNameIdentity.user_id == user_id))
     return result.scalar_one_or_none()
 
-async def get_realname_info_by_card_id(db: AsyncSession, card_id: str) -> UserRealNameHK | None:
-    result = await db.execute(select(UserRealNameHK).where(UserRealNameHK.card_id == card_id))
+async def get_realname_info_by_country_method_card(
+    db: AsyncSession,
+    country_code: str,
+    method: RealNameMethod,
+    card_id_hash: str
+) -> UserRealNameIdentity | None:
+    result = await db.execute(
+        select(UserRealNameIdentity)
+        .where(
+            UserRealNameIdentity.country_code == country_code,
+            UserRealNameIdentity.method == method,
+            UserRealNameIdentity.card_id_hash == card_id_hash
+        )
+    )
     return result.scalar_one_or_none()
 
 async def get_settings_by_user_id(db: AsyncSession, user_id: uuid.UUID) -> UserSetting | None:
@@ -302,14 +317,14 @@ async def get_user_vip_sign_in_today(db: AsyncSession, user_id: uuid.UUID, sign_
     )
     return result.scalar_one_or_none()
 
-async def get_user_sign_in_history(db: AsyncSession, user_id: uuid.UUID, days: int = 6) -> List[UserSignIn]:
+async def get_user_sign_in_history(db: AsyncSession, user: User, days: int = 6) -> List[UserSignIn]:
     """获取用户最近N天的签到记录"""
-    end_date = get_today_hk_date() - timedelta(days=1)
+    end_date = get_user_local_date(user) - timedelta(days=1)
     start_date = end_date - timedelta(days=days-1)
     result = await db.execute(
         select(UserSignIn)
         .where(
-            UserSignIn.user_id == user_id,
+            UserSignIn.user_id == user.id,
             UserSignIn.sign_in_date >= start_date,
             UserSignIn.sign_in_date <= end_date
         )

@@ -38,6 +38,11 @@ class SubscriptionEventType(str, Enum):
     grace_started = "grace_started"     # Apple 扣款失败/待重试，进入宽限期
     grace_ended = "grace_ended"         # 重试成功或超时，宽限期结束
 
+class RealNameMethod(str, Enum):
+    idcard = "idcard"
+    passport = "passport"
+    drivingLicense = "drivingLicense"
+
 class AuthContext(BaseModel):
     payload: dict
     new_token: Optional[str] = None
@@ -148,6 +153,7 @@ class SendCodeResponse(ORMBase):
 class SMSCodeVerify(ORMBase):
     phone_number: str
     code: str
+    timezone: str = "UTC"
 
 class EmailCodeRequest(BaseModel):
     email_address: str
@@ -155,6 +161,7 @@ class EmailCodeRequest(BaseModel):
 class EmailCodeVerify(ORMBase):
     email_address: str
     code: str
+    timezone: str = "UTC"
 
 class GetAnyUserRequest(ORMBase):
     user_id: str
@@ -168,6 +175,7 @@ class SubscriptionStatusResponse(BaseModel):
 
 class IAPJWSRequest(BaseModel):
     jws: str
+    timezone: str = "UTC"
 
 class IAPTransactionRequest(BaseModel):
     transaction_id: str
@@ -175,3 +183,18 @@ class IAPTransactionRequest(BaseModel):
 class SubscriptionQueryInfo(BaseModel):
     enforce: bool
     transaction_id: str | None = None
+
+class RealNameForm(BaseModel):
+    country_code: str
+    method: RealNameMethod
+
+    @classmethod
+    def as_form(
+        cls,
+        country_code: str = Form(...),
+        method: RealNameMethod = Form(...)
+    ):
+        return cls(
+            country_code=country_code,
+            method=method,
+        )

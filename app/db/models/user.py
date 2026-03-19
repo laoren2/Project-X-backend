@@ -1,10 +1,10 @@
-import uuid
 from sqlalchemy import Column, String, Boolean, DateTime, Date, func, UniqueConstraint, Integer, Enum, Index, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.schemas.common import SportType, CCAssetType
-from app.schemas.user import UserRole, Gender, UserStatus, SubscriptionEventType, SubscriptionPeriod
+from app.schemas.user import UserRole, Gender, UserStatus, SubscriptionEventType, SubscriptionPeriod, RealNameMethod
 from app.db.base import Base
 from sqlalchemy.orm import relationship
+import uuid
 
 
 # 用户表
@@ -14,6 +14,7 @@ class User(Base):
     user_id = Column(String, unique=True, index=True, nullable=False)
     role = Column(Enum(UserRole), default=UserRole.user.value, nullable=False)
     status = Column(Enum(UserStatus), default=UserStatus.normal, nullable=False)
+    timezone = Column(String, nullable=False, server_default="UTC")     # IANA timezone name
 
     nickname = Column(String, nullable=False)
     phone_number = Column(String, nullable=True)
@@ -28,7 +29,7 @@ class User(Base):
     identity_auth_name = Column(String, nullable=True)
 
     settings = relationship("UserSetting", primaryjoin="User.id==foreign(UserSetting.user_id)", uselist=False, back_populates="user")
-    real_name_info = relationship("UserRealNameHK", primaryjoin="User.id==foreign(UserRealNameHK.user_id)", uselist=False, back_populates="user")
+    real_name_info = relationship("UserRealNameIdentity", primaryjoin="User.id==foreign(UserRealNameIdentity.user_id)", uselist=False, back_populates="user")
     subscription_info = relationship("UserSubscription", primaryjoin="User.id==foreign(UserSubscription.user_id)", uselist=False, back_populates="user")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -80,22 +81,28 @@ class UserSetting(Base):
     user = relationship("User", primaryjoin="foreign(UserSetting.user_id) == User.id", uselist=False, back_populates="settings")
 
 
-class UserRealNameHK(Base):
-    __tablename__ = "user_real_name_hk"
+class UserRealNameIdentity(Base):
+    __tablename__ = "user_realname_identities"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), nullable=False, unique=True)
+    country_code = Column(String, nullable=False)
+    method = Column(Enum(RealNameMethod), nullable=False)
     gender = Column(Enum(Gender), nullable=False)
-    birth_date = Column(String, nullable=False)
-    name_Cn = Column(String, nullable=True)
-    name_En = Column(String, nullable=False)
-    card_id = Column(String, nullable=False)
-    name_code = Column(String, nullable=True)
-    issued_code = Column(String, nullable=False)
+    birth_date = Column(Date, nullable=False)
+    #name_Cn = Column(String, nullable=True)
+    #name_En = Column(String, nullable=False)
+    card_id_hash = Column(String, nullable=False)    # 证件号
+    #name_code = Column(String, nullable=True)
+    #issued_code = Column(String, nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    user = relationship("User", primaryjoin="foreign(UserRealNameHK.user_id) == User.id", uselist=False, back_populates="real_name_info")
+    user = relationship("User", primaryjoin="foreign(UserRealNameIdentity.user_id) == User.id", uselist=False, back_populates="real_name_info")
+
+    __table_args__ = (
+        UniqueConstraint('country_code', 'method', 'card_id_hash', name='uq_user_realname_identities_country_method_card'),
+    )
 
 
 class UserBanHistory(Base):
@@ -127,8 +134,8 @@ class UserSignIn(Base):
     __tablename__ = "user_sign_in"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), nullable=False)
-    is_vip = Column(Boolean, nullable=False)    # 是否是领取vip签到奖励
-    sign_in_date = Column(Date, nullable=False)     # 使用 Date 记录已签到的日期(注意暂时只支持香港地区，需要考虑存储为 UTC+8 时区)
+    is_vip = Column(Boolean, nullable=False)        # 是否是领取vip签到奖励
+    sign_in_date = Column(Date, nullable=False)     # 记录已签到的日期(存储为本地时区的日期)
 
     # 添加user_id、is_vip和sign_in_date的唯一约束
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
