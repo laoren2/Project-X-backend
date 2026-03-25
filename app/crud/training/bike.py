@@ -146,6 +146,16 @@ async def get_training_state_by_user(db: AsyncSession, user_id: uuid.UUID) -> Us
     )
     return result.scalar_one_or_none()
 
+async def get_training_state_daily_by_user_date(db: AsyncSession, user_id: uuid.UUID, date: date) -> UserTrainingStateDailyBike | None:
+    result = await db.execute(
+        select(UserTrainingStateDailyBike)
+        .where(
+            UserTrainingStateDailyBike.user_id == user_id,
+            UserTrainingStateDailyBike.local_date == date
+        )
+    )
+    return result.scalar_one_or_none()
+
 # 查询用户某月的所有训练状态变化
 async def get_training_states_by_user_and_month(db: AsyncSession, user_id: uuid.UUID, month: str) -> List[UserTrainingStateDailyBike]:
     # 解析 month

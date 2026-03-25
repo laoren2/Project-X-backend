@@ -14,7 +14,7 @@ from app.schemas.training.common import RegionExploreResponse
 from app.crud.training.running import (
     get_training_states_by_user_and_month, get_training_records_by_user_and_day,
     add_or_update_daily_training_states, get_training_state_by_user, update_grid_familiarity_by_path,
-    get_region_explored_grid_count, get_record_by_record_id
+    get_region_explored_grid_count, get_record_by_record_id, get_training_state_daily_by_user_date
 )
 from app.db.models.training import UserTrainingStateDailyRunning, RunningFreeTrainingPath, RunningFreeTrainingRecord, UserTrainingStateRunning
 from sqlalchemy.dialects.postgresql import insert
@@ -143,17 +143,23 @@ async def apply_training_rewards(
     state_value += state_distance + state_duration + (1 if has_bpm else 0) + (1 if has_power else 0) + (1 if has_step_cadence else 0)
 
     current_state = 0
-    new_value = state_value
+    new_value = min(20, state_value)
     if not state:
         new_state = UserTrainingStateRunning(
             user_id = user.id,
-            current_value = state_value,
+            current_value = new_value,
             last_training_at = info.end_time,
             last_decay_date = None
         )
         db.add(new_state)
     else:
         current_state = state.current_value
+        today = get_user_local_date(user)
+        today_state = await get_training_state_daily_by_user_date(db, user.id, today)
+        already = today_state.delta if today_state else 0
+        remaining = max(0, 20 - already)        # 每日上限为 20
+        state_value = min(remaining, state_value)
+
         new_value = min(100, current_state + state_value)
         state_value = new_value - current_state
         state.current_value = new_value
