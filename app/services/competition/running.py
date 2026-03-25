@@ -784,9 +784,9 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
                 "training_state_time": training_state_time
             }
             if record.status == RecordStatus.recording:
-                if validation_score >= 80:
+                if validation_score >= 70:
                     update_data["status"] = RecordStatus.completed
-                elif validation_score >= 50:
+                elif validation_score >= 30:
                     update_data["status"] = RecordStatus.toBeVerified
                 else:
                     update_data["status"] = RecordStatus.invalid
@@ -928,9 +928,9 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
                 if br.user_id != user.id and not br.is_applied:
                     is_finish_computed = False
 
-            if info.validation_score >= 80:
+            if info.validation_score >= 70:
                 status = RecordStatus.completed
-            elif info.validation_score >= 50:
+            elif info.validation_score >= 30:
                 status = RecordStatus.toBeVerified
             else:
                 status = RecordStatus.invalid

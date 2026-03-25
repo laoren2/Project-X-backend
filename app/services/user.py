@@ -785,6 +785,19 @@ async def realname_service(
         if exist_card_info:
             raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.has_certified.realname")
 
+        # 处理已存在的赛季记录，若跨性别重认证，同步重置当季分数
+        bike_score = await bike_crud.get_score_by_season_and_user(db, user.id)
+        if bike_score:
+            bike_score.gender = gender
+            # todo: 删除原性别实时排行榜数据
+            if exist_info and exist_info.gender != gender:
+                bike_score.score = 0
+        running_score = await running_crud.get_score_by_season_and_user(db, user.id)
+        if running_score:
+            running_score.gender = gender
+            if exist_info and exist_info.gender != gender:
+                running_score.score = 0
+        
         try:
             # 这里写回数据库，只存识别字段，不存证件图片
             if exist_info:
@@ -810,16 +823,6 @@ async def realname_service(
             logger.exception("Realname upsert failed with integrity error")
             raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.has_certified.realname")
 
-        # 若是重认证（存在旧记录），同步重置当季分数
-        if exist_info:
-            bike_score = await bike_crud.get_score_by_season_and_user(db, user.id)
-            if bike_score:
-                bike_score.gender = gender
-                bike_score.score = 0
-            running_score = await running_crud.get_score_by_season_and_user(db, user.id)
-            if running_score:
-                running_score.gender = gender
-                running_score.score = 0
 
 async def verify_apple_identity_token(identity_token: str):
     try:

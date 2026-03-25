@@ -62,7 +62,8 @@ ERROR_MESSAGES = {
     "image.over_size": {
         "zh-Hans": "上传图片体积过大，请重试",
         "zh-Hant": "上傳圖片體積過大，請重識",
-        "en": "Image is oversize, please try again."
+        "en": "Image is oversize, please try again.",
+        "ko": "이미지 용량이 너무 큽니다. 다시 시도해주세요"
     },
 # 用户
     "user.not_found": {
@@ -74,22 +75,26 @@ ERROR_MESSAGES = {
     "user.info_error": {
         "zh-Hans": "用户信息错误",
         "zh-Hant": "用戶信息錯誤",
-        "en": "User info error"
+        "en": "User info error",
+        "ko": "사용자 정보 오류"
     },
     "user.follow_self": {
         "zh-Hans": "不能关注自己",
         "zh-Hant": "不能關注自己",
-        "en": "Cannot follow yourself"
+        "en": "Cannot follow yourself",
+        "ko": "자기 자신을 팔로우할 수 없습니다"
     },
     "user.cancel_follow_self": {
         "zh-Hans": "不能取消关注自己",
         "zh-Hant": "不能取消關注自己",
-        "en": "Cannot cancel follow yourself"
+        "en": "Cannot cancel follow yourself",
+        "ko": "자기 자신을 팔로우 취소할 수 없습니다"
     },
     "user.repeat_follow": {
         "zh-Hans": "请勿重复关注",
         "zh-Hant": "請勿重複關注",
-        "en": "Do not follow repeatedly"
+        "en": "Do not follow repeatedly",
+        "ko": "중복으로 팔로우할 수 없습니다"
     },
     "user.banned": {
         "zh-Hans": "账号已封禁\n剩余时间：{remaining}",
@@ -100,13 +105,15 @@ ERROR_MESSAGES = {
     "user.deleted": {
         "zh-Hans": "账号已注销",
         "zh-Hant": "帳號已註銷",
-        "en": "Account has been deleted"
+        "en": "Account has been deleted",
+        "ko": "계정이 삭제되었습니다"
     },
 # 身份校验
     "identity.verify_failed.test_account": {
         "zh-Hans": "账号信息错误",
         "zh-Hant": "帳號信息錯誤",
-        "en": "Account info error"
+        "en": "Account info error",
+        "ko": "계정 정보 오류"
     },
     "identity.verify_failed.sms": {
         "zh-Hans": "验证码错误",
@@ -117,7 +124,8 @@ ERROR_MESSAGES = {
     "identity.verify_failed.apple": {
         "zh-Hans": "Apple 登录校验失败",
         "zh-Hant": "Apple 登錄校驗失敗",
-        "en": "Apple login verification failed"
+        "en": "Apple login verification failed",
+        "ko": "Apple 로그인 인증 실패"
     },
     "identity.verify_failed.token": {
         "zh-Hans": "登录校验失败",
@@ -134,367 +142,437 @@ ERROR_MESSAGES = {
     "identity.recognition_failed.realname": {
         "zh-Hans": "证件识别失败",
         "zh-Hant": "證件識別失敗",
-        "en": "Recognition failed"
+        "en": "Recognition failed",
+        "ko": "신분증 인식 실패"
     },
     "identity.frequently_certified.realname": {
         "zh-Hans": "暂时无法重新认证",
         "zh-Hant": "暫時無法重新認證",
-        "en": "Re-authentication is temporarily unavailable"
+        "en": "Re-authentication is temporarily unavailable",
+        "ko": "현재 재인증이 불가능합니다"
     },
     "identity.has_certified.realname": {
         "zh-Hans": "身份已被认证",
         "zh-Hant": "身份已被認證",
-        "en": "Identity has been certified"
+        "en": "Identity has been certified",
+        "ko": "이미 인증된 신원입니다"
     },
 
     "identity.with_phone.phone_bind": {
         "zh-Hans": "请先解除绑定",
         "zh-Hant": "請先解除綁定",
-        "en": "Please unbind first"
+        "en": "Please unbind first",
+        "ko": "먼저 연결을 해제해주세요"
     },
     "identity.already_certified.phone_bind": {
         "zh-Hans": "该号码已被绑定",
         "zh-Hant": "該號碼已被綁定",
-        "en": "This number has been bound"
+        "en": "This number has been bound",
+        "ko": "이미 등록된 번호입니다"
     },
     "identity.no_phone.phone_unbind": {
         "zh-Hans": "请先绑定一个手机号",
         "zh-Hant": "請先綁定一個手機號",
-        "en": "Please bind a mobile phone number first"
+        "en": "Please bind a mobile phone number first",
+        "ko": "먼저 휴대폰 번호를 등록해주세요"
     },
     "identity.cannot_recover.phone_unbind": {
         "zh-Hans": "请先绑定一个邮箱或Apple账号，否则账号无法找回",
         "zh-Hant": "請先綁定一個郵箱或Apple帳號，否則帳號無法找回",
-        "en": "Please link an email address or apple account first, otherwise the account cannot be recovered"
+        "en": "Please link an email address or apple account first, otherwise the account cannot be recovered",
+        "ko": "이메일 또는 Apple 계정을 먼저 연결해야 계정을 복구할 수 있습니다"
     },
 
     "identity.verify_failed.apple_bind": {
         "zh-Hans": "Apple 账号绑定失败，请在 系统设置-Apple账户-通过Apple登录 里删除账号后重试",
         "zh-Hant": "Apple 帳號綁定失敗，請在 系統設置-Apple帳戶-通過Apple登錄 裡刪除帳號後重識",
-        "en": "Apple account binding failed, please delete the account in 'System Settings - Apple account - Sign in with Apple' and try again."
+        "en": "Apple account binding failed, please delete the account in 'System Settings - Apple account - Sign in with Apple' and try again.",
+        "ko": "Apple 계정 연결 실패. 설정에서 계정을 삭제 후 다시 시도해주세요"
     },
     "identity.with_appleID.apple_bind": {
         "zh-Hans": "请先解除绑定",
         "zh-Hant": "請先解除綁定",
-        "en": "Please unbind first"
+        "en": "Please unbind first",
+        "ko": "먼저 연결을 해제해주세요"
     },
     "identity.already_certified.apple_bind": {
         "zh-Hans": "该 Apple 账号已被绑定",
         "zh-Hant": "該 Apple 帳號已被綁定",
-        "en": "This AppleID has been bound"
+        "en": "This AppleID has been bound",
+        "ko": "이미 연결된 Apple 계정입니다"
     },
     "identity.no_appleID.apple_unbind": {
         "zh-Hans": "请先绑定一个Apple账号",
         "zh-Hant": "請先綁定一個Apple帳號",
-        "en": "Please bind an AppleID first"
+        "en": "Please bind an AppleID first",
+        "ko": "먼저 Apple 계정을 연결해주세요"
     },
     "identity.cannot_recover.apple_unbind": {
         "zh-Hans": "请先绑定一个邮箱或手机号，否则账号无法找回",
         "zh-Hant": "請先綁定一個郵箱或手機號，否則帳號無法找回",
-        "en": "Please link an email address or mobile phone number first, otherwise the account cannot be recovered"
+        "en": "Please link an email address or mobile phone number first, otherwise the account cannot be recovered",
+        "ko": "이메일 또는 휴대폰 번호를 먼저 연결해야 계정을 복구할 수 있습니다"
     },
 
     "identity.with_email.email_bind": {
         "zh-Hans": "请先解除绑定",
         "zh-Hant": "請先解除綁定",
-        "en": "Please unbind first"
+        "en": "Please unbind first",
+        "ko": "먼저 연결을 해제해주세요"
     },
     "identity.already_certified.email_bind": {
         "zh-Hans": "该邮箱已被绑定",
         "zh-Hant": "該郵箱已被綁定",
-        "en": "This email has been bound"
+        "en": "This email has been bound",
+        "ko": "이미 등록된 이메일입니다"
     },
     "identity.no_email.email_unbind": {
         "zh-Hans": "请先绑定一个邮箱",
         "zh-Hant": "請先綁定一個郵箱",
-        "en": "Please bind an email first"
+        "en": "Please bind an email first",
+        "ko": "먼저 이메일을 등록해주세요"
     },
     "identity.cannot_recover.email_unbind": {
         "zh-Hans": "请先绑定一个手机号码或Apple账号，否则账号无法找回",
         "zh-Hant": "請先綁定一個手機號碼或Apple帳號，否則帳號無法找回",
-        "en": "Please link a mobile phone number or an apple account first, otherwise the account cannot be recovered"
+        "en": "Please link a mobile phone number or an apple account first, otherwise the account cannot be recovered",
+        "ko": "휴대폰 번호 또는 Apple 계정을 먼저 연결해야 계정을 복구할 수 있습니다"
     },
 
     "identity.no_permission.internal_backend": {
         "zh-Hans": "无访问权限",
         "zh-Hant": "無訪問權限",
-        "en": "No access permission"
+        "en": "No access permission",
+        "ko": "접근 권한이 없습니다"
     },
 # 地区
     "region.not_found": {
         "zh-Hans": "地区不存在",
         "zh-Hant": "地區不存在",
-        "en": "Region does not exist"
+        "en": "Region does not exist",
+        "ko": "지역이 존재하지 않습니다"
     },
     "region.data_error": {
         "zh-Hans": "地区数据错误",
         "zh-Hant": "地區數據錯誤",
-        "en": "Region data error"
+        "en": "Region data error",
+        "ko": "지역 데이터 오류"
     },
     "region.no_events": {
         "zh-Hans": "当前地区无赛事",
         "zh-Hant": "當前地區無賽事",
-        "en": "Currently no events in the region"
+        "en": "Currently no events in the region",
+        "ko": "현재 지역에 진행 중인 이벤트가 없습니다"
     },
 # 赛季
     "season.not_found": {
         "zh-Hans": "赛季不存在",
         "zh-Hant": "賽季不存在",
-        "en": "Season does not exist"
+        "en": "Season does not exist",
+        "ko": "시즌이 존재하지 않습니다"
     },
     "season.data_error": {
         "zh-Hans": "赛季数据错误",
         "zh-Hant": "賽季數據錯誤",
-        "en": "Season data error"
+        "en": "Season data error",
+        "ko": "시즌 데이터 오류"
     },
     "season.out_of_season": {
         "zh-Hans": "非赛季期",
         "zh-Hant": "非賽季期",
-        "en": "Off season"
+        "en": "Off season",
+        "ko": "시즌 기간이 아닙니다"
     },
 # 赛事
     "event.not_found": {
         "zh-Hans": "赛事不存在",
         "zh-Hant": "賽事不存在",
-        "en": "Event does not exist"
+        "en": "Event does not exist",
+        "ko": "이벤트가 존재하지 않습니다"
     },
     "event.invalid_time": {
         "zh-Hans": "赛事时间非法",
         "zh-Hant": "賽事時間非法",
-        "en": "Event time is illegal"
+        "en": "Event time is illegal",
+        "ko": "이벤트 시간이 올바르지 않습니다"
     },
 # 赛道
     "track.not_found": {
         "zh-Hans": "赛道不存在",
         "zh-Hant": "賽道不存在",
-        "en": "Track does not exist"
+        "en": "Track does not exist",
+        "ko": "트랙이 존재하지 않습니다"
     },
     "track.invalid_time": {
         "zh-Hans": "赛道时间非法",
         "zh-Hant": "賽道時間非法",
-        "en": "Invalid track time"
+        "en": "Invalid track time",
+        "ko": "트랙 시간이 올바르지 않습니다"
     },
     "track.data_error": {
         "zh-Hans": "赛道数据错误",
         "zh-Hant": "賽道數據錯誤",
-        "en": "Track data error"
+        "en": "Track data error",
+        "ko": "트랙 데이터 오류"
     },
     "track.not_started": {
         "zh-Hans": "赛道尚未开放",
         "zh-Hant": "賽道尚未開放",
-        "en": "Track is not open yet"
+        "en": "Track is not open yet",
+        "ko": "트랙이 아직 시작되지 않았습니다"
     },
     "track.is_finished": {
         "zh-Hans": "赛道已关闭",
         "zh-Hant": "賽道已關閉",
-        "en": "Track is closed"
+        "en": "Track is closed",
+        "ko": "트랙이 종료되었습니다"
     },
     "track.is_finished.cancel_register": {
         "zh-Hans": "赛道已关闭，无法取消",
         "zh-Hant": "賽道已關閉，無法取消",
-        "en": "Track is closed, cannot cancel"
+        "en": "Track is closed, cannot cancel",
+        "ko": "트랙이 종료되어 취소할 수 없습니다"
     },
 # 记录
     "record.not_found": {
         "zh-Hans": "记录不存在",
         "zh-Hant": "記錄不存在",
-        "en": "Record does not exist"
+        "en": "Record does not exist",
+        "ko": "기록이 존재하지 않습니다"
     },
     "record.op_failed": {
         "zh-Hans": "操作失败",
         "zh-Hant": "操作失敗",
-        "en": "Operation failed"
+        "en": "Operation failed",
+        "ko": "작업 실패"
     },
     "record.data_error.leaderboard_update": {
         "zh-Hans": "排行榜写入失败",
         "zh-Hant": "排行榜寫入失敗",
-        "en": "Leaderboard writing failed"
+        "en": "Leaderboard writing failed",
+        "ko": "리더보드 저장 실패"
     },
     "record.invalid_time": {
         "zh-Hans": "比赛时间非法",
         "zh-Hant": "比賽時間非法",
-        "en": "Game time is illegal"
+        "en": "Game time is illegal",
+        "ko": "경기 시간이 올바르지 않습니다"
     },
     "record.invalid.too_short": {
         "zh-Hans": "记录过短，无法保存",
         "zh-Hant": "記錄過短，無法保存",
-        "en": "Record is too short to save"
+        "en": "Record is too short to save",
+        "ko": "기록이 너무 짧아 저장할 수 없습니다"
     },
 
     "record.status_error.cancel_register": {
         "zh-Hans": "记录状态错误，无法取消",
         "zh-Hant": "記錄狀態錯誤，無法取消",
-        "en": "Record status error, cannot be cancelled"
+        "en": "Record status error, cannot be cancelled",
+        "ko": "기록 상태 오류로 취소할 수 없습니다"
     },
     "record.status_error.start_match": {
         "zh-Hans": "记录状态错误，无法开始比赛",
         "zh-Hant": "記錄狀態錯誤，無法開始比賽",
-        "en": "Record status error, cannot start competition"
+        "en": "Record status error, cannot start competition",
+        "ko": "기록 상태 오류로 경기를 시작할 수 없습니다"
     },
     "record.status_error.finish_match": {
         "zh-Hans": "记录状态错误，无法结束比赛",
         "zh-Hant": "記錄狀態錯誤，無法結束比賽",
-        "en": "Record status error, cannot finish competition"
+        "en": "Record status error, cannot finish competition",
+        "ko": "기록 상태 오류로 경기를 종료할 수 없습니다"
     },
 
 # 队伍
     "team.not_found": {
         "zh-Hans": "队伍不存在",
         "zh-Hant": "隊伍不存在",
-        "en": "Team does not exist"
+        "en": "Team does not exist",
+        "ko": "팀이 존재하지 않습니다"
     },
     "team.data_error": {
         "zh-Hans": "队伍数据错误",
         "zh-Hant": "隊伍數據錯誤",
-        "en": "Team data error"
+        "en": "Team data error",
+        "ko": "팀 데이터 오류"
     },
     "team.op_failed.manage_team": {
         "zh-Hans": "操作失败",
         "zh-Hant": "操作失敗",
-        "en": "Operation failed"
+        "en": "Operation failed",
+        "ko": "작업 실패"
     },
 
     "team.invalid_match_time": {
         "zh-Hans": "比赛时间不合法",
         "zh-Hant": "比賽時間不合法",
-        "en": "The match time was illegal"
+        "en": "The match time was illegal",
+        "ko": "경기 시간이 올바르지 않습니다"
     },
     "team.out_of_match_time": {
         "zh-Hans": "不在队伍的有效比赛时间内",
         "zh-Hant": "不在隊伍的有效比賽時間內",
-        "en": "Outside of team's valid match time"
+        "en": "Outside of team's valid match time",
+        "ko": "팀의 유효 경기 시간 범위를 벗어났습니다"
     },
     "team.out_of_match_window": {
         "zh-Hans": "不在队伍的比赛窗口期内，无法加入",
         "zh-Hant": "不在隊伍的比賽窗口期內，無法加入",
-        "en": "Cannot join, you are not in the team's match window"
+        "en": "Cannot join, you are not in the team's match window",
+        "ko": "팀의 경기 참여 시간대가 아니므로 참가할 수 없습니다"
     },
 
     "team.member_not_enough": {
         "zh-Hans": "队伍至少需要 2 名成员哦",
         "zh-Hant": "隊伍至少需要 2 名成員哦",
-        "en": "Team must have at least 2 members"
+        "en": "Team must have at least 2 members",
+        "ko": "팀은 최소 2명 이상의 멤버가 필요합니다"
     },
     "team.member_fulled": {
         "zh-Hans": "队伍已满",
         "zh-Hant": "隊伍已滿",
-        "en": "The team is full"
+        "en": "The team is full",
+        "ko": "팀 인원이 가득 찼습니다"
     },
     "team.already_in_members": {
         "zh-Hans": "你已在队伍中",
         "zh-Hant": "你已在隊伍中",
-        "en": "You are already in the team"
+        "en": "You are already in the team",
+        "ko": "이미 팀에 속해 있습니다"
     },
     "team.not_in_members": {
         "zh-Hans": "你不在队伍中",
         "zh-Hant": "你不在隊伍中",
-        "en": "You are not in the team"
+        "en": "You are not in the team",
+        "ko": "팀에 속해 있지 않습니다"
     },
     "team.not_in_members.manage_team": {
         "zh-Hans": "用户不在队伍中",
         "zh-Hant": "用戶不在隊伍中",
-        "en": "User is not in the team"
+        "en": "User is not in the team",
+        "ko": "해당 사용자는 팀에 속해 있지 않습니다"
     },
     "team.already_in_applied_members": {
         "zh-Hans": "你已在申请列表中",
         "zh-Hant": "你已在申請列表中",
-        "en": "You are already on the application list"
+        "en": "You are already on the application list",
+        "ko": "이미 신청 목록에 있습니다"
     },
     "team.not_in_applied_members": {
         "zh-Hans": "你不在申请列表中",
         "zh-Hant": "你不在申請列表中",
-        "en": "You are not on the application list"
+        "en": "You are not on the application list",
+        "ko": "신청 목록에 없습니다"
     },
     "team.not_in_applied_members.manage_team": {
         "zh-Hans": "用户不在申请列表中",
         "zh-Hant": "用戶不在申請列表中",
-        "en": "User is not on the application list"
+        "en": "User is not on the application list",
+        "ko": "해당 사용자는 신청 목록에 없습니다"
     },
     "team.is_registered.quit_team": {
         "zh-Hans": "请先取消报名",
         "zh-Hant": "請先取消報名",
-        "en": "Please cancel your registration first"
+        "en": "Please cancel your registration first",
+        "ko": "먼저 참가 신청을 취소해주세요"
     },
     "team.repeat_register": {
         "zh-Hans": "请勿重复报名",
         "zh-Hant": "請勿重複報名",
-        "en": "Please do not register repeatedly"
+        "en": "Please do not register repeatedly",
+        "ko": "중복으로 신청할 수 없습니다"
     },
     "team.repeat_cancel_register": {
         "zh-Hans": "请勿重复取消",
         "zh-Hant": "請勿重複取消",
-        "en": "Please do not cancel repeatedly"
+        "en": "Please do not cancel repeatedly",
+        "ko": "중복으로 취소할 수 없습니다"
     },
     "team.not_all_registered.manage_team": {
         "zh-Hans": "队伍中存在未报名成员",
         "zh-Hant": "隊伍中存在未報名成員",
-        "en": "There are members in the team who did not register"
+        "en": "There are members in the team who did not register",
+        "ko": "팀 내에 아직 신청하지 않은 멤버가 있습니다"
     },
     "team.not_all_settled.manage_team": {
         "zh-Hans": "队伍中存在待审核成员",
         "zh-Hant": "隊伍中存在待審核成員",
-        "en": "There are members in the team whose applications are pending review"
+        "en": "There are members in the team whose applications are pending review",
+        "ko": "팀 내에 아직 검토 중인 멤버가 있습니다"
     },
     "team.is_leader.quit_team": {
         "zh-Hans": "你是队长，无法退出",
         "zh-Hant": "你是隊長，無法退出",
-        "en": "You cannot quit as a team leader"
+        "en": "You cannot quit as a team leader",
+        "ko": "팀장은 탈퇴할 수 없습니다"
     },
 
     "team.status_error": {
         "zh-Hans": "队伍状态错误",
         "zh-Hant": "隊伍狀態錯誤",
-        "en": "Team status error"
+        "en": "Team status error",
+        "ko": "팀 상태 오류"
     },
     "team.status_error.enter_match": {
         "zh-Hans": "队伍未处于比赛状态，无法开始",
         "zh-Hant": "隊伍未處於比賽狀態，無法開始",
-        "en": "Game is not in ready-for-match status, cannot start"
+        "en": "Game is not in ready-for-match status, cannot start",
+        "ko": "팀이 경기 시작 상태가 아니므로 시작할 수 없습니다"
     },
     "team.status_not_prepared.join_team": {
         "zh-Hans": "队伍未处于准备状态，不可加入",
         "zh-Hant": "隊伍未處於準備狀態，不可加入",
-        "en": "Team is not in prepared status, cannot join"
+        "en": "Team is not in prepared status, cannot join",
+        "ko": "팀이 준비 상태가 아니므로 참가할 수 없습니다"
     },
     "team.status_not_prepared.manage_team": {
         "zh-Hans": "队伍已锁定，不可修改",
         "zh-Hant": "隊伍已鎖定，不可修改",
-        "en": "Team is locked and cannot be changed"
+        "en": "Team is locked and cannot be changed",
+        "ko": "팀이 잠겨 있어 수정할 수 없습니다"
     },
     "team.status_not_locked": {
         "zh-Hans": "队伍未处于锁定状态",
         "zh-Hant": "隊伍未處於鎖定狀態",
-        "en": "Team is not locked"
+        "en": "Team is not locked",
+        "ko": "팀이 잠금 상태가 아닙니다"
     },
     "team.status_not_ready": {
         "zh-Hans": "队伍未处于就绪状态",
         "zh-Hant": "隊伍未處於就緒狀態",
-        "en": "Team is not ready"
+        "en": "Team is not ready",
+        "ko": "팀이 준비 상태가 아닙니다"
     },
     "team.status_on_recording": {
         "zh-Hans": "比赛进行中",
         "zh-Hant": "比賽進行中",
-        "en": "Game is in progress"
+        "en": "Game is in progress",
+        "ko": "경기가 진행 중입니다"
     },
     "team.status_expired": {
         "zh-Hans": "队伍已过期",
         "zh-Hant": "隊伍已過期",
-        "en": "Team has expired"
+        "en": "Team has expired",
+        "ko": "팀이 만료되었습니다"
     },
     "team.match_recording.quit_team": {
         "zh-Hans": "比赛进行中，无法退出",
         "zh-Hant": "比賽進行中，無法退出",
-        "en": "Game is in progress, cannot quit"
+        "en": "Game is in progress, cannot quit",
+        "ko": "경기 진행 중에는 탈퇴할 수 없습니다"
     },
     "team.match_recording.cancel_register": {
         "zh-Hans": "比赛进行中，无法取消",
         "zh-Hant": "比賽進行中，無法取消",
-        "en": "Game is in progress, cannot cancel"
+        "en": "Game is in progress, cannot cancel",
+        "ko": "경기 진행 중에는 취소할 수 없습니다"
     },
     "team.match_recording.manage_team": {
         "zh-Hans": "队伍处于比赛状态，无法修改",
         "zh-Hant": "隊伍處於比賽狀態，無法修改",
-        "en": "Game is in ready-for-match status, cannot be changed"
+        "en": "Game is in ready-for-match status, cannot be changed",
+        "ko": "팀이 경기 상태이므로 수정할 수 없습니다"
     },
     
 
@@ -502,118 +580,140 @@ ERROR_MESSAGES = {
     "asset.data_error": {
         "zh-Hans": "资产数据错误",
         "zh-Hant": "資產數據錯誤",
-        "en": "Asset data error"
+        "en": "Asset data error",
+        "ko": "자산 데이터 오류"
     },
     "asset.not_found": {
         "zh-Hans": "资产不存在",
         "zh-Hant": "資產不存在",
-        "en": "Asset does not exist"
+        "en": "Asset does not exist",
+        "ko": "자산이 존재하지 않습니다"
     },
     "asset.not_enough": {
         "zh-Hans": "{asset_type}不足",
         "zh-Hant": "{asset_type}不足",
-        "en": "Not enough {asset_type}s"
+        "en": "Not enough {asset_type}s",
+        "ko": "{asset_type}이(가) 부족합니다"
     },
     "asset.off_shelves": {
         "zh-Hans": "资产已下架",
         "zh-Hant": "資產已下架",
-        "en": "Asset has been delisted"
+        "en": "Asset has been delisted",
+        "ko": "자산이 판매 중단되었습니다"
     },
     "asset.upgrade_failed": {
-        "zh-Hans": "asset.upgrade_failed",
+        "zh-Hans": "升级失败",
         "zh-Hant": "升級失敗",
-        "en": "Upgrade failed"
+        "en": "Upgrade failed",
+        "ko": "업그레이드 실패"
     },
 
     "ccasset.coin": {
         "zh-Hans": "金币",
         "zh-Hant": "金幣",
-        "en": "gold coin"
+        "en": "gold coin",
+        "ko": "코인"
     },
     "ccasset.coupon": {
         "zh-Hans": "点券",
         "zh-Hant": "點券",
-        "en": "point"
+        "en": "point",
+        "ko": "포인트"
     },
     "ccasset.voucher": {
         "zh-Hans": "金券",
         "zh-Hant": "金券",
-        "en": "gold point"
+        "en": "gold point",
+        "ko": "바우처"
     },
     "ccasset.stone1": {
         "zh-Hans": "升级材料",
         "zh-Hant": "升級材料",
-        "en": "Upgrade material"
+        "en": "Upgrade material",
+        "ko": "업그레이드 재료"
     },
     "ccasset.stone2": {
         "zh-Hans": "升级材料",
         "zh-Hant": "升級材料",
-        "en": "Upgrade material"
+        "en": "Upgrade material",
+        "ko": "업그레이드 재료"
     },
     "ccasset.stone3": {
         "zh-Hans": "升级材料",
         "zh-Hant": "升級材料",
-        "en": "Upgrade material"
+        "en": "Upgrade material",
+        "ko": "업그레이드 재료"
     },
     "cpasset.team_card": {
         "zh-Hans": "组队卡",
         "zh-Hant": "組隊卡",
-        "en": "team card"
+        "en": "team card",
+        "ko": "팀 카드"
     },
     "cpasset.registration_card": {
         "zh-Hans": "报名卡",
         "zh-Hant": "報名卡",
-        "en": "registration card"
+        "en": "registration card",
+        "ko": "참가 카드"
     },
 # 排行榜
     "leaderboard.expired": {
         "zh-Hans": "排行榜数据已过期,请刷新",
         "zh-Hant": "排行榜數據已過期，請刷新",
-        "en": "The leaderboard data has expired, please refresh"
+        "en": "The leaderboard data has expired, please refresh",
+        "ko": "리더보드 데이터가 만료되었습니다. 새로고침해주세요"
     },
 # 邮件
     "mail.not_found": {
         "zh-Hans": "邮件不存在",
         "zh-Hant": "郵件不存在",
-        "en": "Email does not exist"
+        "en": "Email does not exist",
+        "ko": "메일이 존재하지 않습니다"
     },
 # IAP
     "iap_subscription.verify_failed.purchase": {
         "zh-Hans": "订阅校验失败，请及时反馈",
         "zh-Hant": "訂閱校驗失敗，請及時反饋",
-        "en": "Subscription verification failed, please provide feedback promptly"
+        "en": "Subscription verification failed, please provide feedback promptly",
+        "ko": "구독 검증 실패, 문의해주세요"
     },
     "iap_coupon.verify_failed.purchase": {
         "zh-Hans": "购买校验失败，请及时反馈",
         "zh-Hant": "購買校驗失敗，請及時反饋",
-        "en": "Purchase verification failed, please provide feedback promptly"
+        "en": "Purchase verification failed, please provide feedback promptly",
+        "ko": "구매 검증 실패, 문의해주세요"
     },
 # 反馈
     "feedback.submission_failed": {
         "zh-Hans": "提交失败，请重试",
         "zh-Hant": "提交失敗，請重識",
-        "en": "Submission failed, please try again."
+        "en": "Submission failed, please try again.",
+        "ko": "제출 실패, 다시 시도해주세요"
     },
 # 奖励领取
     "reward.expired.mail": {
         "zh-Hans": "奖励过期啦，下次记得早点领哦",
         "zh-Hant": "獎勵過期啦，下次記得早點領喔",
-        "en": "The reward has expired, remember to claim it earlier next time"
+        "en": "The reward has expired, remember to claim it earlier next time",
+        "ko": "보상이 만료되었습니다. 다음에는 더 빨리 수령해주세요"
     },
     "reward.data_error": {
         "zh-Hans": "领取失败",
         "zh-Hant": "領取失敗",
-        "en": "Failed to claim"
+        "en": "Failed to claim",
+        "ko": "보상 수령 실패"
     },
     "reward.no_auth.sign_in": {
         "zh-Hans": "您还不是订阅会员哦",
         "zh-Hant": "您還不是訂閱會員喔",
-        "en": "You are not a subscriber yet"
+        "en": "You are not a subscriber yet",
+        "ko": "아직 구독 회원이 아닙니다"
     },
     "reward.repeat_claimed": {
         "zh-Hans": "请勿重复领取",
         "zh-Hant": "請勿重複領取",
-        "en": "Please do not claim it repeatedly"
+        "en": "Please do not claim it repeatedly",
+        "ko": "이미 수령한 보상입니다"
     },
 # 三方服务
     "sms.too_frequent": {
