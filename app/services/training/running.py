@@ -154,7 +154,7 @@ async def apply_training_rewards(
         db.add(new_state)
     else:
         current_state = state.current_value
-        today = get_user_local_date(user)
+        today = get_user_local_date(user, info.end_time)
         today_state = await get_training_state_daily_by_user_date(db, user.id, today)
         already = today_state.delta if today_state else 0
         remaining = max(0, 20 - already)        # 每日上限为 20
@@ -164,7 +164,7 @@ async def apply_training_rewards(
         state_value = new_value - current_state
         state.current_value = new_value
         state.last_training_at = info.end_time
-    await add_or_update_daily_training_states(db, user.id, get_user_local_date(user, info.end_time), state_value, new_value)
+    await add_or_update_daily_training_states(db, user.id, today, state_value, new_value)
 
     return current_xp, xp, current_state, state_value
 
@@ -302,7 +302,8 @@ async def update_grid_familiarity(
     first_point = path[0]
     region = await get_region_by_coordinate(db, first_point.base.lat, first_point.base.lon)
     if not region:
-        raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
+        return
+        #raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
 
     coordinates = []
     for p in path:
