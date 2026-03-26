@@ -144,6 +144,7 @@ async def apply_training_rewards(
 
     current_state = 0
     new_value = min(20, state_value)
+    finish_date = get_user_local_date(user, info.end_time)
     if not state:
         new_state = UserTrainingStateBike(
             user_id = user.id,
@@ -154,8 +155,7 @@ async def apply_training_rewards(
         db.add(new_state)
     else:
         current_state = state.current_value
-        today = get_user_local_date(user, info.end_time)
-        today_state = await get_training_state_daily_by_user_date(db, user.id, today)
+        today_state = await get_training_state_daily_by_user_date(db, user.id, finish_date)
         already = today_state.delta if today_state else 0
         remaining = max(0, 20 - already)        # 每日上限为 20
         state_value = min(remaining, state_value)
@@ -164,7 +164,7 @@ async def apply_training_rewards(
         state_value = new_value - current_state
         state.current_value = new_value
         state.last_training_at = info.end_time
-    await add_or_update_daily_training_states(db, user.id, today, state_value, new_value)
+    await add_or_update_daily_training_states(db, user.id, finish_date, state_value, new_value)
 
     return current_xp, xp, current_state, state_value
 
