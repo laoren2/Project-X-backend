@@ -30,7 +30,7 @@ from alibabacloud_tea_openapi import models as open_api_models
 from alibabacloud_tea_util.client import Client as UtilClient
 from app.services.app_store_api_tool import query_user_subscroption_status
 from jwt import PyJWKClient
-from datetime import datetime, timedelta, timezone, date
+from datetime import datetime, timedelta, timezone, date, UTC
 from app.db.session import redis_client
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
@@ -90,9 +90,10 @@ async def login_or_register(db: AsyncSession, phone_number: str, timezone: str):
             isRegister = True
             await distribute_newcomer_gift(db, user.id)
         else:
+            user.timezone = timezone
             if user.status == UserStatus.banned:
                 ban_history = await get_banned_history_by_user_id(db, user.id)
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 if ban_history and ban_history.unban_time <= now:
                     # 自动解封
                     user.status = UserStatus.normal
@@ -129,9 +130,10 @@ async def login_or_register_apple(db: AsyncSession, apple_id: str, email: str, t
             is_register = True
             await distribute_newcomer_gift(db, user.id)
         else:
+            user.timezone = timezone
             if user.status == UserStatus.banned:
                 ban_history = await get_banned_history_by_user_id(db, user.id)
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 if ban_history and ban_history.unban_time <= now:
                     # 自动解封
                     user.status = UserStatus.normal
@@ -168,9 +170,10 @@ async def login_or_register_email(db: AsyncSession, email_address: str, timezone
             isRegister = True
             await distribute_newcomer_gift(db, user.id)
         else:
+            user.timezone = timezone
             if user.status == UserStatus.banned:
                 ban_history = await get_banned_history_by_user_id(db, user.id)
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 if ban_history and ban_history.unban_time <= now:
                     # 自动解封
                     user.status = UserStatus.normal
