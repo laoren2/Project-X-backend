@@ -66,9 +66,9 @@ async def create_event(
     if event_image:
         event_folder = Path("resources/competition/bike/event") / new_event_id
         event_folder.mkdir(parents=True, exist_ok=True)
-        for file in event_folder.glob("background_*.jpg"):
+        for file in event_folder.glob("background_*.png"):
             file.unlink(missing_ok=True)
-        background_path = event_folder / f"background_{int(datetime.now().timestamp())}.jpg"
+        background_path = event_folder / f"background_{int(datetime.now().timestamp())}.png"
         contents = await event_image.read()
         if len(contents) > 2 * 1024 * 1024:  # 超过 2MB
             raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
@@ -97,9 +97,9 @@ async def update_event(
     if event_image:
         event_folder = Path("resources/competition/bike/event") / event.event_id
         event_folder.mkdir(parents=True, exist_ok=True)
-        for file in event_folder.glob("background_*.jpg"):
+        for file in event_folder.glob("background_*.png"):
             file.unlink(missing_ok=True)
-        bg_path = event_folder / f"background_{int(datetime.now().timestamp())}.jpg"
+        bg_path = event_folder / f"background_{int(datetime.now().timestamp())}.png"
         contents = await event_image.read()
         if len(contents) > 2 * 1024 * 1024:  # 超过 2MB
             raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
@@ -146,9 +146,9 @@ async def create_track(
     if track_image:
         track_folder = Path("resources/competition/bike/track") / new_track_id
         track_folder.mkdir(parents=True, exist_ok=True)
-        for file in track_folder.glob("background_*.jpg"):
+        for file in track_folder.glob("background_*.png"):
             file.unlink(missing_ok=True)
-        background_path = track_folder / f"background_{int(datetime.now().timestamp())}.jpg"
+        background_path = track_folder / f"background_{int(datetime.now().timestamp())}.png"
         contents = await track_image.read()
         if len(contents) > 2 * 1024 * 1024:  # 超过 2MB
             raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
@@ -172,9 +172,9 @@ async def update_track(
     if track_image:
         track_folder = Path("resources/competition/bike/track") / track.track_id
         track_folder.mkdir(parents=True, exist_ok=True)
-        for file in track_folder.glob("background_*.jpg"):
+        for file in track_folder.glob("background_*.png"):
             file.unlink(missing_ok=True)
-        bg_path = track_folder / f"background_{int(datetime.now().timestamp())}.jpg"
+        bg_path = track_folder / f"background_{int(datetime.now().timestamp())}.png"
         contents = await track_image.read()
         if len(contents) > 2 * 1024 * 1024:  # 超过 2MB
             raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
