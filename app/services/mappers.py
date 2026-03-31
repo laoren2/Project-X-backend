@@ -2,6 +2,7 @@ from app.db.models.asset import UserEquipmentCard
 from app.schemas.common import EquipCardBaseInfo
 from app.schemas.base import BizException, Language, pick_i18n_text
 from app.core.errors import ErrorCode
+from app.core.storage import build_resource_url
 
 
 def equip_card_to_base_info(card: UserEquipmentCard, lang: Language) -> EquipCardBaseInfo | None:
@@ -17,7 +18,7 @@ def equip_card_to_base_info(card: UserEquipmentCard, lang: Language) -> EquipCar
         levelSkill1=card.skill1_level,
         levelSkill2=card.skill2_level,
         levelSkill3=card.skill3_level,
-        image_url=card_def.image_url,
+        image_url=build_resource_url(card_def.image_url),
         lucky=card.lucky_value,
         rarity=card_def.rarity,
         description=pick_i18n_text(card_def.description_i18n, lang),
