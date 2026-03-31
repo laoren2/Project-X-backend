@@ -18,6 +18,7 @@ from app.services.user_follow import get_relation_count, get_relationship_servic
 from app.services.common import upload_to_oss
 from app.api.deps import get_current_user, get_language, Language
 from app.core.errors import ErrorCode
+from app.core.storage import build_resource_url
 from app.schemas import user as schemas_user
 from app.schemas.common import PersonInfoResponse, CCAssetBaseInfo, PersonInfoResponseList
 from app.schemas.base import BaseResponse, BizException
@@ -40,7 +41,7 @@ async def get_anyone_card(
     users = await get_users_by_name(db, nick_name, page, size)
     result = [PersonInfoResponse(
         user_id=user.user_id,
-        avatar_image_url=user.avatar_image_url,
+        avatar_image_url=build_resource_url(user.avatar_image_url),
         nickname=user.nickname
     ) for user in users]
     return BaseResponse.success(message="成功获取用户信息卡片", data=PersonInfoResponseList(users=result))
