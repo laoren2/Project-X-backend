@@ -1162,7 +1162,7 @@ async def query_leaderboard_in_page(
             record_id=record_id,
             user_info=PersonInfoResponse(
                 user_id=user_id,
-                avatar_image_url=user.avatar_image_url if user else "/resources/placeholder/avatar.jpg",
+                avatar_image_url=build_resource_url(user.avatar_image_url if user else "/resources/placeholder/avatar.jpg"),
                 nickname=user.nickname if user else "未知"
             ),
             duration_seconds=duration_seconds,
@@ -1194,7 +1194,7 @@ async def query_leaderboard_history_in_page(
             record_id=record.record.record_id,
             user_info=PersonInfoResponse(
                 user_id=record.user.user_id,
-                avatar_image_url=record.user.avatar_image_url,
+                avatar_image_url=build_resource_url(record.user.avatar_image_url),
                 nickname=record.user.nickname
             ),
             duration_seconds=record.duration_seconds,
@@ -1222,7 +1222,7 @@ async def get_score_leaderboard_service(
             rank=rank,
             user_info=PersonInfoResponse(
                 user_id=score.user.user_id,
-                avatar_image_url=score.user.avatar_image_url,
+                avatar_image_url=build_resource_url(score.user.avatar_image_url),
                 nickname=score.user.nickname
             ),
             score=score.score
@@ -2030,7 +2030,11 @@ async def get_record_detail_service(db: AsyncSession, lang: Language, record_id:
         member_records = await get_records_by_team_id(db, record.team_id)
         for member_record in member_records:
             team_member_scores_list.append(MemberScoreInfo(
-                user_info=PersonInfoResponse(user_id=member_record.user.user_id, avatar_image_url=member_record.user.avatar_image_url, nickname=member_record.user.nickname),
+                user_info=PersonInfoResponse(
+                    user_id=member_record.user.user_id,
+                    avatar_image_url=build_resource_url(member_record.user.avatar_image_url),
+                    nickname=member_record.user.nickname
+                ),
                 status=member_record.status, final_time=member_record.duration_seconds))
     
     # 构建CardBonusInfo列表
@@ -2165,7 +2169,7 @@ async def query_daily_task_status_service(db: AsyncSession, user_id: str) -> Dai
             reward_stage2_type=task.reward_stage2_type,
             reward_stage2=task.reward_stage2,
             is_reward2_received=task_record.is_reward2_received if task_record else False,
-            reward_stage3_url=cpasset_def.image_url,
+            reward_stage3_url=build_resource_url(cpasset_def.image_url),
             is_reward3_received=task_record.is_reward3_received if task_record else False,
             progress=task_record.progress if task_record else 0
         ) if cpasset_def else None

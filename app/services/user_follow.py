@@ -4,6 +4,7 @@ from app.schemas.user import UserRelationInfo, UserStatus
 from app.schemas.base import BizException
 from app.schemas.user_follow import PersonInfoResponse
 from app.core.errors import ErrorCode
+from app.core.storage import build_resource_url
 from sqlalchemy.ext.asyncio import AsyncSession
 
 async def get_relation_count(db: AsyncSession, user_id):
@@ -69,7 +70,7 @@ async def get_following_list(db: AsyncSession, user_id, limit=20, cursor_created
     items = [
         PersonInfoResponse(
             user_id=user.user_id,
-            avatar_image_url=user.avatar_image_url,
+            avatar_image_url=build_resource_url(user.avatar_image_url),
             nickname=user.nickname
         ) for user in users
     ]
@@ -90,7 +91,7 @@ async def get_follower_list(db: AsyncSession, user_id, limit=20, cursor_created_
     items = [
         PersonInfoResponse(
             user_id=user.user_id,
-            avatar_image_url=user.avatar_image_url,
+            avatar_image_url=build_resource_url(user.avatar_image_url),
             nickname=user.nickname
         ) for user in users
     ]
@@ -111,7 +112,7 @@ async def get_friend_list(db: AsyncSession, user_id, limit=20, cursor_created_at
     items = [
         PersonInfoResponse(
             user_id=user.user_id,
-            avatar_image_url=user.avatar_image_url,
+            avatar_image_url=build_resource_url(user.avatar_image_url),
             nickname=user.nickname
         ) for user in users
     ]

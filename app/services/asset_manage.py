@@ -172,7 +172,7 @@ async def get_user_cpasset(db: AsyncSession, user_id: str, asset_id: str, lang: 
         asset_id=cpasset_def.asset_id,
         name=pick_i18n_text(cpasset_def.name_i18n, lang),
         description=pick_i18n_text(cpasset_def.description_i18n, lang),
-        image_url=cpasset_def.image_url,
+        image_url=build_resource_url(cpasset_def.image_url),
         amount=cpasset.balance
     )
     return result
@@ -193,7 +193,7 @@ async def get_user_cpassets(db: AsyncSession, user_id: str, lang: Language) -> C
                     asset_id=prop_def.asset_id,
                     name=pick_i18n_text(prop_def.name_i18n, lang),
                     description=pick_i18n_text(prop_def.description_i18n, lang),
-                    image_url=prop_def.image_url,
+                    image_url=build_resource_url(prop_def.image_url),
                     amount=asset.balance
                 )
             )
@@ -581,7 +581,7 @@ async def buy_equip_card_use_ccasset(
             levelSkill1=equip_card.skill1_level,
             levelSkill2=equip_card.skill2_level,
             levelSkill3=equip_card.skill3_level,
-            image_url=card_def.image_url,
+            image_url=build_resource_url(card_def.image_url),
             lucky=equip_card.lucky_value,
             rarity=card_def.rarity,
             description=pick_i18n_text(card_def.description_i18n, lang),
