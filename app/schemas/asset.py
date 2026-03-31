@@ -1,9 +1,10 @@
 from typing import Optional, List, Any
 from app.schemas.base import ORMBase
 from app.schemas.common import CPAssetBaseInfo, EquipCardBaseInfo, SportType, CCAssetType, CCAssetBaseInfo
+from app.core.storage import build_resource_url
 from enum import Enum
 from fastapi import Form
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class CPAssetType(str, Enum):
@@ -242,6 +243,12 @@ class EquipCardDefInfo(ORMBase):
     #type_name: str
     tags: List[str]
     effect_config: dict[str, Any]
+
+    @field_validator("image_url", mode="after")
+    def build_avatar_url(cls, v):
+        if not v:
+            return v
+        return build_resource_url(v)
 
 class EquipCardDefResponse(BaseModel):
     defs: List[EquipCardDefInfo]

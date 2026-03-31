@@ -2,6 +2,7 @@ from app.schemas.base import BaseResponse, BizException
 from app.services.homepage import (
     update_announcements_service, create_banner_ad_service
 )
+from app.services.common import upload_to_oss
 from app.schemas.homepage import (
     AnnouncementUpdateForm, AdCreateForm
 )
@@ -51,14 +52,10 @@ async def create_banner_ad(
     max_size = 0.5 * 1024 * 1024
     if len(content_hans) > max_size or len(content_hant) > max_size or len(content_en) > max_size or len(content_ko) > max_size:  # 超过 512KB
         raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
-    with hans_path.open("wb") as f:
-        f.write(content_hans)
-    with hant_path.open("wb") as f:
-        f.write(content_hant)
-    with en_path.open("wb") as f:
-        f.write(content_en)
-    with ko_path.open("wb") as f:
-        f.write(content_ko)
+    await upload_to_oss(str(hans_path), content_hans)
+    await upload_to_oss(str(hant_path), content_hant)
+    await upload_to_oss(str(en_path), content_en)
+    await upload_to_oss(str(ko_path), content_ko)
     url_hans = f"/resources/homepage/banner/{hans_path.name}"
     url_hant = f"/resources/homepage/banner/{hant_path.name}"
     url_en = f"/resources/homepage/banner/{en_path.name}"

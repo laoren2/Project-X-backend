@@ -4,6 +4,7 @@ from app.services.mailbox import (
     get_mail_unread_status_service, get_mails_service, get_mail_detail_service,
     receive_mail_rewards_service, commit_feedback_service
 )
+from app.services.common import upload_to_oss
 from app.schemas.mailbox import (
     MailUnreadStatusResponse, MailDetailResponse, MailInfoResponse, MailCreateForm,
     FeedbackMailCreateForm
@@ -76,8 +77,7 @@ async def commit_feedback(
         content1 = await image1.read()
         if len(content1) > 0.2 * 1024 * 1024:  # 超过 200KB
             raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
-        with path1.open("wb") as f:
-            f.write(content1)
+        await upload_to_oss(str(path1), content1)
         image_url1 = f"/resources/feedbacks/{feedback_id}/{path1.name}"
     if image2:
         feedback_folder.mkdir(parents=True, exist_ok=True)
@@ -85,8 +85,7 @@ async def commit_feedback(
         content2 = await image2.read()
         if len(content2) > 0.2 * 1024 * 1024:  # 超过 200KB
             raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
-        with path2.open("wb") as f:
-            f.write(content2)
+        await upload_to_oss(str(path2), content2)
         image_url2 = f"/resources/feedbacks/{feedback_id}/{path2.name}"
     
     await commit_feedback_service(form, image_url1, image_url2, auth.payload["user_id"], db)

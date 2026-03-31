@@ -283,7 +283,7 @@ async def get_me_info(db: AsyncSession, user_id: str, timezone: str | None) -> t
         return user_info, user.subscription_info.apple_original_transaction_id if user.subscription_info else None
 
 
-async def update_user_info(user_id: str, form: UserUpdateForm, avatar_url: str, background_url: str, db: AsyncSession):
+async def update_user_info(user_id: str, form: UserUpdateForm, avatar_url: str | None, background_url: str | None, db: AsyncSession):
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
@@ -293,8 +293,10 @@ async def update_user_info(user_id: str, form: UserUpdateForm, avatar_url: str, 
         user.nickname = form.nickname
         user.introduction = form.introduction
         user.location = form.location
-        user.avatar_image_url = avatar_url
-        user.background_image_url = background_url
+        if avatar_url:
+            user.avatar_image_url = avatar_url
+        if background_url:
+            user.background_image_url = background_url
         user.settings.is_display_gender = form.is_display_gender
         user.settings.is_display_age = form.is_display_age
         user.settings.is_display_location = form.is_display_location

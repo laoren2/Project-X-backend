@@ -1,4 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.storage import build_resource_url
 from app.crud.mailbox import (
     get_mail_unread_status, get_mails_curd, get_mail_by_mail_id,
     get_feedback_mails_curd, get_feedback_mail_by_mail_id
@@ -189,7 +190,7 @@ async def query_feedback_mails_service(
         mail_type=mail.mail_type,
         user_contact_info=mail.user_contact_info,
         content=mail.description,
-        images=mail.images,
+        images=[build_resource_url(image) for image in mail.images],
         is_handled=mail.is_handled,
         created_at=mail.created_at.isoformat()
     ) for mail in mails]

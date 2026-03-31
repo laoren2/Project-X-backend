@@ -28,6 +28,7 @@ from app.crud.asset_manage import (
 from app.crud.user import get_user_by_id, get_users_by_ids, get_users_by_user_ids, get_exist_user_by_id
 from app.core.errors import ErrorCode
 from app.core.tools import get_user_local_date
+from app.core.storage import build_resource_url
 from app.schemas.base import BizException, Language, pick_i18n_text
 from app.schemas.common import PersonInfoResponse, EquipCardBaseInfo, SportType, CCAssetType, CCAssetRewardResponse
 from app.schemas.mailbox import MailType
@@ -114,7 +115,7 @@ async def query_current_season_service(db: AsyncSession, lang: Language) -> Runn
         name=pick_i18n_text(season.name_i18n, lang),
         start_date=season.start_date.isoformat(),
         end_date=season.end_date.isoformat(),
-        image_url=season.image_url
+        image_url=build_resource_url(season.image_url)
     )
 
 async def get_history_seasons_service(db: AsyncSession, lang: Language) -> RunningHistorySeasonResponse:
@@ -217,7 +218,7 @@ async def query_events_service(
         end_date=e.end_date.isoformat(),
         season_name=e.season.name_i18n["zh-Hans"] if e.season is not None else "未知",
         region_name=e.region.name if e.region is not None else "未知",
-        image_url=e.image_url
+        image_url=build_resource_url(e.image_url)
     ) for e in events]
 
 
@@ -239,7 +240,7 @@ async def query_events_by_region(db: AsyncSession, lang: Language, region_id: st
         description=pick_i18n_text(e.description_i18n, lang),
         start_date=e.start_date.isoformat(),
         end_date=e.end_date.isoformat(),
-        image_url=e.image_url
+        image_url=build_resource_url(e.image_url)
     ) for e in events]
 
 
@@ -253,7 +254,7 @@ async def query_event_detail_service(db: AsyncSession, lang: Language, event_id:
         description=pick_i18n_text(event.description_i18n, lang),
         start_date=event.start_date.isoformat(),
         end_date=event.end_date.isoformat(),
-        image_url=event.image_url
+        image_url=build_resource_url(event.image_url)
     )
 
 
@@ -373,7 +374,7 @@ async def query_tracks_service(
         event_name=t.event.name_i18n["zh-Hans"] if t.event else "未知",
         season_name=t.event.season.name_i18n["zh-Hans"] if t.event and t.event.season else "未知",
         region_name=t.event.region.name if t.event and t.event.region else "未知",
-        image_url=t.image_url,
+        image_url=build_resource_url(t.image_url),
         from_latitude=str(t.from_lat),
         from_longitude=str(t.from_lng),
         from_radius=t.from_radius,
@@ -412,9 +413,9 @@ async def query_tracks_by_event(db: AsyncSession, lang: Language, event_id: str)
             name=pick_i18n_text(t.name_i18n, lang),
             start_date=t.start_date.isoformat(),
             end_date=t.end_date.isoformat(),
-            image_url=t.image_url,
-            single_register_card_url=t.single_register_card_def.image_url,
-            team_register_card_url=t.team_register_card_def.image_url,
+            image_url=build_resource_url(t.image_url),
+            single_register_card_url=build_resource_url(t.single_register_card_def.image_url),
+            team_register_card_url=build_resource_url(t.team_register_card_def.image_url),
             from_latitude=t.from_lat,
             from_longitude=t.from_lng,
             from_radius=t.from_radius,
@@ -1338,7 +1339,7 @@ async def get_public_teams_service(
                 team_id=t.team_id,
                 leader_id=leader_member.user.user_id,
                 leader_name=leader_member.user.nickname,
-                leader_avatar_url=leader_member.user.avatar_image_url,
+                leader_avatar_url=build_resource_url(leader_member.user.avatar_image_url),
                 title=t.title,
                 description=t.description,
                 member_count=len(t.members),
@@ -1376,7 +1377,7 @@ async def get_user_applied_teams(
                 team_id=t.team_id,
                 leader_id=leader.user_id,
                 leader_name=leader.nickname,
-                leader_avatar_url=leader.avatar_image_url,
+                leader_avatar_url=build_resource_url(leader.avatar_image_url),
                 title=t.title,
                 description=t.description,
                 member_count=len(t.members),
@@ -1409,7 +1410,7 @@ async def get_user_teams(
                 team_id=t.team_id,
                 leader_id=user_id,
                 leader_name=user.nickname,
-                leader_avatar_url=user.avatar_image_url,
+                leader_avatar_url=build_resource_url(user.avatar_image_url),
                 title=t.title,
                 member_count=len(t.members),
                 max_member_size=t.members_count_max,
@@ -1434,7 +1435,7 @@ async def get_user_teams(
                     team_id=t.team_id,
                     leader_id=leader.user_id,
                     leader_name=leader.nickname,
-                    leader_avatar_url=leader.avatar_image_url,
+                    leader_avatar_url=build_resource_url(leader.avatar_image_url),
                     title=t.title,
                     member_count=len(t.members),
                     max_member_size=t.members_count_max,
@@ -1460,7 +1461,7 @@ async def get_team_detail_service(db: AsyncSession, lang: Language, team_id: str
             member_id=m.member_id,
             user_id=m.user.user_id,
             nick_name=m.user.nickname if m.user else "未知",
-            avatar_url=m.user.avatar_image_url if m.user else "未知",
+            avatar_url=build_resource_url(m.user.avatar_image_url if m.user else "未知"),
             join_date=m.created_at.isoformat(),
             is_registered=m.is_registered,
             is_leader=m.is_leader
@@ -1502,7 +1503,7 @@ async def get_team_manage_service(db: AsyncSession, lang: Language, team_id: str
             member_id=m.member_id,
             user_id=m.user.user_id,
             nick_name=m.user.nickname if m.user else "未知",
-            avatar_url=m.user.avatar_image_url if m.user else "未知",
+            avatar_url=build_resource_url(m.user.avatar_image_url if m.user else "未知"),
             join_date=m.created_at.isoformat(),
             is_registered=m.is_registered,
             is_leader=m.is_leader
@@ -1514,7 +1515,7 @@ async def get_team_manage_service(db: AsyncSession, lang: Language, team_id: str
             member_id=m.member_id,
             user_id=m.user.user_id,
             nick_name=m.user.nickname if m.user else "未知",
-            avatar_url=m.user.avatar_image_url if m.user else "未知",
+            avatar_url=build_resource_url(m.user.avatar_image_url if m.user else "未知"),
             introduction=m.introduction,
             join_date=m.created_at.isoformat()
         )
@@ -1847,7 +1848,7 @@ async def remove_team_member_service(db: AsyncSession, user_id: str, team_id: st
             member_id=member.member_id,
             user_id=member.user.user_id,
             nick_name=member.user.nickname if member.user else "未知",
-            avatar_url=member.user.avatar_image_url if member.user else "未知",
+            avatar_url=build_resource_url(member.user.avatar_image_url if member.user else "未知"),
             join_date=member.created_at.isoformat(),
             is_registered=member.is_registered,
             is_leader=member.is_leader
@@ -1917,7 +1918,7 @@ async def approve_applied_request_service(db: AsyncSession, user_id: str, team_i
             member_id=member.member_id,
             user_id=member.user.user_id,
             nick_name=member.user.nickname if member.user else "未知",
-            avatar_url=member.user.avatar_image_url if member.user else "未知",
+            avatar_url=build_resource_url(member.user.avatar_image_url if member.user else "未知"),
             join_date=member.created_at.isoformat(),
             is_registered=member.is_registered,
             is_leader=member.is_leader

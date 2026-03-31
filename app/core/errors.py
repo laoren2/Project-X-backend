@@ -44,6 +44,7 @@ class ErrorCode:
     SMS_SERVICE_ERROR = 5001
     EMAIL_SERVICE_ERROR = 5002
     APPLE_SERVICE_ERROR = 5003
+    OSS_SERVICE_ERROR = 5004
 
     # 后台管理业务逻辑专属
     TABLE_NOT_FOUND = 6001
@@ -739,6 +740,12 @@ ERROR_MESSAGES = {
         "zh-Hant": "伺服器連線錯誤",
         "en": "Server connection error",
         "ko": "서버 연결 오류"
+    },
+    "oss.error.upload": {
+        "zh-Hans": "上传失败",
+        "zh-Hant": "上傳失敗",
+        "en": "Upload failed",
+        "ko": "업로드 실패"
     },
 # 系统
     "sys.unknown_error": {
