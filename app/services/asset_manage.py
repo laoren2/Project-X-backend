@@ -27,6 +27,7 @@ from app.schemas.asset import (
 from app.schemas.common import EquipCardBaseInfo, SportType, CCAssetType, CCAssetBaseInfo
 from app.services.mappers import equip_card_to_base_info
 from app.core.tools import auto_cast_fields
+from app.core.storage import build_resource_url
 from app.api.deps import Language
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -210,7 +211,7 @@ async def get_cpassets_on_shelves(db: AsyncSession, lang: Language) -> CPAssetsS
                     asset_id=prop_def.asset_id,
                     name=pick_i18n_text(prop_def.name_i18n, lang),
                     description=pick_i18n_text(prop_def.description_i18n, lang),
-                    image_url=prop_def.image_url,
+                    image_url=build_resource_url(prop_def.image_url),
                     ccasset_type=asset.ccasset_type,
                     price=asset.price
                 )
@@ -235,7 +236,7 @@ async def get_cpassets_in_shop(
                     asset_id=prop_def.asset_id,
                     name=prop_def.name_i18n,
                     description=prop_def.description_i18n,
-                    image_url=prop_def.image_url,
+                    image_url=build_resource_url(prop_def.image_url),
                     ccasset_type=asset.ccasset_type,
                     price=asset.price,
                     is_on_shelves=asset.is_on_shelves
@@ -272,7 +273,7 @@ async def query_cpasset_def_service(
             cpasset_type=item.prop_type,
             name=item.name_i18n,
             description=item.description_i18n,
-            image_url=item.image_url
+            image_url=build_resource_url(item.image_url)
         )
         for item in items
     ]
@@ -444,7 +445,7 @@ async def get_equip_cards_in_shop(
                 EquipCardShopInternalInfo(
                     def_id=card_def.def_id,
                     name=card_def.name_i18n,
-                    image_url=card_def.image_url,
+                    image_url=build_resource_url(card_def.image_url),
                     sport_type=card_def.sport_type,
                     rarity=card_def.rarity,
                     description=card_def.description_i18n,
@@ -484,7 +485,7 @@ async def get_equip_card_shop_detail_service(db: AsyncSession, lang: Language, d
     return EquipCardShopInfo(
             def_id=card_def.def_id,
             name=pick_i18n_text(card_def.name_i18n, lang),
-            image_url=card_def.image_url,
+            image_url=build_resource_url(card_def.image_url),
             sport_type=card_def.sport_type,
             rarity=card_def.rarity,
             description=pick_i18n_text(card_def.description_i18n, lang),
@@ -508,7 +509,7 @@ async def get_equip_cards_on_shelves(db: AsyncSession, lang: Language) -> EquipC
                 EquipCardShopInfo(
                     def_id=card_def.def_id,
                     name=pick_i18n_text(card_def.name_i18n, lang),
-                    image_url=card_def.image_url,
+                    image_url=build_resource_url(card_def.image_url),
                     sport_type=card_def.sport_type,
                     rarity=card_def.rarity,
                     description=pick_i18n_text(card_def.description_i18n, lang),

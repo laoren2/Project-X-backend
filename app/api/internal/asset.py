@@ -12,6 +12,7 @@ from app.services.asset_manage import (
     get_equip_cards_in_shop, add_equip_card_to_shop_service, update_cpasset_service,
     update_equip_card_service
 )
+from app.services.common import upload_to_oss
 from app.schemas.asset import (
     CC_CP_PurchaseResultResponse, CPAssetsShopInternalResponse, CPAssetDefResponse,
     CPAssetShopInfoCreateRequest, CPAssetShopInfoUpdateRequest, CPAssetDefCreateForm,
@@ -86,14 +87,11 @@ async def create_cpasset_def(
 
     cpasset_folder = Path("resources/asset/cpasset") / asset_id
     cpasset_folder.mkdir(parents=True, exist_ok=True)
-    for file in cpasset_folder.glob("cover_*.png"):
-        file.unlink(missing_ok=True)
     cover_path = cpasset_folder / f"cover_{int(datetime.now().timestamp())}.png"
     contents = await image.read()
     if len(contents) > 0.5 * 1024 * 1024:  # 超过 512KB
         raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
-    with cover_path.open("wb") as f:
-        f.write(contents)
+    await upload_to_oss(str(cover_path), contents)
     new_url = f"/resources/asset/cpasset/{asset_id}/{cover_path.name}"
     await create_cpasset_def_service(db, form, asset_id, new_url)
 
@@ -109,14 +107,11 @@ async def update_cpasset_def(
 ):
     asset_folder = Path("resources/asset/cpasset") / form.asset_id
     asset_folder.mkdir(parents=True, exist_ok=True)
-    for file in asset_folder.glob("cover_*.png"):
-        file.unlink(missing_ok=True)
     cover_path = asset_folder / f"cover_{int(datetime.now().timestamp())}.png"
     contents = await image.read()
     if len(contents) > 1 * 1024 * 1024:  # 超过 1MB
         raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
-    with cover_path.open("wb") as f:
-        f.write(contents)
+    await upload_to_oss(str(cover_path), contents)
     image_url = f"/resources/asset/cpasset/{form.asset_id}/{cover_path.name}"
     await update_cpasset_service(db, form, image_url)
     return BaseResponse.success(token=auth.new_token, message="success", data=None)
@@ -156,14 +151,11 @@ async def create_equip_card_def(
 
     cpasset_folder = Path("resources/asset/equipcard") / asset_id
     cpasset_folder.mkdir(parents=True, exist_ok=True)
-    for file in cpasset_folder.glob("cover_*.jpg"):
-        file.unlink(missing_ok=True)
     cover_path = cpasset_folder / f"cover_{int(datetime.now().timestamp())}.jpg"
     contents = await image.read()
     if len(contents) > 0.5 * 1024 * 1024:  # 超过 512KB
         raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
-    with cover_path.open("wb") as f:
-        f.write(contents)
+    await upload_to_oss(str(cover_path), contents)
     new_url = f"/resources/asset/equipcard/{asset_id}/{cover_path.name}"
     await create_equip_card_def_service(db, form, new_url)
 
@@ -179,14 +171,11 @@ async def update_equip_card_def(
 ):
     card_folder = Path("resources/asset/equipcard") / form.def_id
     card_folder.mkdir(parents=True, exist_ok=True)
-    for file in card_folder.glob("cover_*.jpg"):
-        file.unlink(missing_ok=True)
     cover_path = card_folder / f"cover_{int(datetime.now().timestamp())}.jpg"
     contents = await image.read()
     if len(contents) > 1 * 1024 * 1024:  # 超过 1MB
         raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
-    with cover_path.open("wb") as f:
-        f.write(contents)
+    await upload_to_oss(str(cover_path), contents)
     image_url = f"/resources/asset/equipcard/{form.def_id}/{cover_path.name}"
     await update_equip_card_service(db, form, image_url)
     return BaseResponse.success(token=auth.new_token, message="success", data=None)

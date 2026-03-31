@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import Language
+from app.core.storage import build_resource_url
 from app.crud.homepage import (
     get_latest_annoucements, get_displayed_ads
 )
@@ -32,7 +33,7 @@ async def update_announcements_service(
 async def query_banner_ads_service(db: AsyncSession, lang: Language) -> BannerAdsInfoResponse:
     ads = await get_displayed_ads(db)
     ads_infos = [AdsInfo(
-        image_url=pick_i18n_text(ad.image_url_i18n, lang),
+        image_url=build_resource_url(pick_i18n_text(ad.image_url_i18n, lang)),
         web_url=ad.web_url
     ) for ad in ads]
     return BannerAdsInfoResponse(ads=ads_infos)

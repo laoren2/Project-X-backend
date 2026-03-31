@@ -15,6 +15,7 @@ from app.services.user import (
 )
 from app.crud.user import get_users_by_name
 from app.services.user_follow import get_relation_count, get_relationship_service
+from app.services.common import upload_to_oss
 from app.api.deps import get_current_user, get_language, Language
 from app.core.errors import ErrorCode
 from app.schemas import user as schemas_user
@@ -127,33 +128,27 @@ async def update_me(
     db: AsyncSession = Depends(get_db)
 ):
     user_id = auth.payload["user_id"]
-    avatar_url = "/resources/placeholder/avatar.jpg"
-    background_url = "/resources/placeholder/background.jpg"
+    avatar_url = None
+    background_url = None
 
     # 更新图片资源
     user_folder = Path("resources/user") / user_id
     user_folder.mkdir(parents=True, exist_ok=True)
+    
     if avatar_image:
-        # 删除旧头像
-        for file in user_folder.glob("avatar_*.jpg"):
-            file.unlink(missing_ok=True)
         avatar_path = user_folder / f"avatar_{int(datetime.now(UTC).timestamp())}.jpg"
         contents = await avatar_image.read()
         if len(contents) > 1 * 1024 * 1024:  # 超过 1MB
             raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
-        with avatar_path.open("wb") as f:
-            f.write(contents)
+        await upload_to_oss(str(avatar_path), contents)
         avatar_url = f"/resources/user/{user_id}/{avatar_path.name}"
+    
     if background_image:
-        # 删除旧背景图
-        for file in user_folder.glob("background_*.jpg"):
-            file.unlink(missing_ok=True)
         bg_path = user_folder / f"background_{int(datetime.now(UTC).timestamp())}.jpg"
         contents = await background_image.read()
         if len(contents) > 1 * 1024 * 1024:  # 超过 1MB
             raise BizException(code=ErrorCode.IMAGE_UPLOAD_OVERSIZE, message="image.over_size")
-        with bg_path.open("wb") as f:
-            f.write(contents)
+        await upload_to_oss(str(bg_path), contents)
         background_url = f"/resources/user/{user_id}/{bg_path.name}"
     
     user = await update_user_info(user_id, form, avatar_url, background_url, db)

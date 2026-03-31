@@ -3,6 +3,7 @@ from pydantic import BaseModel, field_validator
 from typing import Optional, Any
 from app.schemas.base import ORMBase
 from enum import Enum
+from app.core.storage import build_resource_url
 import uuid
 
 from app.schemas.common import SportType
@@ -78,6 +79,12 @@ class UserBaseInfo(ORMBase):
             return str(v)
         # 如果已经是字符串，直接返回
         return v
+    
+    @field_validator("avatar_image_url", "background_image_url", mode="after")
+    def build_avatar_url(cls, v):
+        if not v:
+            return v
+        return build_resource_url(v)
 
 class UserRelationInfo(ORMBase):
     follower: int = 0
