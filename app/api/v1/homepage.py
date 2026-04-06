@@ -9,17 +9,19 @@ from app.db.session import get_db
 from app.api.deps import get_language, Language
 from fastapi import APIRouter, Depends, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-import uuid
+
 
 router = APIRouter(dependencies=[Depends(get_language)])
 
 
 @router.get("/query_announcements", response_model=BaseResponse[AnnouncementInfoResponse], summary="查询公告")
 async def query_announcements(
+    page: int = Query(...),
+    size: int = Query(...),
     lang: Language = Depends(get_language),
     db: AsyncSession = Depends(get_db)
 ):
-    results = await query_annoucements_service(db, lang)
+    results = await query_annoucements_service(db, lang, page, size)
     return BaseResponse.success(data=results)
 
 @router.get("/query_banner_ads", response_model=BaseResponse[BannerAdsInfoResponse], summary="查询首页轮播信息")
