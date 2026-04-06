@@ -13,20 +13,28 @@ from sqlalchemy.ext.mutable import MutableDict
 import uuid
 
 
+# 暂时保存国家 grid 范围
+COUNTRY_GRIDS_BBOX = {
+    "KR": (38.62226528, 125.34306912, 33.16020748, 130.92873665),
+    "TW": (26.28872719, 118.26983294, 21.86414334, 122.02333580),
+    "HK": (22.5630725, 113.82416054, 22.17282617, 114.41189433),
+    "CN": (41.059233, 114.84595390, 29.41635100, 122.242919)
+}
 
-# 国家网格表
+# global 网格表
 class CountryGridCell(Base):
     __tablename__ = "country_grid_cells"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     country_code = Column(String, index=True, nullable=False)  # 例如 HK, TW
-    grid_code = Column(String, nullable=False)  # 例如 HK_100_99(x:100, y:99)，后续可优化为存储 grid_x, grid_y 先过滤
+    grid_x = Column(Integer, nullable=False)
+    grid_y = Column(Integer, nullable=False)
     geom = Column(Geometry("POLYGON", srid=4326, spatial_index=False), nullable=False)      # 关闭自动的 index 并手动创建管理
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("country_code", "grid_code", name="uq_country_grid_cells_country_code_grid_code"),
+        UniqueConstraint("grid_x", "grid_y", name="uq_country_grid_cells_gridx_gridy"),
         Index("idx_country_grid_cells_geom", "geom", postgresql_using="gist"),
     )
 
@@ -65,6 +73,26 @@ class UserGridFamiliarityBike(Base):
         primaryjoin="foreign(UserGridFamiliarityBike.grid_id)==CountryGridCell.id"
     )
 
+# 聚合用户网格熟悉度表
+class UserGridFamiliarityBikeAgg(Base):
+    __tablename__ = "user_grid_familiarity_bike_agg"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    season_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+
+    level = Column(Integer, nullable=False)  # 0=500m,1=1km,2=2km,3=4km
+
+    grid_x = Column(Integer, nullable=False)
+    grid_y = Column(Integer, nullable=False)
+
+    familiarity_count = Column(Integer, default=0, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("season_id", "user_id", "level", "grid_x", "grid_y", name="uq_user_grid_familiarity_bike_agg_season_user_level_grid"),
+    )
+
+
 class UserGridFamiliarityRunning(Base):
     __tablename__ = "user_grid_familiarity_running"
 
@@ -86,6 +114,23 @@ class UserGridFamiliarityRunning(Base):
         primaryjoin="foreign(UserGridFamiliarityRunning.grid_id)==CountryGridCell.id"
     )
 
+class UserGridFamiliarityRunningAgg(Base):
+    __tablename__ = "user_grid_familiarity_running_agg"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    season_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+
+    level = Column(Integer, nullable=False)  # 0=500m,1=1km,2=2km,3=4km
+
+    grid_x = Column(Integer, nullable=False)
+    grid_y = Column(Integer, nullable=False)
+
+    familiarity_count = Column(Integer, default=0, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("season_id", "user_id", "level", "grid_x", "grid_y", name="uq_user_grid_familiarity_running_agg_season_user_level_grid"),
+    )
 
 # =========================
 # 用户训练记录

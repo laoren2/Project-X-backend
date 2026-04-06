@@ -58,10 +58,10 @@ async def distribute_newcomer_gift(db: AsyncSession, user_id: uuid.UUID):
         mail_type=MailType.REWARD,
         title_i18n={"en": "Newcomer Gift Pack", "zh-Hans": "新人礼包", "zh-Hant": "新人禮包", "ko": "신규 사용자 선물 세트"},
         content_i18n={
-            "en": "Welcome to Sporreer! Ready to start your sporting career? We've prepared a welcome gift for you, have fun!", 
-            "zh-Hans": "欢迎来到Sporreer，准备好开启你的运动生涯了吗？我们为您准备了一份见面礼，玩的开心！",
-            "zh-Hant": "歡迎來到Sporreer，準備好開啟你的運動生涯了嗎？我們為您準備了一份見面禮，玩的開心！",
-            "ko": "Sporreer 오신 것을 환영합니다! 스포츠 선수 생활을 시작할 준비가 되셨나요? 여러분을 위한 환영 선물을 준비했습니다. 즐거운 시간 보내세요!"
+            "en": "Welcome to Movmov! Ready to start your sporting career? We've prepared a welcome gift for you, have fun!", 
+            "zh-Hans": "欢迎来到 Movmov，准备好开启你的运动生涯了吗？我们为您准备了一份见面礼，玩的开心！",
+            "zh-Hant": "歡迎來到 Movmov，準備好開啟你的運動生涯了嗎？我們為您準備了一份見面禮，玩的開心！",
+            "ko": "Movmov 오신 것을 환영합니다! 스포츠 선수 생활을 시작할 준비가 되셨나요? 여러분을 위한 환영 선물을 준비했습니다. 즐거운 시간 보내세요!"
         },
         attachment = attachment,
         is_received = False,
@@ -1052,32 +1052,38 @@ async def send_email_code_service(to_email: str, lang: Language):
     password = settings.NOREPLY_EMAIL_PASSWORD
     receivers = [to_email]
 
-    if lang == Language.en:
-        title0 = "Your login verification code"
-        title1 = "Your verification Code:"
-        title2 = "Please enter this code within 5 minutes. Do not share it with anyone."
-        title3 = "If you did not request this, you can safely ignore this email, please do not reply to this email."
-        title4 = "Sporreer Team"
+    if lang == Language.zh_hans:
+        title0 = "你的登录验证码"
+        title1 = "你的验证码:"
+        title2 = "请在5分钟内输入此验证码。请勿将此验证码透露给任何人。"
+        title3 = "如果您没有提出这样的请求，您可以忽略这封邮件，请勿回复此邮件。"
+        title4 = "Movmov 团队"
     elif lang == Language.zh_hant:
         title0 = "你的登入驗證碼"
         title1 = "你的驗證碼:"
         title2 = "請在5分鐘內輸入此驗證碼。請勿將此驗證碼透露給任何人。"
         title3 = "如果您沒有提出這樣的請求，您可以忽略這封郵件，請勿回覆此郵件。"
-        title4 = "Sporreer 團隊"
+        title4 = "Movmov 團隊"
+    elif lang == Language.ko:
+        title0 = "로그인 인증 코드"
+        title1 = "인증 코드:"
+        title2 = "5분 이내에 이 인증 코드를 입력해 주세요. 이 인증 코드를 다른 사람에게 절대 알려주지 마세요."
+        title3 = "그러한 요청을 하지 않으셨다면 이 이메일을 무시하시고 답장하지 않으셔도 됩니다."
+        title4 = "Movmov 팀"
     else:
-        title0 = "你的登录验证码"
-        title1 = "你的验证码:"
-        title2 = "请在5分钟内输入此验证码。请勿将此验证码透露给任何人。"
-        title3 = "如果您没有提出这样的请求，您可以忽略这封邮件，请勿回复此邮件。"
-        title4 = "Sporreer 团队"
+        title0 = "Your login verification code"
+        title1 = "Your verification Code:"
+        title2 = "Please enter this code within 5 minutes. Do not share it with anyone."
+        title3 = "If you did not request this, you can safely ignore this email, please do not reply to this email."
+        title4 = "Movmov Team"
 
     if settings.ENV.lower() == "dev":
         title0 += "（测试）"
 
     # 构建邮件
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = Header(f"【Sporreer】{title0}", "UTF-8")
-    msg['From'] = formataddr(("Sporreer", username))
+    msg['Subject'] = Header(f"【Movmov】{title0}", "UTF-8")
+    msg['From'] = formataddr(("Movmov", username))
     msg['To'] = to_email
     msg['Date'] = email.utils.formatdate()
     msg['Message-id'] = email.utils.make_msgid()

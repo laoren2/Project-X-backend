@@ -117,3 +117,13 @@ def get_user_local_time(user: User, utc_time=None):
 
 def get_user_local_date(user: User, utc_time=None):
     return get_user_local_time(user, utc_time).date()
+
+def get_tile_size(level: int) -> int:
+    if level == 0:
+        return 32
+    elif level == 1:
+        return 32
+    elif level == 2:
+        return 16
+    else:
+        return 8

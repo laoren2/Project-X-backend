@@ -74,3 +74,16 @@ class EquipCardBaseInfo(ORMBase):
     #type_name: str
     tags: List[str]
     effect_def: dict[str, Any]
+
+class CountryBBoxInfo(BaseModel):
+    originLat: float
+    originLng: float
+    endLat: float
+    endLng: float
+
+class CountryBBoxConfig(BaseModel):
+    country_code: str
+    bbox: CountryBBoxInfo
+
+class CountryBBoxResponse(BaseModel):
+    configs: List[CountryBBoxConfig]
