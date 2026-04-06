@@ -3,14 +3,15 @@ from sqlalchemy import select, update, func, and_, exists, case, text
 from app.db.models.competition import BikeTrack
 from app.db.models.training import (
     BikeFreeTrainingRecord, UserTrainingStateBike, CountryGridCell,
-    UserGridFamiliarityBike, UserTrainingStateDailyBike, RegionGridCell
+    UserGridFamiliarityBike, UserTrainingStateDailyBike, RegionGridCell, UserGridFamiliarityBikeAgg
 )
 from sqlalchemy.orm import selectinload
+from app.schemas.training.common import GridTileKey, GridCellInfo, GridTileResponse, GridTileInfo
 from typing import List
 from datetime import date, timedelta, datetime
 from sqlalchemy.dialects.postgresql import insert
-from app.schemas.user import Gender
-from app.core.tools import get_user_local_date
+from app.core.tools import get_tile_size
+from collections import defaultdict
 import uuid, math, calendar
 
 
@@ -223,9 +224,8 @@ async def update_grid_familiarity_by_path(
     db: AsyncSession,
     season_id: uuid.UUID,
     user_id: uuid.UUID,
-    country_code: str,
     linestring_wkt: str,
-):
+) -> int:
     sql = text(
         """
         WITH track AS (
@@ -234,47 +234,121 @@ async def update_grid_familiarity_by_path(
                 4326
             ) AS geom
         ),
+
+        track_bbox AS (
+            SELECT ST_Envelope(geom) AS bbox
+            FROM track
+        ),
+
         intersected_grids AS (
-            SELECT g.id
+            SELECT g.id, g.grid_x, g.grid_y
             FROM country_grid_cells g
             CROSS JOIN track t
-            WHERE g.country_code = :country_code
-              AND ST_Intersects(g.geom, t.geom)
+            CROSS JOIN track_bbox b
+            WHERE g.geom && b.bbox
+            AND ST_Intersects(g.geom, t.geom)
+        ),
+
+        insert_base AS (
+            INSERT INTO user_grid_familiarity_bike (
+                id,
+                season_id,
+                user_id,
+                grid_id,
+                familiarity_count,
+                created_at,
+                updated_at
+            )
+            SELECT
+                gen_random_uuid(),
+                :season_id,
+                :user_id,
+                ig.id,
+                1,
+                NOW(),
+                NOW()
+            FROM intersected_grids ig
+            ON CONFLICT (season_id, user_id, grid_id)
+            DO UPDATE
+            SET familiarity_count = user_grid_familiarity_bike.familiarity_count + 1,
+                updated_at = NOW()
+            RETURNING (xmax = 0) AS inserted
+        ),
+
+        levels AS (
+            SELECT generate_series(0, 3) AS level
+        ),
+
+        expanded AS (
+            SELECT
+                CAST(:user_id AS uuid) AS user_id,
+                CAST(:season_id AS uuid) AS season_id,
+                l.level,
+                floor(ig.grid_x / power(2, l.level))::int AS grid_x,
+                floor(ig.grid_y / power(2, l.level))::int AS grid_y,
+                1 AS inc
+            FROM intersected_grids ig
+            CROSS JOIN levels l
+        ),
+
+        agg_delta AS (
+            SELECT
+                user_id,
+                season_id,
+                level,
+                grid_x,
+                grid_y,
+                COUNT(*) AS inc
+            FROM expanded
+            GROUP BY user_id, season_id, level, grid_x, grid_y
+        ),
+
+        agg_upsert AS (
+            INSERT INTO user_grid_familiarity_bike_agg (
+                id,
+                user_id,
+                season_id,
+                level,
+                grid_x,
+                grid_y,
+                familiarity_count
+            )
+            SELECT
+                gen_random_uuid(),
+                user_id,
+                season_id,
+                level,
+                grid_x,
+                grid_y,
+                inc
+            FROM agg_delta
+            ON CONFLICT (season_id, user_id, level, grid_x, grid_y)
+            DO UPDATE
+            SET familiarity_count = user_grid_familiarity_bike_agg.familiarity_count + EXCLUDED.familiarity_count
+            RETURNING 1
+        ),
+
+        final AS (
+            SELECT COUNT(*) AS new_grid_count
+            FROM insert_base
+            WHERE inserted = true
         )
-        INSERT INTO user_grid_familiarity_bike (
-            id,
-            season_id,
-            user_id,
-            grid_id,
-            familiarity_count,
-            created_at,
-            updated_at
-        )
-        SELECT
-            gen_random_uuid(),
-            :season_id,
-            :user_id,
-            ig.id,
-            1,
-            NOW(),
-            NOW()
-        FROM intersected_grids ig
-        ON CONFLICT (season_id, user_id, grid_id)
-        DO UPDATE
-        SET familiarity_count = user_grid_familiarity_bike.familiarity_count + 1,
-            updated_at = NOW();
+
+        SELECT new_grid_count FROM final;
         """
     )
 
-    await db.execute(
+    result = await db.execute(
         sql,
         {
             "season_id": str(season_id),
             "user_id": str(user_id),
-            "country_code": country_code,
             "linestring_wkt": linestring_wkt,
         },
     )
+    row = result.first()
+    return int(row.new_grid_count) if row and row.new_grid_count is not None else 0
+
 
 async def get_region_explored_grid_count(
     db: AsyncSession,
@@ -306,3 +380,69 @@ async def get_record_by_record_id(db: AsyncSession, record_id: str) -> BikeFreeT
         )
     )
     return record.scalar_one_or_none()
+
+async def get_familiarity_grids_by_tiles(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    season_id: uuid.UUID,
+    tiles: List[GridTileKey]
+) -> GridTileResponse:
+    if not tiles:
+        return GridTileResponse(tiles=[])
+
+    level = tiles[0].level  # 同一批一定同 level
+    tile_size = get_tile_size(level)
+
+    # 计算整体 bounding box（超级关键优化）
+    min_x = min(t.x for t in tiles) * tile_size
+    max_x = (max(t.x for t in tiles) + 1) * tile_size - 1
+    min_y = min(t.y for t in tiles) * tile_size
+    max_y = (max(t.y for t in tiles) + 1) * tile_size - 1
+
+    stmt = (
+        select(
+            UserGridFamiliarityBikeAgg.grid_x,
+            UserGridFamiliarityBikeAgg.grid_y,
+            UserGridFamiliarityBikeAgg.familiarity_count
+        )
+        .where(
+            and_(
+                UserGridFamiliarityBikeAgg.user_id == user_id,
+                UserGridFamiliarityBikeAgg.season_id == season_id,
+                UserGridFamiliarityBikeAgg.level == level,
+                UserGridFamiliarityBikeAgg.grid_x >= min_x,
+                UserGridFamiliarityBikeAgg.grid_x <= max_x,
+                UserGridFamiliarityBikeAgg.grid_y >= min_y,
+                UserGridFamiliarityBikeAgg.grid_y <= max_y,
+            )
+        )
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    # 分桶到 tile
+    tile_map = defaultdict(list)
+
+    for r in rows:
+        tile_x = r.grid_x // tile_size
+        tile_y = r.grid_y // tile_size
+
+        key = (tile_x, tile_y)
+
+        tile_map[key].append(GridCellInfo(
+            grid_x=r.grid_x,
+            grid_y=r.grid_y,
+            count=r.familiarity_count
+        ))
+
+    # 组装返回
+    result_tiles = []
+    for tile in tiles:
+        key = (tile.x, tile.y)
+        result_tiles.append(GridTileInfo(
+            key=GridTileKey(level=tile.level, x=tile.x, y=tile.y),
+            cells=tile_map.get(key, [])
+        ))
+
+    return GridTileResponse(tiles=result_tiles)

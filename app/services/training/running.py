@@ -5,17 +5,21 @@ from app.crud.competition.running import get_season_now, get_score_by_season_and
 from app.db.models.user import User
 from app.schemas.base import BizException, Language, pick_i18n_text
 from app.schemas.user import Gender
+from app.schemas.common import CCAssetRewardResponse, CCAssetType
+from app.schemas.asset import AssetOperation
 from app.schemas.training.running import (
     FreeTrainingFinishInfo, FreeTrainingFinishResponse, TrainingStatesHistoryResponse,
     TrainingStatesHistoryInfo, TrainingRecordsResponse, TrainingRecordInfo,
     RunningTrainingPathPoint, FreeTrainingRecordDetailResponse
 )
-from app.schemas.training.common import RegionExploreResponse
+from app.schemas.training.common import RegionExploreResponse, GridTileKey, GridTileResponse
 from app.crud.training.running import (
     get_training_states_by_user_and_month, get_training_records_by_user_and_day,
     add_or_update_daily_training_states, get_training_state_by_user, update_grid_familiarity_by_path,
-    get_region_explored_grid_count, get_record_by_record_id, get_training_state_daily_by_user_date
+    get_region_explored_grid_count, get_record_by_record_id, get_training_state_daily_by_user_date,
+    get_familiarity_grids_by_tiles
 )
+from app.crud.asset_manage import reward_ccasset
 from app.db.models.training import UserTrainingStateDailyRunning, RunningFreeTrainingPath, RunningFreeTrainingRecord, UserTrainingStateRunning
 from sqlalchemy.dialects.postgresql import insert
 from app.crud.user import get_user_by_id
@@ -24,7 +28,7 @@ from app.core.errors import ErrorCode
 from sqlalchemy import text, func
 from datetime import date, datetime, timedelta
 from typing import List
-import math, uuid, logging
+import math, uuid, logging, random
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +49,11 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
         if duration < 30 or distance < 0.1:
             raise BizException(code=ErrorCode.RECORD_ERROR, message="record.invalid.too_short")
         
+        # 更新地图熟悉度
+        new_grids = await update_grid_familiarity(db, season.id, user.id, info.path)
+
         # 计算并更新 xp 和 训练状态 奖励，可以根据整体的训练距离、海拔累计落差、是否有心率数据等信息进行计算，xp控制在 0-50，training_state控制在 0-10
-        xp_before, xp_delta, training_state_before, training_state_delta = await apply_training_rewards(db, season.id, user, info, state)
+        xp_before, xp_delta, training_state_before, training_state_delta, cc_rewards = await apply_training_rewards(db, season.id, user, info, state, new_grids)
 
         # 写入记录
         path_data = [p.model_dump() for p in info.path]
@@ -56,6 +63,13 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
         )
         db.add(path)
         await db.flush()
+
+        settlements = {
+            "xp": xp_delta,
+            "training_state": training_state_delta
+        }
+        for ccasset in cc_rewards:
+            settlements[f"{ccasset.ccasset_type.value}"] = ccasset.reward_amount
         record = RunningFreeTrainingRecord(
             record_id=f"record_{uuid.uuid4()}",
             user_id=user.id,
@@ -64,19 +78,18 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
             end_time = info.end_time,
             duration_seconds = duration,
             local_date = get_user_local_date(user, info.end_time),
-            settlement_rewards = {"xp": xp_delta, "training_state": training_state_delta}
+            settlement_rewards = settlements
         )
         db.add(record)
-
-        # 更新地图熟悉度
-        await update_grid_familiarity(db, season.id, user.id, info.path)
 
         return FreeTrainingFinishResponse(
             record_id=record.record_id,
             xp_before=xp_before,
             xp_delta=xp_delta,
             training_state_before=training_state_before,
-            training_state_delta=training_state_delta
+            training_state_delta=training_state_delta,
+            new_grids=new_grids,
+            cc_rewards=cc_rewards
         )
 
 
@@ -85,8 +98,9 @@ async def apply_training_rewards(
     season_id: uuid.UUID,
     user: User,
     info: FreeTrainingFinishInfo,
-    state: UserTrainingStateRunning | None
-) -> tuple[int, int, int, int]:
+    state: UserTrainingStateRunning | None,
+    new_grids: int
+) -> tuple[int, int, int, int, List[CCAssetRewardResponse]]:
     gender = user.real_name_info.gender if user.real_name_info else Gender.male
     season_data = await get_score_by_season_and_user(db, user.id, season_id)
     current_xp = season_data.xp if season_data else 0
@@ -131,10 +145,29 @@ async def apply_training_rewards(
         extra_data_factor += 0.1
 
     # 6 最终XP
-    xp = BASE_XP * rank_factor * distance_factor * altitude_factor * extra_data_factor
+    xp = BASE_XP * rank_factor * distance_factor * altitude_factor * extra_data_factor + float(new_grids) * 1.5
     xp = int(round(xp))
     xp = max(0, min(50, xp))
     await add_or_update_career_xp(db, season_id, gender, user.id, xp)
+
+    # 计算金币奖励
+    cc_rewards = []
+    coin = 0
+    for _ in range(new_grids):
+        r = random.random()
+        if r < 0.6:
+            coin += 1
+        elif r < 0.95:
+            coin += 2
+        else:
+            coin += 4
+    if coin > 0:
+        new_coin = await reward_ccasset(db, CCAssetType.COIN, coin, user.id, "running训练结算", AssetOperation.REWARD)
+        cc_rewards.append(CCAssetRewardResponse(
+            ccasset_type=CCAssetType.COIN,
+            new_ccamount=new_coin,
+            reward_amount=coin
+        ))
 
     # 计算运动状态
     state_value = 1
@@ -166,7 +199,7 @@ async def apply_training_rewards(
         state.last_training_at = info.end_time
     await add_or_update_daily_training_states(db, user.id, finish_date, state_value, new_value)
 
-    return current_xp, xp, current_state, state_value
+    return current_xp, xp, current_state, state_value, cc_rewards
 
 
 async def query_training_states_history_service(db: AsyncSession, month: str, user_id: str) -> TrainingStatesHistoryResponse:
@@ -294,16 +327,10 @@ async def update_grid_familiarity(
     season_id: uuid.UUID,
     user_id: uuid.UUID,
     path: List[RunningTrainingPathPoint],
-):
+) -> int:
     # 将自定义路径点转换为 LINESTRING WKT
     if len(path) < 2:
         return
-    
-    first_point = path[0]
-    region = await get_region_by_coordinate(db, first_point.base.lat, first_point.base.lon)
-    if not region:
-        return
-        #raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
 
     coordinates = []
     for p in path:
@@ -316,7 +343,7 @@ async def update_grid_familiarity(
 
     linestring_wkt = f"LINESTRING({', '.join(coordinates)})"
 
-    await update_grid_familiarity_by_path(db, season_id, user_id, region.country_code, linestring_wkt)
+    return await update_grid_familiarity_by_path(db, season_id, user_id, linestring_wkt)
 
 async def query_free_training_record_detail_service(
     db: AsyncSession,
@@ -342,3 +369,16 @@ async def query_free_training_record_detail_service(
         path=path_points,
         settlements=record.settlement_rewards
     )
+
+async def query_familiarity_grids_by_tiles_service(
+    db: AsyncSession,
+    user_id: str,
+    tiles: List[GridTileKey]
+) -> GridTileResponse:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    season = await get_season_now(db)
+    if season is None:
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
+    return await get_familiarity_grids_by_tiles(db, user.id, season.id, tiles)

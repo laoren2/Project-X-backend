@@ -1,5 +1,6 @@
 from fastapi import Form
 from app.schemas.base import ORMBase
+from app.schemas.common import CCAssetRewardResponse
 from app.schemas.competition.common import PathPoint
 from datetime import datetime
 from enum import Enum
@@ -24,6 +25,8 @@ class FreeTrainingFinishResponse(BaseModel):
     xp_delta: int
     training_state_before: int
     training_state_delta: int
+    new_grids: int
+    cc_rewards: List[CCAssetRewardResponse]
 
 class TrainingStatesHistoryInfo(BaseModel):
     date: str

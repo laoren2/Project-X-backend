@@ -59,14 +59,14 @@ async def send_sms_code_service(phone_number: str, lang: Language):
     # 设置发送频率限制（60秒）
     await redis_client.set(rate_key, "1", ex=60)
     
-    if lang == Language.en:
-        msg = f"Sporreer: Your verification code is: {code}. It will expire in 5 minutes. Do not share this code with anyone."
+    if lang == Language.zh_hans:
+        msg = f"【Movmov】您的验证码是：{code}，请在5分钟内输入此码完成操作。如非本人操作，请忽略本短信。"
     elif lang == Language.zh_hant:
-        msg = f"【Sporreer】您的驗證碼是：{code}，請在5分鐘內輸入此碼完成操作。如非本人操作，請忽略本短信。"
+        msg = f"【Movmov】您的驗證碼是：{code}，請在5分鐘內輸入此碼完成操作。如非本人操作，請忽略本短信。"
     elif lang == Language.ko:
-        msg = f"[Sporreer] 인증번호는 {code}입니다. 5분 내에 입력해 주세요. 타인에게 공유하지 마세요."
+        msg = f"[Movmov] 인증번호는 {code}입니다. 5분 내에 입력해 주세요. 타인에게 공유하지 마세요."
     else:
-        msg = f"【Sporreer】您的验证码是：{code}，请在5分钟内输入此码完成操作。如非本人操作，请忽略本短信。"
+        msg = f"Movmov: Your verification code is: {code}. It will expire in 5 minutes. Do not share this code with anyone."
     if settings.ENV.lower() == "dev":
         msg += "（测试）"
     result = await send_message_to_globe(

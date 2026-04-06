@@ -8,10 +8,11 @@ from app.schemas.training.running import (
     FreeTrainingFinishInfo, FreeTrainingFinishResponse, TrainingStatesHistoryResponse,
     TrainingRecordsResponse, FreeTrainingRecordDetailResponse
 )
-from app.schemas.training.common import RegionExploreResponse
+from app.schemas.training.common import RegionExploreResponse, GridTileResponse, GridTileRequest
 from app.services.training.running import (
     finish_free_training_service, query_training_states_history_service, query_training_records_service,
-    query_training_states_service, query_region_exploration_service, query_free_training_record_detail_service
+    query_training_states_service, query_region_exploration_service, query_free_training_record_detail_service,
+    query_familiarity_grids_by_tiles_service
 )
 
 router = APIRouter(dependencies=[Depends(get_language)])
@@ -84,4 +85,14 @@ async def query_free_training_record_detail(
     db: AsyncSession = Depends(get_db)
 ):
     result = await query_free_training_record_detail_service(db, auth.payload["user_id"], record_id)
+    return BaseResponse.success(token=auth.new_token, data=result)
+
+# 查询熟悉度网格 tiles
+@router.post("/query_grid_tiles",response_model=BaseResponse[GridTileResponse],summary="查询熟悉度网格 tiles")
+async def query_grid_tiles(
+    request: GridTileRequest,
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_familiarity_grids_by_tiles_service(db, auth.payload["user_id"], request.tiles)
     return BaseResponse.success(token=auth.new_token, data=result)
