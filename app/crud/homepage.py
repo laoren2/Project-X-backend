@@ -4,10 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
 
-async def get_latest_annoucements(db: AsyncSession) -> List[Announcement]:
+async def get_annoucements_in_page(db: AsyncSession, page: int, size: int) -> List[Announcement]:
     stmt = (
         select(Announcement)
-        .order_by(Announcement.created_at.desc()).offset(0).limit(3)
+        .order_by(Announcement.created_at.desc()).offset((page - 1) * size).limit(size)
     )
     result = await db.execute(stmt)
     return result.scalars().all()

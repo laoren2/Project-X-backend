@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import Language
 from app.core.storage import build_resource_url
 from app.crud.homepage import (
-    get_latest_annoucements, get_displayed_ads
+    get_annoucements_in_page, get_displayed_ads
 )
 from app.db.models.homepage import Announcement, BannerAds
 from app.schemas.homepage import (
@@ -13,8 +13,8 @@ from app.schemas.base import pick_i18n_text
 import uuid
 
 
-async def query_annoucements_service(db: AsyncSession, lang: Language) -> AnnouncementInfoResponse:
-    annoucements = await get_latest_annoucements(db)
+async def query_annoucements_service(db: AsyncSession, lang: Language, page: int, size: int) -> AnnouncementInfoResponse:
+    annoucements = await get_annoucements_in_page(db, page, size)
     annoucement_infos = [AnnouncementInfo(
         content=pick_i18n_text(announcement.content_i18n, lang),
         date=announcement.created_at.isoformat()
