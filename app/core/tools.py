@@ -7,8 +7,9 @@ from app.schemas.base import BizException
 from datetime import date, datetime, UTC, timedelta
 from zoneinfo import ZoneInfo
 from functools import lru_cache
-import logging, hashlib
+import logging, hashlib, math
 
+EARTH_RADIUS = 6378137
 HK_TZ = ZoneInfo("Asia/Hong_Kong")
 
 logger = logging.getLogger(__name__)
@@ -127,3 +128,14 @@ def get_tile_size(level: int) -> int:
         return 16
     else:
         return 8
+
+def latlon_to_mercator(lon: float, lat: float):
+    x = EARTH_RADIUS * math.radians(lon)
+    y = EARTH_RADIUS * math.log(math.tan(math.pi / 4 + math.radians(lat) / 2))
+    return x, y
+
+def latlon_to_grid(lat: int, lng: int) -> tuple[int, int]:
+    x, y = latlon_to_mercator(lng, lat)
+    grid_x = int(math.floor(x / 500))
+    grid_y = int(math.floor(y / 500))
+    return grid_x, grid_y

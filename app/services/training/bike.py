@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.tools import get_user_local_date
+from app.core.tools import get_user_local_date, latlon_to_grid
 from app.schemas.common import CCAssetRewardResponse, CCAssetType
 from app.schemas.asset import AssetOperation
 from app.services.competition.common import compute_distance
@@ -15,7 +15,7 @@ from app.schemas.training.bike import (
 from app.schemas.training.common import RegionExploreResponse, GridTileKey, GridTileResponse
 from app.crud.training.bike import (
     get_training_states_by_user_and_month, get_training_records_by_user_and_day,
-    add_or_update_daily_training_states, get_training_state_by_user, update_grid_familiarity_by_path,
+    add_or_update_daily_training_states, get_training_state_by_user, update_user_familiarity_by_grids,
     get_region_explored_grid_count, get_record_by_record_id, get_training_state_daily_by_user_date,
     get_familiarity_grids_by_tiles
 )
@@ -29,6 +29,7 @@ from sqlalchemy import text, func
 from datetime import date, datetime, timedelta
 from typing import List
 import math, uuid, logging, random
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
             raise BizException(code=ErrorCode.RECORD_ERROR, message="record.invalid.too_short")
         
         # 更新地图熟悉度
-        new_grids = await update_grid_familiarity(db, season.id, user.id, info.path)
+        new_grids = await update_user_familiarity(db, season.id, user.id, info.path)
 
         # 计算并更新 xp 和 训练状态 奖励，可以根据整体的训练距离、海拔累计落差、是否有心率数据等信息进行计算，xp控制在 0-50，training_state控制在 0-10
         xp_before, xp_delta, training_state_before, training_state_delta, cc_rewards = await apply_training_rewards(db, season.id, user, info, state, new_grids)
@@ -322,27 +323,78 @@ async def query_region_exploration_service(
     )
 
 # 根据训练路线，计算覆盖的网格，更新 user_grid_familiarity_bike 表
-async def update_grid_familiarity(
+async def update_user_familiarity(
     db: AsyncSession,
     season_id: uuid.UUID,
     user_id: uuid.UUID,
     path: List[BikeTrainingPathPoint],
 ) -> int:
-    # 将自定义路径点转换为 LINESTRING WKT
     if len(path) < 2:
-        return
+        return 0
 
-    coordinates = []
+    # 构建 grid -> representative point（每个 grid 只保留一个点）
+    grid_point_map = {}
     for p in path:
         lat = p.base.lat
         lon = p.base.lon
-        coordinates.append(f"{lon} {lat}")  # 注意: WKT 是 lon lat
+        gx, gy = latlon_to_grid(lat, lon)
+        if (gx, gy) not in grid_point_map:
+            grid_point_map[(gx, gy)] = (lat, lon)
 
-    if len(coordinates) < 2:
-        return
+    point_records = [
+        {
+            "lat": lat,
+            "lng": lng,
+            "grid_x": gx,
+            "grid_y": gy
+        }
+        for (gx, gy), (lat, lng) in grid_point_map.items()
+    ]
 
-    linestring_wkt = f"LINESTRING({', '.join(coordinates)})"
-    return await update_grid_familiarity_by_path(db, season_id, user_id, linestring_wkt)
+    # 查询每个 point 对应的 region，并直接绑定 grid
+    sql = text(
+        """
+        WITH input_points AS (
+            SELECT
+                p.lat,
+                p.lng,
+                p.grid_x,
+                p.grid_y,
+                ST_SetSRID(ST_MakePoint(p.lng, p.lat), 4326) AS geom
+            FROM jsonb_to_recordset(:points_json)
+            AS p(lat double precision, lng double precision, grid_x int, grid_y int)
+        )
+        SELECT DISTINCT
+            p.grid_x,
+            p.grid_y,
+            r.id AS region_id
+        FROM input_points p
+        JOIN regions r
+          ON ST_Contains(r.boundary, p.geom)
+        """
+    )
+
+    result = await db.execute(
+        sql,
+        {
+            "points_json": json.dumps(point_records)
+        }
+    )
+
+    grid_region_pairs = [
+        (row.grid_x, row.grid_y, row.region_id)
+        for row in result.fetchall()
+    ]
+
+    if not grid_region_pairs:
+        return 0
+
+    return await update_user_familiarity_by_grids(
+        db,
+        season_id,
+        user_id,
+        grid_region_pairs
+    )
 
 async def query_free_training_record_detail_service(
     db: AsyncSession,

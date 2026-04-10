@@ -2,8 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func, and_, exists, case, text
 from app.db.models.competition import RunningTrack
 from app.db.models.training import (
-    RunningFreeTrainingRecord, UserTrainingStateRunning, CountryGridCell,
-    UserGridFamiliarityRunning, UserTrainingStateDailyRunning, RegionGridCell,
+    RunningFreeTrainingRecord, UserTrainingStateRunning,
+    UserGridFamiliarityRunning, UserTrainingStateDailyRunning,
     UserGridFamiliarityRunningAgg
 )
 from app.schemas.training.common import GridTileKey, GridCellInfo, GridTileResponse, GridTileInfo
@@ -13,21 +13,15 @@ from datetime import date, timedelta, datetime
 from sqlalchemy.dialects.postgresql import insert
 from app.core.tools import get_tile_size
 from collections import defaultdict
-import uuid, math, calendar
+import uuid, math, calendar, json
 
 
 # 计算用户对某条赛道的熟悉度（起终点直线 + Buffer 带状区域 + 指数距离衰减）
 async def get_familiarity_by_track_and_user(db: AsyncSession, track: RunningTrack, user_id: uuid.UUID) -> float:
-    country_code = track.event.region.country_code
     start_lat = track.from_lat
     start_lon = track.from_lng
     end_lat = track.to_lat
     end_lon = track.to_lng
-
-    # 构造 WKT 线段
-    linestring_wkt = (
-        f"LINESTRING({start_lon} {start_lat}, {end_lon} {end_lat})"
-    )
 
     # 根据起终点直线距离自动计算 buffer_meters
     R = 6371000  # 地球半径（米）
@@ -51,59 +45,122 @@ async def get_familiarity_by_track_and_user(db: AsyncSession, track: RunningTrac
 
     sql = text(
         """
-        WITH track AS (
+        WITH params AS (
             SELECT
-                ST_SetSRID(
-                    ST_GeomFromText(:linestring_wkt),
-                    4326
-                ) AS geom_4326
+                CAST(:start_lat AS float) AS start_lat,
+                CAST(:start_lon AS float) AS start_lon,
+                CAST(:end_lat AS float) AS end_lat,
+                CAST(:end_lon AS float) AS end_lon,
+                CAST(:buffer_meters AS float) AS buffer_meters
         ),
-        buffered AS (
+
+        -- 将经纬度转为 WebMercator (米)
+        line AS (
             SELECT
                 ST_Transform(
-                    ST_Buffer(
-                        ST_Transform(geom_4326, 3857),
-                        :buffer_meters
-                    ),
-                    4326
-                ) AS area_4326,
-                geom_4326
-            FROM track
+                    ST_SetSRID(ST_MakeLine(
+                        ST_MakePoint(start_lon, start_lat),
+                        ST_MakePoint(end_lon, end_lat)
+                    ), 4326),
+                    3857
+                ) AS geom
+            FROM params
         ),
-        intersected AS (
+
+        buffered AS (
+            SELECT ST_Buffer(geom, buffer_meters) AS geom
+            FROM line, params
+        ),
+
+        bounds AS (
             SELECT
-                g.id,
-                ST_Centroid(g.geom) AS centroid,
-                b.geom_4326 AS line_geom
-            FROM country_grid_cells g
-            CROSS JOIN buffered b
-            WHERE g.country_code = :country_code
-              AND ST_Intersects(g.geom, b.area_4326)
+                ST_XMin(geom) AS min_x,
+                ST_XMax(geom) AS max_x,
+                ST_YMin(geom) AS min_y,
+                ST_YMax(geom) AS max_y
+            FROM buffered
         ),
+
+        -- 网格尺寸（单位：米）
+        grid_size AS (
+            SELECT 500.0::double precision AS size
+        ),
+
+        grid_index_bounds AS (
+            SELECT
+                floor(min_x / size)::int AS min_gx,
+                floor(max_x / size)::int AS max_gx,
+                floor(min_y / size)::int AS min_gy,
+                floor(max_y / size)::int AS max_gy,
+                size
+            FROM bounds, grid_size
+        ),
+
+        grid_candidates AS (
+            SELECT
+                gx AS grid_x,
+                gy AS grid_y,
+                (gx * size)::double precision AS x,
+                (gy * size)::double precision AS y,
+                size
+            FROM grid_index_bounds,
+            generate_series(min_gx, max_gx, 1) AS gx,
+            generate_series(min_gy, max_gy, 1) AS gy
+        ),
+
+        filtered AS (
+            SELECT
+                gc.grid_x,
+                gc.grid_y,
+                ST_Centroid(
+                    ST_MakeEnvelope(
+                        gc.x,
+                        gc.y,
+                        gc.x + gc.size,
+                        gc.y + gc.size,
+                        3857
+                    )
+                ) AS centroid,
+                l.geom AS line_geom
+            FROM grid_candidates gc
+            JOIN line l ON true
+            JOIN buffered b ON true
+            WHERE ST_Intersects(
+                ST_MakeEnvelope(
+                    gc.x,
+                    gc.y,
+                    gc.x + gc.size,
+                    gc.y + gc.size,
+                    3857
+                ),
+                b.geom
+            )
+        ),
+
         user_fam AS (
             SELECT
-                u.grid_id,
-                u.familiarity_count
-            FROM user_grid_familiarity_running u
-            WHERE u.season_id = :season_id
-              AND u.user_id = :user_id
+                grid_x,
+                grid_y,
+                familiarity_count
+            FROM user_grid_familiarity_running
+            WHERE season_id = :season_id
+              AND user_id = :user_id
         ),
+
         scored AS (
             SELECT
-                i.id,
+                f.grid_x,
+                f.grid_y,
                 COALESCE(uf.familiarity_count, 0) AS fam,
-                ST_Distance(
-                    ST_Transform(i.centroid, 3857),
-                    ST_Transform(i.line_geom, 3857)
-                ) AS dist
-            FROM intersected i
+                ST_Distance(f.centroid, f.line_geom) AS dist
+            FROM filtered f
             LEFT JOIN user_fam uf
-              ON uf.grid_id = i.id
+              ON uf.grid_x = f.grid_x
+             AND uf.grid_y = f.grid_y
         )
+
         SELECT
-            SUM(
-                fam * EXP(-dist / :decay_distance)
-            ) AS weighted_score,
+            SUM(fam * EXP(-dist / :decay_distance)) AS weighted_score,
             COUNT(*) AS grid_count
         FROM scored;
         """
@@ -114,8 +171,10 @@ async def get_familiarity_by_track_and_user(db: AsyncSession, track: RunningTrac
         {
             "season_id": str(track.event.season_id),
             "user_id": str(user_id),
-            "country_code": country_code,
-            "linestring_wkt": linestring_wkt,
+            "start_lat": start_lat,
+            "start_lon": start_lon,
+            "end_lat": end_lat,
+            "end_lon": end_lon,
             "buffer_meters": buffer_meters,
             "decay_distance": decay_distance,
         },
@@ -221,33 +280,24 @@ async def add_or_update_daily_training_states(
     )
     await db.execute(stmt)
 
-async def update_grid_familiarity_by_path(
+
+async def update_user_familiarity_by_grids(
     db: AsyncSession,
     season_id: uuid.UUID,
     user_id: uuid.UUID,
-    linestring_wkt: str,
+    grid_region_pairs: list[tuple[int, int, uuid.UUID]]
 ) -> int:
     sql = text(
         """
-        WITH track AS (
-            SELECT ST_SetSRID(
-                ST_GeomFromText(:linestring_wkt),
-                4326
-            ) AS geom
-        ),
-
-        track_bbox AS (
-            SELECT ST_Envelope(geom) AS bbox
-            FROM track
-        ),
-
-        intersected_grids AS (
-            SELECT g.id, g.grid_x, g.grid_y
-            FROM country_grid_cells g
-            CROSS JOIN track t
-            CROSS JOIN track_bbox b
-            WHERE g.geom && b.bbox
-            AND ST_Intersects(g.geom, t.geom)
+        WITH input_grids AS (
+            SELECT
+                CAST(:user_id AS uuid) AS user_id,
+                CAST(:season_id AS uuid) AS season_id,
+                g.grid_x,
+                g.grid_y,
+                g.region_id
+            FROM jsonb_to_recordset(:grids_json)
+            AS g(grid_x int, grid_y int, region_id uuid)
         ),
 
         insert_base AS (
@@ -255,25 +305,29 @@ async def update_grid_familiarity_by_path(
                 id,
                 season_id,
                 user_id,
-                grid_id,
+                grid_x,
+                grid_y,
+                region_id,
                 familiarity_count,
                 created_at,
                 updated_at
             )
             SELECT
                 gen_random_uuid(),
-                :season_id,
-                :user_id,
-                ig.id,
+                season_id,
+                user_id,
+                grid_x,
+                grid_y,
+                region_id,
                 1,
                 NOW(),
                 NOW()
-            FROM intersected_grids ig
-            ON CONFLICT (season_id, user_id, grid_id)
+            FROM input_grids
+            ON CONFLICT (season_id, user_id, grid_x, grid_y)
             DO UPDATE
             SET familiarity_count = user_grid_familiarity_running.familiarity_count + 1,
                 updated_at = NOW()
-            RETURNING (xmax = 0) AS inserted
+            RETURNING (xmax = 0) AS inserted, grid_x, grid_y
         ),
 
         levels AS (
@@ -285,10 +339,10 @@ async def update_grid_familiarity_by_path(
                 CAST(:user_id AS uuid) AS user_id,
                 CAST(:season_id AS uuid) AS season_id,
                 l.level,
-                floor(ig.grid_x / power(2, l.level))::int AS grid_x,
-                floor(ig.grid_y / power(2, l.level))::int AS grid_y,
+                floor(grid_x / power(2, l.level))::int AS grid_x,
+                floor(grid_y / power(2, l.level))::int AS grid_y,
                 1 AS inc
-            FROM intersected_grids ig
+            FROM insert_base
             CROSS JOIN levels l
         ),
 
@@ -339,12 +393,17 @@ async def update_grid_familiarity_by_path(
         """
     )
 
+    grids_json = [
+        {"grid_x": gx, "grid_y": gy, "region_id": str(rid)}
+        for gx, gy, rid in grid_region_pairs
+    ]
+
     result = await db.execute(
         sql,
         {
             "season_id": str(season_id),
             "user_id": str(user_id),
-            "linestring_wkt": linestring_wkt,
+            "grids_json": json.dumps(grids_json),
         },
     )
     row = result.first()
@@ -359,13 +418,9 @@ async def get_region_explored_grid_count(
 ) -> int:
     explored_grids = await db.scalar(
         select(func.count())
-        .select_from(RegionGridCell)
-        .join(
-            UserGridFamiliarityRunning,
-            UserGridFamiliarityRunning.grid_id == RegionGridCell.grid_id
-        )
+        .select_from(UserGridFamiliarityRunning)
         .where(
-            RegionGridCell.region_id == region_id,
+            UserGridFamiliarityRunning.region_id == region_id,
             UserGridFamiliarityRunning.user_id == user_id,
             UserGridFamiliarityRunning.season_id == season_id
         )

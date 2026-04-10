@@ -4,7 +4,7 @@ from sqlalchemy import select, func
 from geoalchemy2.functions import ST_Contains
 from geoalchemy2 import WKTElement
 from app.db.models.competition import Region
-from app.db.models.training import RegionGridCell, UserGridFamiliarityBike
+from app.db.models.training import UserGridFamiliarityBike
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
 import uuid
