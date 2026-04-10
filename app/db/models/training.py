@@ -21,35 +21,6 @@ COUNTRY_GRIDS_BBOX = {
     "CN": (41.059233, 114.84595390, 29.41635100, 122.242919)
 }
 
-# global 网格表
-class CountryGridCell(Base):
-    __tablename__ = "country_grid_cells"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    country_code = Column(String, index=True, nullable=False)  # 例如 HK, TW
-    grid_x = Column(Integer, nullable=False)
-    grid_y = Column(Integer, nullable=False)
-    geom = Column(Geometry("POLYGON", srid=4326, spatial_index=False), nullable=False)      # 关闭自动的 index 并手动创建管理
-
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    __table_args__ = (
-        UniqueConstraint("grid_x", "grid_y", name="uq_country_grid_cells_gridx_gridy"),
-        Index("idx_country_grid_cells_geom", "geom", postgresql_using="gist"),
-    )
-
-# region网格表
-class RegionGridCell(Base):
-    __tablename__ = "region_grid_cells"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    region_id = Column(UUID(as_uuid=True), index=True, nullable=False)
-    grid_id = Column(UUID(as_uuid=True), index=True, nullable=False)
-
-    __table_args__ = (
-        UniqueConstraint("region_id", "grid_id", name="uq_region_grid_cells_region_grid"),
-    )
-
 
 # 用户网格熟悉度表
 class UserGridFamiliarityBike(Base):
@@ -58,20 +29,19 @@ class UserGridFamiliarityBike(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     season_id = Column(UUID(as_uuid=True), index=True, nullable=False)
     user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
-    grid_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    region_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+
+    grid_x = Column(Integer, nullable=False)
+    grid_y = Column(Integer, nullable=False)
     familiarity_count = Column(Integer, default=0, nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("season_id", "user_id", "grid_id", name="uq_season_user_grid_familiarity_bike"),
+        UniqueConstraint("season_id", "user_id", "grid_x", "grid_y", name="uq_user_grid_familiarity_bike_season_user_grid"),
     )
 
-    grid = relationship(
-        "CountryGridCell",
-        primaryjoin="foreign(UserGridFamiliarityBike.grid_id)==CountryGridCell.id"
-    )
 
 # 聚合用户网格熟悉度表
 class UserGridFamiliarityBikeAgg(Base):
@@ -99,20 +69,19 @@ class UserGridFamiliarityRunning(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     season_id = Column(UUID(as_uuid=True), index=True, nullable=False)
     user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
-    grid_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    region_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    
+    grid_x = Column(Integer, nullable=False)
+    grid_y = Column(Integer, nullable=False)
     familiarity_count = Column(Integer, default=0, nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("season_id", "user_id", "grid_id", name="uq_season_user_grid_familiarity_running"),
+        UniqueConstraint("season_id", "user_id", "grid_x", "grid_y", name="uq_user_grid_familiarity_running_season_user_grid"),
     )
 
-    grid = relationship(
-        "CountryGridCell",
-        primaryjoin="foreign(UserGridFamiliarityRunning.grid_id)==CountryGridCell.id"
-    )
 
 class UserGridFamiliarityRunningAgg(Base):
     __tablename__ = "user_grid_familiarity_running_agg"
