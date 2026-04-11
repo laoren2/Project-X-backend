@@ -378,6 +378,12 @@ async def _get_realname_info_from_ocr(country_code: str, method: RealNameMethod,
         if method == RealNameMethod.passport:
             return await get_realname_info_kr_passport(image_bytes)
 
+    if country_code == "US":
+        if method == RealNameMethod.drivingLicense:
+            return await get_realname_info_us_driving_license(image_bytes)
+        if method == RealNameMethod.passport:
+            return await get_realname_info_us_passport(image_bytes)
+
     raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.recognition_failed.realname")
 
 
@@ -414,7 +420,7 @@ def _parse_aliyun_ocr_data(result: dict) -> dict:
 def _normalize_birth_date(value) -> date | None:
     """
     将各种出生日期输入规整为 `datetime.date`。
-    - 支持: "DD-MM-YYYY", "YYYY-MM-DD", "YYYY/MM/DD", "YYYY.MM.DD", "YYYY年MM月DD日", "YYYYMMDD"
+    - 支持: "MM/DD/YYYY", "DD-MM-YYYY", "YYYY-MM-DD", "YYYY/MM/DD", "YYYY.MM.DD", "YYYY年MM月DD日", "YYYYMMDD"
     - 支持: datetime/date 直接传入
     """
     if not value:
@@ -438,11 +444,22 @@ def _normalize_birth_date(value) -> date | None:
         except Exception:
             pass
 
-    # 再尝试匹配 DD-MM-YYYY
+    # 优先匹配 MM/DD/YYYY（常见于 US，例如 12/31/2000）
     m = re.search(r"(\d{2})-(\d{2})-(\d{4})", s)
     if m:
         try:
-            return date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            month = int(m.group(1))
+            day = int(m.group(2))
+            year = int(m.group(3))
+            return date(year, month, day)
+        except Exception:
+            pass
+
+    # 再尝试匹配 DD-MM-YYYY（兜底）
+    m = re.search(r"(\d{2})-(\d{2})-(\d{4})", s)
+    if m:
+        try:
+            return date(int(m.group(3)), int(m.group(1)), int(m.group(2)))
         except Exception:
             pass
 
@@ -655,7 +672,7 @@ async def get_realname_info_hk_passport(image_bytes: bytes) -> tuple[Gender, str
 
 
 async def get_realname_info_tw_passport(image_bytes: bytes) -> tuple[Gender, str, date]:
-    # 你指定 TW passport 复用 RecognizeChinesePassportRequest
+    # TW passport 复用 RecognizeChinesePassportRequest
     return await get_realname_info_hk_passport(image_bytes)
 
 
@@ -673,6 +690,102 @@ async def get_realname_info_kr_passport(image_bytes: bytes) -> tuple[Gender, str
     if not (gender and passport_no and birth_date):
         raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.recognition_failed.realname")
     return gender, passport_no, birth_date
+
+
+async def get_realname_info_us_passport(image_bytes: bytes) -> tuple[Gender, str, date]:
+    # US passport 复用 RecognizePassportRequest
+    return await get_realname_info_kr_passport(image_bytes)
+
+
+async def get_realname_info_us_driving_license(image_bytes: bytes) -> tuple[Gender, str, date]:
+    """
+    US 驾照：走通用文字识别。这里做容错提取：
+    - 证件号：返回 ""
+    - 性别：使用 SEX/GENDER 字段（注意将 X 默认处理为 M）
+    - 出生日期：匹配 DOB MM/DD/YYYY
+    """
+    result = await recognize_general(image_bytes)
+    data = _parse_aliyun_ocr_data(result)
+
+    if not data:
+        raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.recognition_failed.realname")
+
+    words = [item.get("word", "") for item in data.get("prism_wordsInfo", [])]
+    full_text = " ".join(words)
+
+    # 驾照合法性判断（忽略空格和符号）
+    normalized_text = re.sub(r"[^a-z]", "", full_text.lower())
+    if not (
+        "driverlicense" in normalized_text or
+        "driverslicense" in normalized_text or
+        ("driver" in normalized_text and "license" in normalized_text)
+    ):
+        raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.recognition_failed.realname")
+    #print(words)
+
+    # 证件号（外层使用 user_id 进行替代）
+
+    # 性别
+    gender = None
+
+    for i, w in enumerate(words):
+        w_clean = w.strip().lower()
+        if w_clean in ("sex", "gender"):
+            # 向后找最近的有效字符（跳过括号等噪声）
+            for j in range(i + 1, min(i + 5, len(words))):
+                next_w = words[j].strip().lower()
+
+                if next_w in ("(", ")", "-", ":", ""):
+                    continue
+
+                if next_w in ("f", "female"):
+                    gender = Gender.female
+                    break
+                elif next_w in ("m", "male"):
+                    gender = Gender.male
+                    break
+                elif next_w == "x":
+                    gender = Gender.male  # 业务约定
+                    break
+
+            if gender:
+                break
+
+    # fallback（极低优先级）
+    if not gender:
+        if re.search(r"\bfemale\b", full_text, re.IGNORECASE):
+            gender = Gender.female
+        elif re.search(r"\bmale\b", full_text, re.IGNORECASE):
+            gender = Gender.male
+
+    # 出生日期
+    birth_date = None
+
+    # 优先 DOB
+    dob_patterns = [
+        r"(?:DOB|Date of Birth)\s*[:：]?\s*(\d{2}/\d{2}/\d{4})",
+        r"(?:DOB|Date of Birth)\s*[:：]?\s*(\d{4}-\d{2}-\d{2})",
+    ]
+
+    for p in dob_patterns:
+        m = re.search(p, full_text, re.IGNORECASE)
+        if m:
+            birth_date = _normalize_birth_date(m.group(1))
+            if birth_date:
+                break
+
+    # fallback：YYYY-MM-DD
+    if not birth_date:
+        m = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", full_text)
+        if m:
+            birth_date = _normalize_birth_date(m.group(1))
+
+    # 校验
+    if not (gender and birth_date):
+        #print(full_text)
+        raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.recognition_failed.realname")
+    #print(gender, birth_date)
+    return gender, "", birth_date
 
 
 async def get_realname_info_kr_idcard(image_bytes: bytes) -> tuple[Gender, str, date]:
@@ -715,20 +828,49 @@ async def get_realname_info_tw_idcard(image_bytes: bytes) -> tuple[Gender, str, 
     id_match = re.search(r"[A-Z][12]\d{8}", full_text)
     card_id = id_match.group(0) if id_match else None
 
+    if not card_id or not validate_tw_id(card_id):
+        #print("validation failed")
+        raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.recognition_failed.realname")
+
     # 性别
     gender = None
-    for w in words:
-        if "性别" in w or "性別" in w:
-            if "男" in w:
-                gender = "male"
-            elif "女" in w:
-                gender = "female"
-    # fallback（OCR拆词情况）
+
+    # 优先：从身份证号推断（台湾身份证第2位：1=男，2=女）
+    if card_id[1] == "1":
+        gender = Gender.male
+    elif card_id[1] == "2":
+        gender = Gender.female
+
+    # 次优：查找“性别/性別”字段后一个词
     if not gender:
-        if "男" in words:
-            gender = "male"
-        elif "女" in words:
-            gender = "female"
+        for i, w in enumerate(words):
+            w_clean = w.strip()
+            if w_clean in ("性别", "性別") and i + 1 < len(words):
+                next_word = words[i + 1].strip()
+                if "男" in next_word:
+                    gender = Gender.male
+                    break
+                elif "女" in next_word:
+                    gender = Gender.female
+                    break
+
+    # fallback：同一个 token 内（例如 "性别:男"）
+    if not gender:
+        for w in words:
+            if "性别" in w or "性別" in w:
+                if "男" in w:
+                    gender = Gender.male
+                    break
+                elif "女" in w:
+                    gender = Gender.female
+                    break
+
+    # 最低优先级：全文匹配（避免误识别）
+    if not gender:
+        if re.search(r"\b男\b", full_text):
+            gender = Gender.male
+        elif re.search(r"\b女\b", full_text):
+            gender = Gender.female
 
     # 出生日期（民國 → 西元）
     birth_date = None
@@ -754,9 +896,6 @@ async def get_realname_info_tw_idcard(image_bytes: bytes) -> tuple[Gender, str, 
     #print(gender, card_id, birth_date)
     if not (gender and card_id and birth_date):
         raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.recognition_failed.realname")
-    if not validate_tw_id(card_id):
-        raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.recognition_failed.realname")
-    #print(gender, card_id, birth_date)
     return gender, card_id, birth_date
 
 
@@ -771,6 +910,8 @@ async def realname_service(
     normalized_country_code = (country_code or "").upper()
     # OCR/解析放在事务外，避免长事务占锁
     gender, nation_id, birth_date = await _get_realname_info_from_ocr(normalized_country_code, method, front_bytes)
+    if country_code == "US" and method == RealNameMethod.drivingLicense:
+        nation_id = user_id
     #print(gender, nation_id, birth_date)
     if not (gender and nation_id and birth_date):
         raise BizException(code=ErrorCode.REALNAME_FAILED, message="identity.recognition_failed.realname")
