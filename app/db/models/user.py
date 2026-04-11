@@ -91,7 +91,7 @@ class UserRealNameIdentity(Base):
     birth_date = Column(Date, nullable=False)
     #name_Cn = Column(String, nullable=True)
     #name_En = Column(String, nullable=False)
-    card_id_hash = Column(String, nullable=False)    # 证件号
+    card_id_hash = Column(String, nullable=False)    # 证件号 （美国驾照 id 暂使用 user_id 进行 hash）
     #name_code = Column(String, nullable=True)
     #issued_code = Column(String, nullable=False)
 
