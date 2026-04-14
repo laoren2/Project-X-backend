@@ -395,8 +395,7 @@ async def get_record_by_record_id(db: AsyncSession, record_id: str) -> BikeRaceR
             selectinload(BikeRaceRecord.track)
                 .selectinload(BikeTrack.event)
                 .selectinload(BikeEvent.region),
-            selectinload(BikeRaceRecord.user)
-                .selectinload(User.real_name_info),
+            selectinload(BikeRaceRecord.user),
             selectinload(BikeRaceRecord.team)
                 .selectinload(BikeTeam.members),
             selectinload(BikeRaceRecord.path),
@@ -416,8 +415,7 @@ async def get_record_by_record_id_for_update(db: AsyncSession, record_id: str) -
         .where(BikeRaceRecord.record_id == record_id)
         .options(
             selectinload(BikeRaceRecord.track),
-            selectinload(BikeRaceRecord.user)
-                .selectinload(User.real_name_info),
+            selectinload(BikeRaceRecord.user),
             selectinload(BikeRaceRecord.team)
                 .selectinload(BikeTeam.members),
             selectinload(BikeRaceRecord.path),
@@ -447,8 +445,7 @@ async def get_records_by_team_id_for_update(db: AsyncSession, team_id: uuid.UUID
         .options(
             selectinload(BikeRaceRecord.track)
                 .selectinload(BikeTrack.event),
-            selectinload(BikeRaceRecord.user)
-                .selectinload(User.real_name_info),
+            selectinload(BikeRaceRecord.user),
             selectinload(BikeRaceRecord.team)
                 .selectinload(BikeTeam.members),
             selectinload(BikeRaceRecord.path),

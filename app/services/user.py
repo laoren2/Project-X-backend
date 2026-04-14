@@ -106,9 +106,7 @@ async def login_or_register(db: AsyncSession, phone_number: str, timezone: str):
                         remaining_str = "unknown"
                     raise BizException(code=ErrorCode.USER_BANNED, message="user.banned", params={"remaining": remaining_str})
             user_info = UserBaseInfo.model_validate(user)
-            if user.real_name_info:
-                user_info.gender = user.real_name_info.gender
-                user_info.birthday = user.real_name_info.birth_date.strftime("%Y-%m-%d")
+            user_info.birthday = user.birth_date.strftime("%Y-%m-%d") if user.birth_date else None
             if user.settings:
                 user_info.is_display_gender = user.settings.is_display_gender
                 user_info.is_display_age = user.settings.is_display_age
@@ -146,9 +144,7 @@ async def login_or_register_apple(db: AsyncSession, apple_id: str, email: str, t
                         remaining_str = "unknown"
                     raise BizException(code=ErrorCode.USER_BANNED, message="user.banned", params={"remaining": remaining_str})
             user_info = UserBaseInfo.model_validate(user)
-            if user.real_name_info:
-                user_info.gender = user.real_name_info.gender
-                user_info.birthday = user.real_name_info.birth_date.strftime("%Y-%m-%d")
+            user_info.birthday = user.birth_date.strftime("%Y-%m-%d") if user.birth_date else None
             if user.settings:
                 user_info.is_display_gender = user.settings.is_display_gender
                 user_info.is_display_age = user.settings.is_display_age
@@ -186,9 +182,7 @@ async def login_or_register_email(db: AsyncSession, email_address: str, timezone
                         remaining_str = "unknown"
                     raise BizException(code=ErrorCode.USER_BANNED, message="user.banned", params={"remaining": remaining_str})
             user_info = UserBaseInfo.model_validate(user)
-            if user.real_name_info:
-                user_info.gender = user.real_name_info.gender
-                user_info.birthday = user.real_name_info.birth_date.strftime("%Y-%m-%d")
+            user_info.birthday = user.birth_date.strftime("%Y-%m-%d") if user.birth_date else None
             if user.settings:
                 user_info.is_display_gender = user.settings.is_display_gender
                 user_info.is_display_age = user.settings.is_display_age
@@ -213,9 +207,7 @@ async def get_user_info(user_id: str, db: AsyncSession):
     if not user.settings:
         raise BizException(code=ErrorCode.USER_INFO_ERROR, message="user.info_error")
     user_info = UserBaseInfo.model_validate(user)
-    if user.real_name_info:
-        user_info.gender = user.real_name_info.gender
-        user_info.birthday = user.real_name_info.birth_date.strftime("%Y-%m-%d")
+    user_info.birthday = user.birth_date.strftime("%Y-%m-%d") if user.birth_date else None
     user_info.is_display_gender = user.settings.is_display_gender
     user_info.is_display_age = user.settings.is_display_age
     user_info.is_display_location = user.settings.is_display_location
@@ -234,9 +226,7 @@ async def get_me_info(db: AsyncSession, user_id: str, timezone: str | None) -> t
             raise BizException(code=ErrorCode.USER_INFO_ERROR, message="user.info_error")
         user.timezone = timezone if timezone else "UTC"
         user_info = UserBaseInfo.model_validate(user)
-        if user.real_name_info:
-            user_info.gender = user.real_name_info.gender
-            user_info.birthday = user.real_name_info.birth_date.strftime("%Y-%m-%d")
+        user_info.birthday = user.birth_date.strftime("%Y-%m-%d") if user.birth_date else None
         user_info.is_display_gender = user.settings.is_display_gender
         user_info.is_display_age = user.settings.is_display_age
         user_info.is_display_location = user.settings.is_display_location
@@ -291,6 +281,8 @@ async def update_user_info(user_id: str, form: UserUpdateForm, avatar_url: str |
         if not user.settings:
             raise BizException(code=ErrorCode.USER_INFO_ERROR, message="user.info_error")
         user.nickname = form.nickname
+        user.gender = form.gender
+        user.birth_date = form.birthday
         user.introduction = form.introduction
         user.location = form.location
         if avatar_url:
@@ -304,9 +296,7 @@ async def update_user_info(user_id: str, form: UserUpdateForm, avatar_url: str |
         user.settings.is_display_identity = form.is_display_identity
 
         user_info = UserBaseInfo.model_validate(user)
-        if user.real_name_info:
-            user_info.gender = user.real_name_info.gender
-            user_info.birthday = user.real_name_info.birth_date.strftime("%Y-%m-%d")
+        user_info.birthday = user.birth_date.strftime("%Y-%m-%d") if user.birth_date else None
         user_info.is_display_gender = user.settings.is_display_gender
         user_info.is_display_age = user.settings.is_display_age
         user_info.is_display_location = user.settings.is_display_location
@@ -320,9 +310,6 @@ async def delete_user_info(user_id: str, db: AsyncSession):
         user = await get_user_by_id(db, user_id)
         if user is None:
             raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
-        # 删除实名信息
-        if user.real_name_info:
-            await db.delete(user.real_name_info)
         # 删除设置
         if user.settings:
             await db.delete(user.settings)

@@ -44,7 +44,6 @@ async def get_exist_user_by_name(db: AsyncSession, nickname: str) -> User | None
         )
         .options(
             selectinload(User.settings),
-            selectinload(User.real_name_info),
             selectinload(User.subscription_info)
         )
     )
@@ -59,7 +58,6 @@ async def get_exist_user_by_phone(db: AsyncSession, phone_number: str) -> User |
         )
         .options(
             selectinload(User.settings),
-            selectinload(User.real_name_info),
             selectinload(User.subscription_info)
         )
     )
@@ -71,7 +69,6 @@ async def get_user_by_apple_id(db: AsyncSession, apple_id: str) -> List[User]:
         .where(User.apple_id == apple_id)
         .options(
             selectinload(User.settings),
-            selectinload(User.real_name_info),
             selectinload(User.subscription_info)
         )
     )
@@ -86,7 +83,6 @@ async def get_exist_user_by_apple_id(db: AsyncSession,  apple_id: str) -> User |
         )
         .options(
             selectinload(User.settings),
-            selectinload(User.real_name_info),
             selectinload(User.subscription_info)
         )
     )
@@ -98,7 +94,6 @@ async def get_user_by_email(db: AsyncSession, email_address: str) -> List[User]:
         .where(User.email == email_address)
         .options(
             selectinload(User.settings),
-            selectinload(User.real_name_info),
             selectinload(User.subscription_info)
         )
     )
@@ -113,7 +108,6 @@ async def get_exist_user_by_email(db: AsyncSession, email_address: str) -> User 
         )
         .options(
             selectinload(User.settings),
-            selectinload(User.real_name_info),
             selectinload(User.subscription_info)
         )
     )
@@ -132,7 +126,6 @@ async def get_user_by_id(db: AsyncSession, user_id: str) -> Optional[User]:
         .where(User.user_id == user_id)
         .options(
             selectinload(User.settings),
-            selectinload(User.real_name_info),
             selectinload(User.subscription_info)
         )
     )
@@ -147,7 +140,6 @@ async def get_exist_user_by_id(db: AsyncSession, user_id: str) -> Optional[User]
         )
         .options(
             selectinload(User.settings),
-            selectinload(User.real_name_info),
             selectinload(User.subscription_info)
         )
     )

@@ -101,7 +101,7 @@ async def apply_training_rewards(
     state: UserTrainingStateRunning | None,
     new_grids: int
 ) -> tuple[int, int, int, int, List[CCAssetRewardResponse]]:
-    gender = user.real_name_info.gender if user.real_name_info else Gender.male
+    gender = user.gender if user.gender else Gender.male
     season_data = await get_score_by_season_and_user(db, user.id, season_id)
     current_xp = season_data.xp if season_data else 0
 

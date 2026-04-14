@@ -17,6 +17,8 @@ class User(Base):
     timezone = Column(String, nullable=False, server_default="UTC")     # IANA timezone name
 
     nickname = Column(String, nullable=False)
+    gender = Column(Enum(Gender), nullable=True)
+    birth_date = Column(Date, nullable=True)
     phone_number = Column(String, nullable=True)
     apple_id = Column(String, nullable=True)
     apple_email = Column(String, nullable=True)
@@ -29,7 +31,7 @@ class User(Base):
     identity_auth_name = Column(String, nullable=True)
 
     settings = relationship("UserSetting", primaryjoin="User.id==foreign(UserSetting.user_id)", uselist=False, back_populates="user")
-    real_name_info = relationship("UserRealNameIdentity", primaryjoin="User.id==foreign(UserRealNameIdentity.user_id)", uselist=False, back_populates="user")
+    #real_name_info = relationship("UserRealNameIdentity", primaryjoin="User.id==foreign(UserRealNameIdentity.user_id)", uselist=False, back_populates="user")
     subscription_info = relationship("UserSubscription", primaryjoin="User.id==foreign(UserSubscription.user_id)", uselist=False, back_populates="user")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -98,7 +100,7 @@ class UserRealNameIdentity(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    user = relationship("User", primaryjoin="foreign(UserRealNameIdentity.user_id) == User.id", uselist=False, back_populates="real_name_info")
+    #user = relationship("User", primaryjoin="foreign(UserRealNameIdentity.user_id) == User.id", uselist=False, back_populates="real_name_info")
 
     __table_args__ = (
         UniqueConstraint('country_code', 'method', 'card_id_hash', name='uq_user_realname_identities_country_method_card'),

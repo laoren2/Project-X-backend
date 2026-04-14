@@ -4,6 +4,7 @@ from typing import Optional, Any
 from app.schemas.base import ORMBase
 from enum import Enum
 from app.core.storage import build_resource_url
+from datetime import date
 import uuid
 
 from app.schemas.common import SportType
@@ -100,6 +101,8 @@ class UserUpdateForm:
     nickname: str
     introduction: Optional[str]
     location: Optional[str]
+    gender: Optional[Gender]
+    birthday: Optional[date]
     is_display_gender: bool
     is_display_age: bool
     is_display_location: bool
@@ -111,6 +114,8 @@ class UserUpdateForm:
         nickname: str = Form(...),
         introduction: Optional[str] = Form(None),
         location: Optional[str] = Form(None),
+        gender: Optional[Gender] = Form(None),
+        birthday: Optional[date] = Form(None),
         is_display_gender: bool = Form(...),
         is_display_age: bool = Form(...),
         is_display_location: bool = Form(...),
@@ -120,6 +125,8 @@ class UserUpdateForm:
         self.nickname = nickname
         self.introduction = introduction
         self.location = location
+        self.gender = gender
+        self.birthday = birthday
         self.is_display_gender = is_display_gender
         self.is_display_age = is_display_age
         self.is_display_location = is_display_location
