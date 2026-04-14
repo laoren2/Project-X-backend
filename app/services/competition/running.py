@@ -1233,7 +1233,7 @@ async def query_user_rank_info(db: AsyncSession, user_id: str, track_id: str) ->
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
-    gender = user.real_name_info.gender if user.real_name_info else Gender.male
+    gender = user.gender if user.gender else Gender.male
 
     snapshot_key = await get_latest_snapshot_key(track_id, gender)
     if not snapshot_key:
@@ -1561,7 +1561,7 @@ async def filtered_entries(db: AsyncSession, entries: List[tuple[str, str, float
         user = await get_exist_user_by_id(db, user_id)
         record = await get_record_by_record_id(db, record_id)
         # 未实名注册以及与排行榜性别不符的用户无法结算
-        if user is None or record is None or user.real_name_info is None or user.real_name_info.gender != gender:
+        if user is None or record is None or user.gender is None or user.gender != gender:
             continue
         filtered_result.append((user_id, record_id, duration))
     return filtered_result
@@ -1606,7 +1606,7 @@ async def settle_running_leaderboard_service(db: AsyncSession, track_id: str) ->
             for user_id, record_id, duration, voucher, score, rank in settled:
                 user = await get_exist_user_by_id(db, user_id)
                 record = await get_record_by_record_id(db, record_id)
-                if user is None or record is None or user.real_name_info is None or user.real_name_info.gender != gender:
+                if user is None or record is None or user.gender is None or user.gender != gender:
                     raise BizException(code=ErrorCode.TRACK_ERROR, message="结算失败")
                 # leaderboard
                 db.add(RunningLeaderboard(
@@ -2140,7 +2140,7 @@ async def get_career_data_service(db: AsyncSession, season_id: str, user_id: str
     season = await get_season_by_season_id(db, season_id)
     if not season:
         raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
-    gender = user.real_name_info.gender if user.real_name_info else Gender.male
+    gender = user.gender if user.gender else Gender.male
     statistic_data = await get_career_statistic_data(db, season.id, user.id)
     score, rank, voucher_bonus, xp = await get_score_and_rank_by_season_id_and_user(db, season.id, user.id, gender)
     return RunningCareerDataInfo(

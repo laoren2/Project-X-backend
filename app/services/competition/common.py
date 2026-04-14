@@ -160,8 +160,7 @@ async def clean_expired_records_service(db: AsyncSession):
                 BikeRaceRecord.team_id.is_not(None)
             )
             .options(
-                selectinload(BikeRaceRecord.user)
-                    .selectinload(User.real_name_info),
+                selectinload(BikeRaceRecord.user),
                 selectinload(BikeRaceRecord.track)
                     .selectinload(BikeTrack.event)
                     .selectinload(BikeEvent.season),
@@ -176,8 +175,7 @@ async def clean_expired_records_service(db: AsyncSession):
                 RunningRaceRecord.team_id.is_not(None)
             )
             .options(
-                selectinload(RunningRaceRecord.user)
-                    .selectinload(User.real_name_info),
+                selectinload(RunningRaceRecord.user),
                 selectinload(RunningRaceRecord.track)
                     .selectinload(RunningTrack.event)
                     .selectinload(RunningEvent.season),
@@ -671,7 +669,7 @@ async def update_running_leaderboard_for_record(record: RunningRaceRecord):
             return
         if record.track is None:
             return
-        gender = record.user.real_name_info.gender if record.user.real_name_info else Gender.male
+        gender = record.user.gender if record.user.gender else Gender.male
         key = f"leaderboard:running:{record.track.track_id}:{gender.value}"
         # 1. 查找旧成绩
         best_score = None
@@ -700,7 +698,7 @@ async def update_bike_leaderboard_for_record(record: BikeRaceRecord):
             return
         if record.track is None:
             return
-        gender = record.user.real_name_info.gender if record.user.real_name_info else Gender.male
+        gender = record.user.gender if record.user.gender else Gender.male
         key = f"leaderboard:bike:{record.track.track_id}:{gender.value}"
         # 1. 查找旧成绩
         best_score = None
@@ -725,7 +723,7 @@ async def update_bike_leaderboard_for_record(record: BikeRaceRecord):
 
 async def query_pb_and_tb_in_bike_track(record: BikeRaceRecord) -> tuple[float | None, float | None]:
     user = record.user
-    gender = user.real_name_info.gender if user.real_name_info else Gender.male
+    gender = user.gender if user.gender else Gender.male
     leaderboard_key = f"leaderboard:bike:{record.track.track_id}:{gender.value}"
     members = await redis_client.zrange(leaderboard_key, 0, -1, withscores=True)
     # 查询用户的最佳成绩
@@ -745,7 +743,7 @@ async def settle_bike_match_xp(db: AsyncSession, record: BikeRaceRecord) -> tupl
         return 0
     user = record.user
     track = record.track
-    gender = user.real_name_info.gender if user.real_name_info else Gender.male
+    gender = user.gender if user.gender else Gender.male
     season_data = await bike.get_score_by_season_and_user(db, user.id, track.event.season_id)
     current_xp = season_data.xp if season_data else 0
 
@@ -860,7 +858,7 @@ async def compute_bike_match_rewards(record: BikeRaceRecord) -> tuple[bool, bool
 
 async def query_pb_and_tb_in_running_track(record: RunningRaceRecord) -> tuple[float | None, float | None]:
     user = record.user
-    gender = user.real_name_info.gender if user.real_name_info else Gender.male
+    gender = user.gender if user.gender else Gender.male
     leaderboard_key = f"leaderboard:running:{record.track.track_id}:{gender.value}"
     members = await redis_client.zrange(leaderboard_key, 0, -1, withscores=True)
     # 查询用户的最佳成绩
@@ -879,7 +877,7 @@ async def settle_running_match_xp(db: AsyncSession, record: RunningRaceRecord) -
         return 0
     user = record.user
     track = record.track
-    gender = user.real_name_info.gender if user.real_name_info else Gender.male
+    gender = user.gender if user.gender else Gender.male
     season_data = await running.get_score_by_season_and_user(db, user.id, track.event.season_id)
     current_xp = season_data.xp if season_data else 0
 

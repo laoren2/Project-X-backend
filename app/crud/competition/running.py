@@ -404,7 +404,6 @@ async def get_record_by_record_id(db: AsyncSession, record_id: str) -> RunningRa
                 .selectinload(CardBonusInRunningRecord.card)
                 .selectinload(UserEquipmentCard.user),
             selectinload(RunningRaceRecord.user)
-                .selectinload(User.real_name_info)
         )
     )
     return record.scalar_one_or_none()
@@ -415,8 +414,7 @@ async def get_record_by_record_id_for_update(db: AsyncSession, record_id: str) -
         .where(RunningRaceRecord.record_id == record_id)
         .options(
             selectinload(RunningRaceRecord.track),
-            selectinload(RunningRaceRecord.user)
-                .selectinload(User.real_name_info),
+            selectinload(RunningRaceRecord.user),
             selectinload(RunningRaceRecord.team)
                 .selectinload(RunningTeam.members),
             selectinload(RunningRaceRecord.path),
@@ -446,8 +444,7 @@ async def get_records_by_team_id_for_update(db: AsyncSession, team_id: uuid.UUID
         .options(
             selectinload(RunningRaceRecord.track)
                 .selectinload(RunningTrack.event),
-            selectinload(RunningRaceRecord.user)
-                .selectinload(User.real_name_info),
+            selectinload(RunningRaceRecord.user),
             selectinload(RunningRaceRecord.team)
                 .selectinload(RunningTeam.members),
             selectinload(RunningRaceRecord.path),
