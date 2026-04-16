@@ -1,4 +1,4 @@
-from app.crud.competition.common import get_region_by_name, get_region_by_region_id
+from app.crud.competition.common import get_region_by_region_id
 from app.crud.competition.running import (
     get_event_by_event_id, get_event_by_name, get_event_by_season_id_and_region_id,
     get_track_by_name, get_track_by_track_id, get_track_by_event_id,
@@ -217,7 +217,7 @@ async def query_events_service(
         start_date=e.start_date.isoformat(),
         end_date=e.end_date.isoformat(),
         season_name=e.season.name_i18n["zh-Hans"] if e.season is not None else "未知",
-        region_name=e.region.name if e.region is not None else "未知",
+        region_id=e.region.region_id if e.region is not None else "未知",
         image_url=build_resource_url(e.image_url)
     ) for e in events]
 
@@ -373,7 +373,7 @@ async def query_tracks_service(
         end_date=t.end_date.isoformat(),
         event_name=t.event.name_i18n["zh-Hans"] if t.event else "未知",
         season_name=t.event.season.name_i18n["zh-Hans"] if t.event and t.event.season else "未知",
-        region_name=t.event.region.name if t.event and t.event.region else "未知",
+        region_id=t.event.region.region_id if t.event and t.event.region else "未知",
         image_url=build_resource_url(t.image_url),
         from_latitude=str(t.from_lat),
         from_longitude=str(t.from_lng),
@@ -459,7 +459,7 @@ async def single_register_service(db: AsyncSession, lang: Language, track_id: st
         record = await create_record_crud(db, new_record)
         record_info = RunningRecordInfo(
             record_id=record.record_id,
-            region_name=record.track.event.region.name if record.track and record.track.event and record.track.event.region else "未知",
+            region_id=record.track.event.region.region_id if record.track and record.track.event and record.track.event.region else "未知",
             event_name=pick_i18n_text(record.track.event.name_i18n, lang) if record.track and record.track.event else "未知",
             track_name=pick_i18n_text(record.track.name_i18n, lang) if record.track else "未知",
             track_start_lat=record.track.from_lat if record.track else -1,
@@ -539,7 +539,7 @@ async def get_incompleted_records_all(
     records = await get_incompleted_records_by_user_id(db, user.id, page, size)
     return [RunningRecordInfo(
         record_id=r.record_id,
-        region_name=r.track.event.region.name if r.track and r.track.event and r.track.event.region else "未知",
+        region_id=r.track.event.region.region_id if r.track and r.track.event and r.track.event.region else "未知",
         event_name=pick_i18n_text(r.track.event.name_i18n, lang) if r.track and r.track.event else "未知",
         track_name=pick_i18n_text(r.track.name_i18n, lang) if r.track else "未知",
         track_start_lat=r.track.from_lat if r.track else -1,
@@ -573,7 +573,7 @@ async def get_completed_records_all(
     records = await get_completed_records_by_user_id(db, user.id, page, size)
     return [RunningRecordInfo(
         record_id=r.record_id,
-        region_name=r.track.event.region.name if r.track and r.track.event and r.track.event.region else "未知",
+        region_id=r.track.event.region.region_id if r.track and r.track.event and r.track.event.region else "未知",
         event_name=pick_i18n_text(r.track.event.name_i18n, lang) if r.track and r.track.event else "未知",
         track_name=pick_i18n_text(r.track.name_i18n, lang) if r.track else "未知",
         track_start_lat=r.track.from_lat if r.track else -1,
@@ -1344,7 +1344,7 @@ async def get_public_teams_service(
                 description=t.description,
                 member_count=len(t.members),
                 max_member_size=t.members_count_max,
-                region_name="未知",
+                region_id="未知",
                 event_name="未知",
                 track_name="未知",
                 competition_date=t.start_date.isoformat(),
@@ -1382,7 +1382,7 @@ async def get_user_applied_teams(
                 description=t.description,
                 member_count=len(t.members),
                 max_member_size=t.members_count_max,
-                region_name=t.track.event.region.name if t.track and t.track.event and t.track.event.region else "未知",
+                region_id=t.track.event.region.region_id if t.track and t.track.event and t.track.event.region else "未知",
                 event_name=pick_i18n_text(t.track.event.name_i18n, lang) if t.track and t.track.event else "未知",
                 track_name=pick_i18n_text(t.track.name_i18n, lang) if t.track else "未知",
                 competition_date=t.start_date.isoformat(),
@@ -1415,7 +1415,7 @@ async def get_user_teams(
                 member_count=len(t.members),
                 max_member_size=t.members_count_max,
                 team_code=t.team_code,
-                region_name=t.track.event.region.name if t.track and t.track.event and t.track.event.region else "未知",
+                region_id=t.track.event.region.region_id if t.track and t.track.event and t.track.event.region else "未知",
                 event_name=pick_i18n_text(t.track.event.name_i18n, lang) if t.track and t.track.event else "未知",
                 track_name=pick_i18n_text(t.track.name_i18n, lang) if t.track else "未知",
                 is_public=t.is_public,
@@ -1440,7 +1440,7 @@ async def get_user_teams(
                     member_count=len(t.members),
                     max_member_size=t.members_count_max,
                     team_code=t.team_code,
-                    region_name=t.track.event.region.name if t.track and t.track.event and t.track.event.region else "未知",
+                    region_id=t.track.event.region.region_id if t.track and t.track.event and t.track.event.region else "未知",
                     event_name=pick_i18n_text(t.track.event.name_i18n, lang) if t.track and t.track.event else "未知",
                     track_name=pick_i18n_text(t.track.name_i18n, lang) if t.track else "未知",
                     is_public=t.is_public,
@@ -1468,7 +1468,7 @@ async def get_team_detail_service(db: AsyncSession, lang: Language, team_id: str
         )
         for m in team.members
     ]
-    region_name = team.track.event.region.name if team.track and team.track.event and team.track.event.region else "未知"
+    region_id = team.track.event.region.region_id if team.track and team.track.event and team.track.event.region else "未知"
     event_name = pick_i18n_text(team.track.event.name_i18n, lang) if team.track and team.track.event else "未知"
     track_name = pick_i18n_text(team.track.name_i18n, lang) if team.track else "未知"
     return RunningTeamDetailResponse(
@@ -1477,7 +1477,7 @@ async def get_team_detail_service(db: AsyncSession, lang: Language, team_id: str
         description=team.description,
         max_member_size=team.members_count_max,
         team_code=team.team_code,
-        region_name=region_name,
+        region_id=region_id,
         event_name=event_name,
         track_name=track_name,
         is_public=team.is_public,
@@ -1521,7 +1521,7 @@ async def get_team_manage_service(db: AsyncSession, lang: Language, team_id: str
         )
         for m in team.applied_members
     ]
-    region_name = team.track.event.region.name if team.track.event and team.track.event.region else "未知"
+    region_id = team.track.event.region.region_id if team.track.event and team.track.event.region else "未知"
     event_name = pick_i18n_text(team.track.event.name_i18n, lang) if team.track.event else "未知"
     track_name = pick_i18n_text(team.track.name_i18n, lang)
     track_end_date = team.track.end_date.isoformat()
@@ -1531,7 +1531,7 @@ async def get_team_manage_service(db: AsyncSession, lang: Language, team_id: str
         description=team.description,
         max_member_size=team.members_count_max,
         team_code=team.team_code,
-        region_name=region_name,
+        region_id=region_id,
         event_name=event_name,
         track_name=track_name,
         track_end_date=track_end_date,
@@ -2101,7 +2101,7 @@ async def get_current_best_records_service(db: AsyncSession, lang: Language, use
                         record_id=rank_info.record_id,
                         event_name=pick_i18n_text(event.name_i18n, lang),
                         track_name=pick_i18n_text(track.name_i18n, lang),
-                        city_name=event.region.name,
+                        region_id=event.region.region_id,
                         best_time=rank_info.duration_seconds if rank_info.duration_seconds else 0,
                         rank=rank_info.rank if rank_info.rank else 0,
                         voucher=rank_info.reward_voucher_amount if rank_info.reward_voucher_amount else 0,
@@ -2126,7 +2126,7 @@ async def get_career_records_service(db: AsyncSession, lang: Language, season_id
                     track_id=track.track_id,
                     track_name=pick_i18n_text(track.name_i18n, lang),
                     event_name=pick_i18n_text(event.name_i18n, lang),
-                    region=event.region.name,
+                    region_id=event.region.region_id,
                     track_score=track.score,
                     score=record.score,
                     record_date=record.record.end_time.isoformat()

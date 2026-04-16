@@ -15,10 +15,6 @@ async def create_region_crud(db: AsyncSession, region: Region):
     db.add(region)
     await db.flush()
 
-async def get_region_by_name(db: AsyncSession, name: str) -> Region | None:
-    result = await db.execute(select(Region).where(Region.name == name))
-    return result.scalar_one_or_none()
-
 async def get_region_by_coordinate(db: AsyncSession, lat: float, lon: float) -> Region | None:
     point = WKTElement(f'POINT({lon} {lat})', srid=4326)
     stmt = (

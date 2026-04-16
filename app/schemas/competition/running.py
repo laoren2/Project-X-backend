@@ -92,7 +92,7 @@ class RunningEventBaseInfoInternal(ORMBase):
     start_date: str
     end_date: str
     season_name: str
-    region_name: str
+    region_id: str
     image_url: str
 
 class RunningEventListInternalResponse(ORMBase):
@@ -232,7 +232,7 @@ class RunningTrackBaseInfoInternal(ORMBase):
     end_date: str
     event_name: str
     season_name: str
-    region_name: str
+    region_id: str
     image_url: str
 
     from_latitude: str
@@ -316,7 +316,7 @@ class RunningFinishInfo(BaseModel):
 
 class RunningRecordInfo(ORMBase):
     record_id: str
-    region_name: str
+    region_id: str
     event_name: str
     track_name: str
     track_start_lat: float
@@ -381,7 +381,7 @@ class RunningAppliedTeamInfo(ORMBase):
     description: str
     member_count: int
     max_member_size: int
-    region_name: str
+    region_id: str
     event_name: str
     track_name: str
     competition_date: str
@@ -398,7 +398,7 @@ class RunningTeamInfo(ORMBase):
     member_count: int
     max_member_size: int
     team_code: str
-    region_name: str
+    region_id: str
     event_name: str
     track_name: str
     is_public: bool
@@ -431,7 +431,7 @@ class RunningTeamDetailResponse(ORMBase):
     description: str
     max_member_size: int
     team_code: str
-    region_name: str
+    region_id: str
     event_name: str
     track_name: str
     is_public: bool
@@ -446,7 +446,7 @@ class RunningTeamManageResponse(ORMBase):
     description: str
     max_member_size: int
     team_code: str
-    region_name: str
+    region_id: str
     event_name: str
     track_name: str
     track_end_date: str
@@ -508,7 +508,7 @@ class RunningSummaryRecordInfo(BaseModel):
     record_id: str
     event_name: str
     track_name: str
-    city_name: str
+    region_id: str
     best_time: float
     rank: int
     voucher: int
@@ -529,7 +529,7 @@ class RunningCareerRecordInfo(BaseModel):
     track_id: str
     track_name: str
     event_name: str
-    region: str
+    region_id: str
     track_score: int
     score: int
     record_date: str

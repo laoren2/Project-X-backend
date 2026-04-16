@@ -1,5 +1,5 @@
 from app.crud.competition.common import (
-    get_region_by_name, create_region_crud, get_regions_by_country_code,
+    create_region_crud, get_regions_by_country_code,
     get_region_by_coordinate
 )
 from app.crud.asset_manage import reward_ccasset
@@ -585,17 +585,6 @@ async def generate_running_leaderboard_snapshot(db: AsyncSession, track_id: str)
         await pipe.execute()
 
     return f"leaderboard:running:{track_id}"
-
-
-async def create_region_service(db: AsyncSession, region_create: RegionCreate):
-    region = await get_region_by_name(db, region_create.name)
-    if region is not None:
-        raise BizException(code=ErrorCode.REGION_ERROR, message="region.data_error")
-    new_region = Region(
-        name=region_create.name
-    )
-    await create_region_crud(db, new_region)
-    await db.commit()
 
 
 async def query_regions_with_events_service(db: AsyncSession, sport_type: str, country_code: str) -> List[str]:
