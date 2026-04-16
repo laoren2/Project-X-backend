@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Protocol
 from pydantic import BaseModel
+from app.schemas.common import PersonInfoResponse
 
 
 class RegionExploreResponse(BaseModel):
@@ -31,3 +32,15 @@ class GridTileInfo(BaseModel):
 
 class GridTileResponse(BaseModel):
     tiles: List[GridTileInfo]
+
+class GridFamiliarityMeResponse(BaseModel):
+    count: int
+    rank: int
+
+class GridFamiliarityRankInfo(BaseModel):
+    user: PersonInfoResponse
+    count: int
+    rank: int
+
+class GridFamiliarityRankListResponse(BaseModel):
+    data: List[GridFamiliarityRankInfo]

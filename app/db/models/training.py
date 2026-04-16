@@ -13,7 +13,7 @@ from sqlalchemy.ext.mutable import MutableDict
 import uuid
 
 
-# 暂时保存国家 grid 范围
+# 暂时保存国家 grid 范围（弃用）
 COUNTRY_GRIDS_BBOX = {
     "KR": (38.62226528, 125.34306912, 33.16020748, 130.92873665),
     "TW": (26.28872719, 118.26983294, 21.86414334, 122.02333580),
@@ -21,6 +21,39 @@ COUNTRY_GRIDS_BBOX = {
     "CN": (41.059233, 114.84595390, 29.41635100, 122.242919),
     "US": (71.42736545, -179.20383122, 18.90647722, -66.94494637)
 }
+
+# 网格 buff 系统
+'''class EffectGrid(Base):
+    __tablename__ = "effect_grids"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # 所属区域
+    region_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    # 网格坐标
+    grid_x = Column(Integer, nullable=False)
+    grid_y = Column(Integer, nullable=False)
+    # 类型
+    # effect_type = Column(String, nullable=False)  
+    # e.g. "buff", "debuff"
+    # 奖励
+    reward_type = Column(String, nullable=False)  
+    # e.g. "xp", "coin", "energy"
+    reward_value = Column(Float, nullable=False)
+    # 条件（核心）
+    condition_type = Column(String, nullable=False)  
+    # e.g. "visit_count", "distance", "unique_grids"
+    condition_params = Column(MutableDict.as_mutable(JSONB), nullable=False)
+    # e.g. {"min": 3}
+    # 生命周期（用于每日刷新）
+    active_date = Column(Date, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "region_id", "grid_x", "grid_y", "active_date",
+            name="uq_effect_grids_region_grid_date"
+        ),
+    )'''
 
 
 # 用户网格熟悉度表
@@ -58,6 +91,9 @@ class UserGridFamiliarityBikeAgg(Base):
     grid_y = Column(Integer, nullable=False)
 
     familiarity_count = Column(Integer, default=0, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
         UniqueConstraint("season_id", "user_id", "level", "grid_x", "grid_y", name="uq_user_grid_familiarity_bike_agg_season_user_level_grid"),
@@ -97,6 +133,9 @@ class UserGridFamiliarityRunningAgg(Base):
     grid_y = Column(Integer, nullable=False)
 
     familiarity_count = Column(Integer, default=0, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
         UniqueConstraint("season_id", "user_id", "level", "grid_x", "grid_y", name="uq_user_grid_familiarity_running_agg_season_user_level_grid"),

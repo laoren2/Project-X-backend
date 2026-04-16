@@ -21,7 +21,11 @@ async def get_region_by_name(db: AsyncSession, name: str) -> Region | None:
 
 async def get_region_by_coordinate(db: AsyncSession, lat: float, lon: float) -> Region | None:
     point = WKTElement(f'POINT({lon} {lat})', srid=4326)
-    stmt = select(Region).where(ST_Contains(Region.boundary, point))
+    stmt = (
+        select(Region)
+        .where(ST_Contains(Region.boundary, point))
+        .limit(1)
+    )
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
