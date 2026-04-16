@@ -165,8 +165,6 @@ async def query_events_crud(
 
     if season_name:
         stmt = stmt.filter(func.lower(RunningSeason.name_i18n["zh-Hans"]).contains(season_name.lower()))
-    if region_name:
-        stmt = stmt.filter(func.lower(Region.name).contains(region_name.lower()))
     if event_name:
         stmt = stmt.filter(func.lower(RunningEvent.name_i18n["zh-Hans"]).contains(event_name.lower()))
 
@@ -281,8 +279,6 @@ async def query_tracks_crud(
         stmt = stmt.filter(func.lower(RunningEvent.name_i18n["zh-Hans"]).contains(event_name.lower()))
     if season_name:
         stmt = stmt.filter(func.lower(RunningSeason.name_i18n["zh-Hans"]).contains(season_name.lower()))
-    if region_name:
-        stmt = stmt.filter(func.lower(Region.name).contains(region_name.lower()))
     if track_name:
         stmt = stmt.filter(func.lower(RunningTrack.name_i18n["zh-Hans"]).contains(track_name.lower()))
 

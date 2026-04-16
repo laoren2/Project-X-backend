@@ -95,7 +95,7 @@ class BikeEventBaseInfoInternal(ORMBase):
     start_date: str
     end_date: str
     season_name: str
-    region_name: str
+    region_id: str
     image_url: str
 
 class BikeEventListInternalResponse(ORMBase):
@@ -235,7 +235,7 @@ class BikeTrackBaseInfoInternal(ORMBase):
     end_date: str
     event_name: str
     season_name: str
-    region_name: str
+    region_id: str
     image_url: str
 
     from_latitude: str
@@ -313,7 +313,7 @@ class BikeFinishInfo(BaseModel):
 
 class BikeRecordInfo(ORMBase):
     record_id: str
-    region_name: str
+    region_id: str
     event_name: str
     track_name: str
     track_start_lat: float
@@ -378,7 +378,7 @@ class BikeAppliedTeamInfo(ORMBase):
     description: str
     member_count: int
     max_member_size: int
-    region_name: str
+    region_id: str
     event_name: str
     track_name: str
     competition_date: str
@@ -395,7 +395,7 @@ class BikeTeamInfo(ORMBase):
     member_count: int
     max_member_size: int
     team_code: str
-    region_name: str
+    region_id: str
     event_name: str
     track_name: str
     is_public: bool
@@ -428,7 +428,7 @@ class BikeTeamDetailResponse(ORMBase):
     description: str
     max_member_size: int
     team_code: str
-    region_name: str
+    region_id: str
     event_name: str
     track_name: str
     is_public: bool
@@ -443,7 +443,7 @@ class BikeTeamManageResponse(ORMBase):
     description: str
     max_member_size: int
     team_code: str
-    region_name: str
+    region_id: str
     event_name: str
     track_name: str
     track_end_date: str
@@ -505,7 +505,7 @@ class BikeSummaryRecordInfo(BaseModel):
     record_id: str
     event_name: str
     track_name: str
-    city_name: str
+    region_id: str
     best_time: float
     rank: int
     voucher: int
@@ -526,7 +526,7 @@ class BikeCareerRecordInfo(BaseModel):
     track_id: str
     track_name: str
     event_name: str
-    region: str
+    region_id: str
     track_score: int
     score: int
     record_date: str
