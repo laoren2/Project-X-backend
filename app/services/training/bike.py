@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.tools import get_user_local_date, latlon_to_grid
-from app.schemas.common import CCAssetRewardResponse, CCAssetType
+from app.core.storage import build_resource_url
+from app.schemas.common import CCAssetRewardResponse, CCAssetType, PersonInfoResponse
 from app.schemas.asset import AssetOperation
 from app.services.competition.common import compute_distance
 from app.crud.competition.bike import get_season_now, get_score_by_season_and_user, add_or_update_career_xp
@@ -12,7 +13,10 @@ from app.schemas.training.bike import (
     TrainingStatesHistoryInfo, TrainingRecordsResponse, TrainingRecordInfo,
     BikeTrainingPathPoint, FreeTrainingRecordDetailResponse
 )
-from app.schemas.training.common import RegionExploreResponse, GridTileKey, GridTileResponse
+from app.schemas.training.common import (
+    RegionExploreResponse, GridTileKey, GridTileResponse, GridFamiliarityRankListResponse,
+    GridFamiliarityMeResponse, GridFamiliarityRankInfo
+)
 from app.crud.training.bike import (
     get_training_states_by_user_and_month, get_training_records_by_user_and_day,
     add_or_update_daily_training_states, get_training_state_by_user, update_user_familiarity_by_grids,
@@ -421,6 +425,7 @@ async def query_free_training_record_detail_service(
         settlements=record.settlement_rewards
     )
 
+# tiles 分块查询
 async def query_familiarity_grids_by_tiles_service(
     db: AsyncSession,
     user_id: str,
@@ -433,3 +438,135 @@ async def query_familiarity_grids_by_tiles_service(
     if season is None:
         raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
     return await get_familiarity_grids_by_tiles(db, user.id, season.id, tiles)
+
+# 查询某网格我的访问次数和名次
+async def query_me_familiarity_by_grid(
+    db: AsyncSession,
+    user_id: str,
+    grid_x: int,
+    grid_y: int,
+    level: int
+) -> GridFamiliarityMeResponse:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    season = await get_season_now(db)
+    if season is None:
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
+
+    # 查询当前用户该 grid 的次数和更新时间
+    sql_count = text(
+        """
+        SELECT familiarity_count, updated_at
+        FROM user_grid_familiarity_bike_agg
+        WHERE user_id = :user_id
+          AND season_id = :season_id
+          AND level = :level
+          AND grid_x = :grid_x
+          AND grid_y = :grid_y
+        """
+    )
+
+    result = await db.execute(sql_count, {
+        "user_id": user.id,
+        "season_id": season.id,
+        "level": level,
+        "grid_x": grid_x,
+        "grid_y": grid_y
+    })
+    row = result.fetchone()
+    count = row.familiarity_count if row else 0
+    updated_at = row.updated_at if row else None
+
+    if count == 0:
+        return GridFamiliarityMeResponse(count=0, rank=0)
+
+    # 查询排名（比自己大的数量 + 1，若次数相同则按更新时间升序）
+    sql_rank = text(
+        """
+        SELECT COUNT(*) + 1 AS rank
+        FROM user_grid_familiarity_bike_agg
+        WHERE season_id = :season_id
+          AND level = :level
+          AND grid_x = :grid_x
+          AND grid_y = :grid_y
+          AND (
+                familiarity_count > :count
+                OR (
+                    familiarity_count = :count
+                    AND updated_at < :updated_at
+                )
+              )
+        """
+    )
+
+    result = await db.execute(sql_rank, {
+        "season_id": season.id,
+        "level": level,
+        "grid_x": grid_x,
+        "grid_y": grid_y,
+        "count": count,
+        "updated_at": updated_at
+    })
+    rank = result.scalar_one()
+
+    return GridFamiliarityMeResponse(count=count, rank=rank)
+
+async def query_familiarity_ranking_by_grid(
+    db: AsyncSession,
+    grid_x: int,
+    grid_y: int,
+    level: int,
+    page: int,
+    size: int
+) -> GridFamiliarityRankListResponse:
+    season = await get_season_now(db)
+    if season is None:
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
+
+    offset = (page - 1) * size
+
+    # 查询排行榜数据（带 rank，按次数降序、更新时间升序，rank为ROW_NUMBER）
+    sql = text(
+        """
+        SELECT 
+            u.user_id AS user_id,
+            u.avatar_image_url,
+            u.nickname,
+            f.familiarity_count,
+            ROW_NUMBER() OVER (ORDER BY f.familiarity_count DESC, f.updated_at ASC) AS rank
+        FROM user_grid_familiarity_bike_agg f
+        JOIN users u ON u.id = f.user_id
+        WHERE f.season_id = :season_id
+          AND f.level = :level
+          AND f.grid_x = :grid_x
+          AND f.grid_y = :grid_y
+        ORDER BY f.familiarity_count DESC, f.updated_at ASC
+        LIMIT :limit OFFSET :offset
+        """
+    )
+
+    result = await db.execute(sql, {
+        "season_id": season.id,
+        "level": level,
+        "grid_x": grid_x,
+        "grid_y": grid_y,
+        "limit": size,
+        "offset": offset
+    })
+
+    rows = result.fetchall()
+
+    data = []
+    for row in rows:
+        data.append(GridFamiliarityRankInfo(
+            user=PersonInfoResponse(
+                user_id=str(row.user_id),
+                avatar_image_url=build_resource_url(row.avatar_image_url),
+                nickname=row.nickname
+            ),
+            count=row.familiarity_count,
+            rank=row.rank
+        ))
+
+    return GridFamiliarityRankListResponse(data=data)

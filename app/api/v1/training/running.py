@@ -8,11 +8,14 @@ from app.schemas.training.running import (
     FreeTrainingFinishInfo, FreeTrainingFinishResponse, TrainingStatesHistoryResponse,
     TrainingRecordsResponse, FreeTrainingRecordDetailResponse
 )
-from app.schemas.training.common import RegionExploreResponse, GridTileResponse, GridTileRequest
+from app.schemas.training.common import (
+    RegionExploreResponse, GridTileResponse, GridTileRequest,
+    GridFamiliarityMeResponse, GridFamiliarityRankListResponse
+)
 from app.services.training.running import (
     finish_free_training_service, query_training_states_history_service, query_training_records_service,
     query_training_states_service, query_region_exploration_service, query_free_training_record_detail_service,
-    query_familiarity_grids_by_tiles_service
+    query_familiarity_grids_by_tiles_service, query_me_familiarity_by_grid, query_familiarity_ranking_by_grid
 )
 
 router = APIRouter(dependencies=[Depends(get_language)])
@@ -96,3 +99,28 @@ async def query_grid_tiles(
 ):
     result = await query_familiarity_grids_by_tiles_service(db, auth.payload["user_id"], request.tiles)
     return BaseResponse.success(token=auth.new_token, data=result)
+
+# 查询我的网格熟悉度状态
+@router.get("/query_grid_familiarity_me",response_model=BaseResponse[GridFamiliarityMeResponse],summary="查询我的网格熟悉度状态")
+async def query_grid_familiarity_me(
+    grid_x: int = Query(...),
+    grid_y: int = Query(...),
+    level: int = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_me_familiarity_by_grid(db, auth.payload["user_id"], grid_x, grid_y, level)
+    return BaseResponse.success(token=auth.new_token, data=result)
+
+# 查询网格熟悉度排行榜
+@router.get("/query_grid_familiarity_ranklist",response_model=BaseResponse[GridFamiliarityRankListResponse],summary="查询网格熟悉度排行榜")
+async def query_grid_familiarity_ranklist(
+    grid_x: int = Query(...),
+    grid_y: int = Query(...),
+    level: int = Query(...),
+    page: int = Query(...),
+    size: int = Query(...),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_familiarity_ranking_by_grid(db, grid_x, grid_y, level, page, size)
+    return BaseResponse.success(data=result)
