@@ -6,16 +6,20 @@ from app.db.session import get_db
 from app.schemas.user import AuthContext
 from app.schemas.training.running import (
     FreeTrainingFinishInfo, FreeTrainingFinishResponse, TrainingStatesHistoryResponse,
-    TrainingRecordsResponse, FreeTrainingRecordDetailResponse
+    TrainingRecordsResponse, FreeTrainingRecordDetailResponse, CreateRouteRequest,
+    RunningRouteInfoResponse, RunningRouteManageInfoResponse, RouteTrainingFinishInfo, RouteTrainingFinishResponse,
+    RouteTrainingRecordDetailResponse
 )
 from app.schemas.training.common import (
     RegionExploreResponse, GridTileResponse, GridTileRequest,
-    GridFamiliarityMeResponse, GridFamiliarityRankListResponse
+    GridFamiliarityMeResponse, GridFamiliarityRankListResponse, RouteSortType
 )
 from app.services.training.running import (
     finish_free_training_service, query_training_states_history_service, query_training_records_service,
     query_training_states_service, query_region_exploration_service, query_free_training_record_detail_service,
-    query_familiarity_grids_by_tiles_service, query_me_familiarity_by_grid, query_familiarity_ranking_by_grid
+    query_familiarity_grids_by_tiles_service, query_me_familiarity_by_grid, query_familiarity_ranking_by_grid,
+    create_training_route_service, query_routes_service, query_my_routes_service, delete_route_service, 
+    finish_route_training_service, query_route_training_record_detail_service
 )
 
 router = APIRouter(dependencies=[Depends(get_language)])
@@ -124,3 +128,71 @@ async def query_grid_familiarity_ranklist(
 ):
     result = await query_familiarity_ranking_by_grid(db, grid_x, grid_y, level, page, size)
     return BaseResponse.success(data=result)
+
+
+# 创建训练路线
+@router.post("/create_route",response_model=BaseResponse[None],summary="创建训练路线")
+async def create_training_route(
+    request: CreateRouteRequest,
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    await create_training_route_service(db, auth.payload["user_id"], request)
+    return BaseResponse.success(token=auth.new_token, data=None)
+
+# 分页查询路线
+@router.get("/routes",response_model=BaseResponse[RunningRouteInfoResponse],summary="分页查询路线")
+async def query_routes(
+    region_id: str = Query(...),
+    sort_type: RouteSortType = Query(...),
+    lat: float = Query(...),
+    lng: float = Query(...),
+    limit: int = Query(...),
+    cursor: str = Query(None),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_routes_service(db, region_id, sort_type, lat, lng, limit, cursor)
+    return BaseResponse.success(data=result)
+    
+
+# 查询我创建的路线
+@router.get("/routes/my",response_model=BaseResponse[RunningRouteManageInfoResponse],summary="查询我创建的路线")
+async def query_routes(
+    page: int = Query(...),
+    size: int = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_my_routes_service(db, auth.payload["user_id"], page, size)
+    return BaseResponse.success(data=result)
+
+# 删除路线
+@router.post("/routes/delete",response_model=BaseResponse[None],summary="删除路线")
+async def delete_route(
+    route_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    await delete_route_service(db, auth.payload["user_id"], route_id)
+    return BaseResponse.success(token=auth.new_token, data=None)
+
+# 结束路线训练
+@router.post("/finish_route_training",response_model=BaseResponse[RouteTrainingFinishResponse],summary="结束路线训练")
+async def finish_route_training(
+    finish_info: RouteTrainingFinishInfo,
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await finish_route_training_service(db, finish_info, auth.payload["user_id"])
+    return BaseResponse.success(token=auth.new_token, data=result)
+
+# 查询路线训练记录详情
+@router.get("/query_route_training_record_detail",response_model=BaseResponse[RouteTrainingRecordDetailResponse],summary="查询路线训练记录详情")
+async def query_route_training_record_detail(
+    record_id: str = Query(...),
+    lang: Language = Depends(get_language),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_route_training_record_detail_service(db, lang, record_id)
+    return BaseResponse.success(token=auth.new_token, data=result)

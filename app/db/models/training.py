@@ -1,15 +1,13 @@
-from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, func, UniqueConstraint, Integer, Float, Enum, Date, Index
+from sqlalchemy import Column, String, Boolean, DateTime, func, UniqueConstraint, Integer, Float, Enum, Date, Index
 from sqlalchemy.dialects.postgresql import UUID
 from app.schemas.competition.bike import BikeTrackTerrainType
 from app.schemas.competition.running import RunningTrackTerrainType
-from app.schemas.user import Gender
-from app.schemas.common import CCAssetType
+from app.schemas.training.common import RouteType
 from app.db.base import Base
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
-from geoalchemy2 import Geometry
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableDict
+from geoalchemy2 import Geometry
 import uuid
 
 
@@ -268,3 +266,173 @@ class UserTrainingStateDailyRunning(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "local_date", name="uq_user_training_state_daily_running_user_date"),
     )
+
+# Bike 训练路线
+class BikeTrainingRoute(Base):
+    __tablename__ = "bike_training_routes"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    route_id = Column(String, unique=True, index=True, nullable=False)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)    # 路线创造者
+    region_id = Column(UUID(as_uuid=True), index=True, nullable=False)  # 路线所在区域
+
+    # 路线类型
+    route_type = Column(Enum(RouteType), nullable=False)
+    # 路线地理数据
+    route_data = Column(JSONB, nullable=False)
+    # 路线的空间几何
+    route_geometry = Column(Geometry("LINESTRING", srid=4326, spatial_index=False), nullable=False)
+
+    # 路线基本信息
+    is_premium = Column(Boolean, nullable=False)
+    start_point = Column(Geometry("POINT", srid=4326, spatial_index=False), nullable=False)
+    end_point = Column(Geometry("POINT", srid=4326, spatial_index=False), nullable=False)
+    title = Column(String, nullable=False)
+    elevation_difference = Column(Integer, default=0, nullable=False)
+    total_distance = Column(Float, nullable=False)
+    terrain_type = Column(Enum(BikeTrackTerrainType), nullable=False)
+    is_public = Column(Boolean, nullable=False)
+    enable_ranklist = Column(Boolean, nullable=False)
+    enable_magiccard = Column(Boolean, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    user = relationship("User", primaryjoin="foreign(BikeTrainingRoute.user_id)==User.id", uselist=False)
+    region = relationship("Region", primaryjoin="foreign(BikeTrainingRoute.region_id)==Region.id", uselist=False)
+
+    # 空间索引
+    __table_args__ = (
+        Index("idx_bike_routes_start_point", "start_point", postgresql_using="gist"),
+        Index("idx_bike_routes_end_point", "end_point", postgresql_using="gist"),
+        Index("idx_bike_routes_geometry", "route_geometry", postgresql_using="gist"),
+    )
+    
+
+# Running 训练路线
+class RunningTrainingRoute(Base):
+    __tablename__ = "running_training_routes"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    route_id = Column(String, unique=True, index=True, nullable=False)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)    # 路线创造者
+    region_id = Column(UUID(as_uuid=True), index=True, nullable=False)  # 路线所在区域
+
+    # 路线类型
+    route_type = Column(Enum(RouteType), nullable=False)
+    # 路线地理数据
+    route_data = Column(JSONB, nullable=False)
+    # 路线的空间几何
+    route_geometry = Column(Geometry("LINESTRING", srid=4326, spatial_index=False), nullable=False)
+
+    # 路线基本信息
+    is_premium = Column(Boolean, nullable=False)
+    start_point = Column(Geometry("POINT", srid=4326, spatial_index=False), nullable=False)
+    end_point = Column(Geometry("POINT", srid=4326, spatial_index=False), nullable=False)
+    title = Column(String, nullable=False)
+    elevation_difference = Column(Integer, default=0, nullable=False)
+    total_distance = Column(Float, nullable=False)
+    terrain_type = Column(Enum(RunningTrackTerrainType), nullable=False)
+    is_public = Column(Boolean, nullable=False)
+    enable_ranklist = Column(Boolean, nullable=False)
+    enable_magiccard = Column(Boolean, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    user = relationship("User", primaryjoin="foreign(RunningTrainingRoute.user_id)==User.id", uselist=False)
+    region = relationship("Region", primaryjoin="foreign(RunningTrainingRoute.region_id)==Region.id", uselist=False)
+
+    # 空间索引
+    __table_args__ = (
+        Index("idx_running_routes_start_point", "start_point", postgresql_using="gist"),
+        Index("idx_running_routes_end_point", "end_point", postgresql_using="gist"),
+        Index("idx_running_routes_geometry", "route_geometry", postgresql_using="gist"),
+    )
+
+
+class BikeRouteTrainingRecord(Base):
+    __tablename__ = "bike_route_training_records"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    record_id = Column(String, unique=True, index=True, nullable=False)
+
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    route_id = Column(UUID(as_uuid=True), nullable=False)
+    path_id = Column(UUID(as_uuid=True), nullable=False)
+
+    start_time = Column(DateTime(timezone=True), nullable=False)
+    end_time = Column(DateTime(timezone=True), nullable=False)
+    duration_seconds = Column(Float, nullable=False)
+    penalty_seconds = Column(Float, default=0, nullable=False)
+    local_date = Column(Date, index=True, nullable=False)
+    settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)       # 此次训练的结算，可能包含 xp/state_value/familiarity...
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # ORM 关系
+    user = relationship("User", primaryjoin="foreign(BikeRouteTrainingRecord.user_id)==User.id", uselist=False)
+    route = relationship("BikeTrainingRoute", primaryjoin="foreign(BikeRouteTrainingRecord.route_id)==BikeTrainingRoute.id", uselist=False)
+    path = relationship("BikeRouteTrainingPath", primaryjoin="foreign(BikeRouteTrainingRecord.path_id)==BikeRouteTrainingPath.id", uselist=False)
+    card_bonus = relationship("CardBonusInBikeRouteTrainingRecord", primaryjoin="BikeRouteTrainingRecord.id==foreign(CardBonusInBikeRouteTrainingRecord.record_id)", uselist=True)
+
+class BikeRouteTrainingPath(Base):
+    __tablename__ = "bike_route_training_paths"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    path_id = Column(String, unique=True, index=True, nullable=False)
+
+    path = Column(JSONB, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+class CardBonusInBikeRouteTrainingRecord(Base):
+    __tablename__ = "card_bonus_in_bike_route_training_records"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    record_id = Column(UUID(as_uuid=True), nullable=False)
+    card_id = Column(UUID(as_uuid=True), nullable=False)
+    bonus_ratio = Column(Float, nullable=True)
+    bonus_time = Column(Float, default=0, nullable=False)
+
+    card = relationship("UserEquipmentCard", primaryjoin="foreign(CardBonusInBikeRouteTrainingRecord.card_id)==UserEquipmentCard.id")
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+class RunningRouteTrainingRecord(Base):
+    __tablename__ = "running_route_training_records"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    record_id = Column(String, unique=True, index=True, nullable=False)
+
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    route_id = Column(UUID(as_uuid=True), nullable=False)
+    path_id = Column(UUID(as_uuid=True), nullable=False)
+
+    start_time = Column(DateTime(timezone=True), nullable=False)
+    end_time = Column(DateTime(timezone=True), nullable=False)
+    duration_seconds = Column(Float, nullable=False)
+    penalty_seconds = Column(Float, default=0, nullable=False)
+    local_date = Column(Date, index=True, nullable=False)
+    settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)       # 此次训练的结算，可能包含 xp/state_value/familiarity...
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # ORM 关系
+    user = relationship("User", primaryjoin="foreign(RunningRouteTrainingRecord.user_id)==User.id", uselist=False)
+    route = relationship("RunningTrainingRoute", primaryjoin="foreign(RunningRouteTrainingRecord.route_id)==RunningTrainingRoute.id", uselist=False)
+    path = relationship("RunningRouteTrainingPath", primaryjoin="foreign(RunningRouteTrainingRecord.path_id)==RunningRouteTrainingPath.id", uselist=False)
+    card_bonus = relationship("CardBonusInRunningRouteTrainingRecord", primaryjoin="RunningRouteTrainingRecord.id==foreign(CardBonusInRunningRouteTrainingRecord.record_id)", uselist=True)
+
+class RunningRouteTrainingPath(Base):
+    __tablename__ = "running_route_training_paths"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    path_id = Column(String, unique=True, index=True, nullable=False)
+
+    path = Column(JSONB, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+class CardBonusInRunningRouteTrainingRecord(Base):
+    __tablename__ = "card_bonus_in_running_route_training_records"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    record_id = Column(UUID(as_uuid=True), nullable=False)
+    card_id = Column(UUID(as_uuid=True), nullable=False)
+    bonus_ratio = Column(Float, nullable=True)
+    bonus_time = Column(Float, default=0, nullable=False)
+
+    card = relationship("UserEquipmentCard", primaryjoin="foreign(CardBonusInRunningRouteTrainingRecord.card_id)==UserEquipmentCard.id")
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

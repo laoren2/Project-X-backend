@@ -1,9 +1,11 @@
 from app.core.config import settings
-from app.schemas.base import BaseResponse
+from app.core.errors import ErrorCode
+from app.schemas.base import BaseResponse, BizException
 from app.schemas.user import AuthContext
 from app.schemas.common import CountryBBoxResponse, CountryBBoxConfig, CountryBBoxInfo
-from app.services.common import generate_did_service
-from fastapi import APIRouter, Depends, Request
+from app.services.common import generate_did_service, get_elevation
+from app.crud.competition.common import get_region_boundary_geojson_by_region_id
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.api.deps import get_current_user, get_language
@@ -59,3 +61,30 @@ async def query_country_bboxes():
         bbox=CountryBBoxInfo(originLat=bbox[0], originLng=bbox[1], endLat=bbox[2], endLng=bbox[3])
     ) for country_code, bbox in COUNTRY_GRIDS_BBOX.items()]
     return BaseResponse.success(data=CountryBBoxResponse(configs=country_bboxes))
+
+
+@router.get("/elevation_diff", response_model=BaseResponse[int | None], summary="查询两坐标点之间的海拔差")
+async def elevation_diff(
+    lat1: float = Query(...),
+    lng1: float = Query(...),
+    lat2: float = Query(...),
+    lng2: float = Query(...)
+):
+    e1 = get_elevation(lat1, lng1)
+    e2 = get_elevation(lat2, lng2)
+    #print(e1, e2)
+    
+    if e1 is None or e2 is None:
+        return BaseResponse.success(data = None)
+    return BaseResponse.success(data=e2 - e1)
+
+# 查询 region boudary
+@router.get("/region_boundary",response_model=BaseResponse[dict],summary="查询 region boudary")
+async def region_boundary(
+    region_id: str = Query(...),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await get_region_boundary_geojson_by_region_id(db, region_id)
+    if not result:
+        raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
+    return BaseResponse.success(data=result)

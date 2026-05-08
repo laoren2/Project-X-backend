@@ -1,17 +1,20 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, func, and_, exists, case, text
+from sqlalchemy import select, update, func, and_, text, desc, asc, literal
 from app.db.models.competition import BikeTrack
 from app.db.models.training import (
-    BikeFreeTrainingRecord, UserTrainingStateBike,
-    UserGridFamiliarityBike, UserTrainingStateDailyBike, UserGridFamiliarityBikeAgg
+    BikeFreeTrainingRecord, CardBonusInBikeRouteTrainingRecord, UserTrainingStateBike, BikeTrainingRoute,
+    UserGridFamiliarityBike, UserTrainingStateDailyBike, UserGridFamiliarityBikeAgg, BikeRouteTrainingRecord
 )
+from app.db.models.asset import UserEquipmentCard
 from sqlalchemy.orm import selectinload
-from app.schemas.training.common import GridTileKey, GridCellInfo, GridTileResponse, GridTileInfo
+from app.schemas.training.common import GridTileKey, GridCellInfo, GridTileResponse, GridTileInfo, RouteSortType
 from typing import List
 from datetime import date, timedelta, datetime
 from sqlalchemy.dialects.postgresql import insert
 from app.core.tools import get_tile_size
 from collections import defaultdict
+from geoalchemy2.functions import ST_Distance, ST_SetSRID, ST_MakePoint
+from geoalchemy2 import Geography
 import uuid, math, calendar, json
 
 
@@ -237,8 +240,8 @@ async def get_training_states_by_user_and_month(db: AsyncSession, user_id: uuid.
     return result.scalars().all()
 
 
-# 查询用户某天的训练记录
-async def get_training_records_by_user_and_day(db: AsyncSession, user_id: uuid.UUID, day: str) -> List[BikeFreeTrainingRecord]:
+# 查询用户某天的自由训练记录
+async def get_free_training_records_by_user_and_day(db: AsyncSession, user_id: uuid.UUID, day: str) -> List[BikeFreeTrainingRecord]:
     target_date = date.fromisoformat(day)
     result = await db.execute(
         select(BikeFreeTrainingRecord)
@@ -248,6 +251,20 @@ async def get_training_records_by_user_and_day(db: AsyncSession, user_id: uuid.U
             BikeFreeTrainingRecord.local_date == target_date
         )
         .order_by(BikeFreeTrainingRecord.start_time.asc())
+    )
+    return result.scalars().all()
+
+# 查询用户某天的路线训练记录
+async def get_route_training_records_by_user_and_day(db: AsyncSession, user_id: uuid.UUID, day: str) -> List[BikeRouteTrainingRecord]:
+    target_date = date.fromisoformat(day)
+    result = await db.execute(
+        select(BikeRouteTrainingRecord)
+        .options(selectinload(BikeRouteTrainingRecord.path))
+        .where(
+            BikeRouteTrainingRecord.user_id == user_id,
+            BikeRouteTrainingRecord.local_date == target_date
+        )
+        .order_by(BikeRouteTrainingRecord.start_time.asc())
     )
     return result.scalars().all()
 
@@ -426,7 +443,7 @@ async def get_region_explored_grid_count(
     )
     return explored_grids or 0
 
-async def get_record_by_record_id(db: AsyncSession, record_id: str) -> BikeFreeTrainingRecord | None:
+async def get_free_training_record_by_record_id(db: AsyncSession, record_id: str) -> BikeFreeTrainingRecord | None:
     record = await db.execute(
         select(BikeFreeTrainingRecord)
         .where(BikeFreeTrainingRecord.record_id == record_id)
@@ -435,6 +452,22 @@ async def get_record_by_record_id(db: AsyncSession, record_id: str) -> BikeFreeT
         )
     )
     return record.scalar_one_or_none()
+
+async def get_route_training_record_by_record_id(db: AsyncSession, record_id: str) -> BikeRouteTrainingRecord | None:
+    result = await db.execute(
+        select(BikeRouteTrainingRecord)
+        .where(BikeRouteTrainingRecord.record_id == record_id)
+        .options(
+            selectinload(BikeRouteTrainingRecord.path),
+            selectinload(BikeRouteTrainingRecord.card_bonus)
+                .selectinload(CardBonusInBikeRouteTrainingRecord.card)
+                .selectinload(UserEquipmentCard.equipment_def),
+            selectinload(BikeRouteTrainingRecord.card_bonus)
+                .selectinload(CardBonusInBikeRouteTrainingRecord.card)
+                .selectinload(UserEquipmentCard.user)
+        )
+    )
+    return result.scalar_one_or_none()
 
 async def get_familiarity_grids_by_tiles(
     db: AsyncSession,
@@ -501,3 +534,134 @@ async def get_familiarity_grids_by_tiles(
         ))
 
     return GridTileResponse(tiles=result_tiles)
+
+
+async def get_routes_by_page_crud(
+    db: AsyncSession,
+    region_id: str,
+    sort_type: RouteSortType,
+    lat: float,
+    lng: float,
+    limit: int,
+    cursor: dict | None
+):
+    # participation 排序
+    if sort_type == "participation":
+        subq = (
+            select(
+                BikeRouteTrainingRecord.route_id,
+                func.count().label("count")
+            )
+            .group_by(BikeRouteTrainingRecord.route_id)
+            .subquery()
+        )
+        
+        distance_expr = None
+        if lat is not None and lng is not None:
+            point = ST_SetSRID(ST_MakePoint(lng, lat), 4326)
+            distance_expr = ST_Distance(
+                BikeTrainingRoute.start_point.cast(Geography),
+                point.cast(Geography)
+            )
+        
+        query = (
+            select(
+                BikeTrainingRoute,
+                func.coalesce(subq.c.count, 0).label("count"),
+                (distance_expr if distance_expr is not None else literal(None)).label("distance")
+            )
+            .outerjoin(subq, BikeTrainingRoute.id == subq.c.route_id)
+            .where(
+                BikeTrainingRoute.region_id == region_id,
+                BikeTrainingRoute.is_public == True
+            )
+        )
+        if cursor:
+            count_expr = func.coalesce(subq.c.count, 0)
+            query = query.where(
+                (count_expr < cursor["count"]) |
+                (
+                    (count_expr == cursor["count"]) &
+                    (BikeTrainingRoute.created_at > cursor["created_at"])
+                ) |
+                (
+                    (count_expr == cursor["count"]) &
+                    (BikeTrainingRoute.created_at == cursor["created_at"]) &
+                    (BikeTrainingRoute.id > cursor["route_id"])
+                )
+            )
+        query = query.order_by(
+            desc("count"),
+            asc(BikeTrainingRoute.created_at),
+            asc(BikeTrainingRoute.id)
+        ).limit(limit)
+
+    # distance 排序
+    else:
+        # 如果有 cursor，则冻结使用 cursor 中的 lat/lng（保证分页稳定）
+        if cursor and "lat" in cursor and "lng" in cursor:
+            lat = cursor["lat"]
+            lng = cursor["lng"]
+        point = ST_SetSRID(ST_MakePoint(lng, lat), 4326)
+        distance_expr = ST_Distance(
+            BikeTrainingRoute.start_point.cast(Geography),
+            point.cast(Geography)
+        )
+        subq = (
+            select(
+                BikeRouteTrainingRecord.route_id,
+                func.count().label("count")
+            )
+            .group_by(BikeRouteTrainingRecord.route_id)
+            .subquery()
+        )
+
+        query = (
+            select(
+                BikeTrainingRoute,
+                func.coalesce(subq.c.count, 0).label("count"),
+                distance_expr.label("distance")
+            )
+            .outerjoin(subq, BikeTrainingRoute.id == subq.c.route_id)
+            .where(
+                BikeTrainingRoute.region_id == region_id,
+                BikeTrainingRoute.is_public == True
+            )
+        )
+        if cursor:
+            query = query.where(
+                (distance_expr > cursor["distance"]) |
+                (
+                    (distance_expr == cursor["distance"]) &
+                    (BikeTrainingRoute.id > cursor["route_id"])
+                )
+            )
+        query = query.order_by(
+            asc("distance"),
+            asc(BikeTrainingRoute.id)
+        ).limit(limit)
+    
+    result = await db.execute(query)
+    return result.mappings().all()
+
+
+async def get_routes_by_uesr_id(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    page: int,
+    size: int
+) -> List[BikeTrainingRoute]:
+    stmt = (
+        select(BikeTrainingRoute)
+        .where(BikeTrainingRoute.user_id == user_id)
+        .order_by(BikeTrainingRoute.created_at.desc()).offset((page - 1) * size).limit(size)
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+async def get_route_by_route_id(db: AsyncSession, route_id: str) -> BikeTrainingRoute | None:
+    result = await db.execute(
+        select(BikeTrainingRoute)
+        .where(BikeTrainingRoute.route_id == route_id)
+    )
+    return result.scalar_one_or_none()

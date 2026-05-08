@@ -764,7 +764,7 @@ async def finish_single_competition_service(db: AsyncSession, info: BikeFinishIn
 
             path_data = [p.model_dump() for p in info.path]
             path = BikeRacePath(
-                path_id=f"path_{uuid.uuid4()}",
+                path_id=f"race_path_{uuid.uuid4()}",
                 record_id=record.id,
                 path=path_data
             )
@@ -902,7 +902,7 @@ async def finish_team_competition_service(db: AsyncSession, info: BikeFinishInfo
             
             path_data = [p.model_dump() for p in info.path]
             path = BikeRacePath(
-                path_id=f"path_{uuid.uuid4()}",
+                path_id=f"race_path_{uuid.uuid4()}",
                 record_id=record.id,
                 path=path_data
             )
@@ -2041,13 +2041,11 @@ async def get_record_detail_service(db: AsyncSession, lang: Language, record_id:
     path_points = []
     if record.path and record.path.path:
         try:
-            path_points = []
             for point_data in record.path.path:
                 # 注意兼容新旧数据格式
                 path_points.append(BikePathPoint.model_validate(point_data))
         except Exception:
-            logger.exception("Handle path data failed in querying record detail info")
-            path_points = []
+            logger.exception("Handle path data failed in querying bike match record detail info")
     
     # 计算时间
     original_time = 0.0

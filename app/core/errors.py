@@ -39,6 +39,8 @@ class ErrorCode:
     IAP_ERROR = 4010
     FEEDBACK_COMMIT_ERROR = 4011
     REWARD_CLAIM_FAILED = 4012
+    ROUTE_NOT_FOUND = 4013
+    ROUTE_CREATE_FAILED = 4014
 
     # 第三方服务
     SMS_SERVICE_ERROR = 5001
@@ -70,7 +72,7 @@ ERROR_MESSAGES = {
     "user.not_found": {
         "zh-Hans": "用户不存在",
         "zh-Hant": "用戶不存在",
-        "en": "User does not exist",
+        "en": "User not exist",
         "ko": "사용자가 존재하지 않습니다"
     },
     "user.info_error": {
@@ -250,7 +252,7 @@ ERROR_MESSAGES = {
     "region.not_found": {
         "zh-Hans": "地区不存在",
         "zh-Hant": "地區不存在",
-        "en": "Region does not exist",
+        "en": "Region not exist",
         "ko": "지역이 존재하지 않습니다"
     },
     "region.data_error": {
@@ -269,7 +271,7 @@ ERROR_MESSAGES = {
     "season.not_found": {
         "zh-Hans": "赛季不存在",
         "zh-Hant": "賽季不存在",
-        "en": "Season does not exist",
+        "en": "Season not exist",
         "ko": "시즌이 존재하지 않습니다"
     },
     "season.data_error": {
@@ -288,7 +290,7 @@ ERROR_MESSAGES = {
     "event.not_found": {
         "zh-Hans": "赛事不存在",
         "zh-Hant": "賽事不存在",
-        "en": "Event does not exist",
+        "en": "Event not exist",
         "ko": "이벤트가 존재하지 않습니다"
     },
     "event.invalid_time": {
@@ -301,7 +303,7 @@ ERROR_MESSAGES = {
     "track.not_found": {
         "zh-Hans": "赛道不存在",
         "zh-Hant": "賽道不存在",
-        "en": "Track does not exist",
+        "en": "Track not exist",
         "ko": "트랙이 존재하지 않습니다"
     },
     "track.invalid_time": {
@@ -334,11 +336,24 @@ ERROR_MESSAGES = {
         "en": "Track is closed, cannot cancel",
         "ko": "트랙이 종료되어 취소할 수 없습니다"
     },
+# 路线
+    "route.not_found": {
+        "zh-Hans": "路线不存在",
+        "zh-Hant": "路線不存在",
+        "en": "Route not exist",
+        "ko": "경로가 존재하지 않습니다"
+    },
+    "route.data_error.create": {
+        "zh-Hans": "路线非法，创建失败",
+        "zh-Hant": "路線非法，創建失敗",
+        "en": "Route invalid, creation failed",
+        "ko": "경로가 잘못되었습니다, 생성에 실패했습니다"
+    },
 # 记录
     "record.not_found": {
         "zh-Hans": "记录不存在",
         "zh-Hant": "記錄不存在",
-        "en": "Record does not exist",
+        "en": "Record not exist",
         "ko": "기록이 존재하지 않습니다"
     },
     "record.op_failed": {
@@ -365,6 +380,12 @@ ERROR_MESSAGES = {
         "en": "Record is too short to save",
         "ko": "기록이 너무 짧아 저장할 수 없습니다"
     },
+    "record.invalid.route_path": {
+        "zh-Hans": "轨迹未按路线要求经过起点或终点检查点",
+        "zh-Hant": "軌跡未按路線要求經過起點或終點檢查點",
+        "en": "Track did not pass the start or end checkpoint as required",
+        "ko": "경로가 출발/도착 체크포인트를 통과하지 않았습니다"
+    },
 
     "record.status_error.cancel_register": {
         "zh-Hans": "记录状态错误，无法取消",
@@ -389,7 +410,7 @@ ERROR_MESSAGES = {
     "team.not_found": {
         "zh-Hans": "队伍不存在",
         "zh-Hant": "隊伍不存在",
-        "en": "Team does not exist",
+        "en": "Team not exist",
         "ko": "팀이 존재하지 않습니다"
     },
     "team.data_error": {
@@ -587,7 +608,7 @@ ERROR_MESSAGES = {
     "asset.not_found": {
         "zh-Hans": "资产不存在",
         "zh-Hant": "資產不存在",
-        "en": "Asset does not exist",
+        "en": "Asset not exist",
         "ko": "자산이 존재하지 않습니다"
     },
     "asset.not_enough": {
@@ -668,7 +689,7 @@ ERROR_MESSAGES = {
     "mail.not_found": {
         "zh-Hans": "邮件不存在",
         "zh-Hant": "郵件不存在",
-        "en": "Email does not exist",
+        "en": "Email not exist",
         "ko": "메일이 존재하지 않습니다"
     },
 # IAP
