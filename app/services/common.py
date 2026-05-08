@@ -6,10 +6,12 @@ from app.core.errors import ErrorCode
 from app.schemas.base import BizException
 import alibabacloud_oss_v2 as oss
 import alibabacloud_oss_v2.aio as oss_aio
-import uuid, random, time, logging
+import numpy as np
+import uuid, random, time, logging, os
 
 logger = logging.getLogger(__name__)
 _client = None
+DATA_DIR = "/app/resources/srtm_data"
 
 def get_oss_client():
     global _client
@@ -61,3 +63,26 @@ async def upload_to_oss(path: str, data: bytes):
     finally:
         # 关闭异步客户端连接（重要：避免资源泄漏）
         await client.close()
+
+def get_tile_name(lat, lon):
+    lat_prefix = "N" if lat >= 0 else "S"
+    lon_prefix = "E" if lon >= 0 else "W"
+    return f"{lat_prefix}{abs(int(lat)):02d}{lon_prefix}{abs(int(lon)):03d}.hgt"
+
+def get_elevation(lat, lon):
+    tile_name = get_tile_name(lat, lon)
+    path = os.path.join(DATA_DIR, tile_name)
+    if not os.path.exists(path):
+        return None
+    
+    # SRTM3 = 1201 x 1201
+    data = np.fromfile(path, dtype=">i2").reshape((1201, 1201))
+    
+    # 计算像素位置
+    lat_floor = int(lat)
+    lon_floor = int(lon)
+    
+    row = int((lat - lat_floor) * 1200)
+    col = int((lon - lon_floor) * 1200)
+    
+    return int(data[1200 - row][col])

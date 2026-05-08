@@ -7,7 +7,7 @@ from app.schemas.base import BizException
 from datetime import date, datetime, UTC, timedelta
 from zoneinfo import ZoneInfo
 from functools import lru_cache
-import logging, hashlib, math
+import logging, hashlib, math, json, base64
 
 EARTH_RADIUS = 6378137
 HK_TZ = ZoneInfo("Asia/Hong_Kong")
@@ -139,3 +139,20 @@ def latlon_to_grid(lat: int, lng: int) -> tuple[int, int]:
     grid_x = int(math.floor(x / 500))
     grid_y = int(math.floor(y / 500))
     return grid_x, grid_y
+
+def haversine(lat1, lon1, lat2, lon2):
+    """计算两点距离（米）"""
+    R = 6371000
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+    return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+# --- Cursor encoding/decoding helpers ---
+def encode_cursor(data: dict) -> str:
+    return base64.urlsafe_b64encode(json.dumps(data).encode()).decode()
+
+def decode_cursor(cursor: str) -> dict:
+    return json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())

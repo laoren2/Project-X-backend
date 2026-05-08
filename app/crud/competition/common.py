@@ -44,10 +44,9 @@ async def get_regions_by_country_code(db: AsyncSession, country_code: str) -> Li
 async def get_region_boundary_geojson_by_region_id(
     db: AsyncSession,
     region_id: str
-) -> tuple[Region | None, dict | None]:
+) -> dict | None:
     result = await db.execute(
         select(
-            Region,
             func.json_build_object(
                 'type', 'Feature',
                 'geometry',
@@ -59,8 +58,4 @@ async def get_region_boundary_geojson_by_region_id(
             )
         ).where(Region.region_id == region_id)
     )
-    row = result.first()
-    if row is None:
-        return None, None
-    region, boundary_geojson = row
-    return region, boundary_geojson
+    return result.scalar_one_or_none()

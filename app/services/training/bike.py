@@ -1,9 +1,14 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.tools import get_user_local_date, latlon_to_grid
+from app.core.tools import get_user_local_date, latlon_to_grid, encode_cursor, decode_cursor
 from app.core.storage import build_resource_url
+from app.core.errors import ErrorCode
 from app.schemas.common import CCAssetRewardResponse, CCAssetType, PersonInfoResponse
 from app.schemas.asset import AssetOperation
+from app.services.common import get_elevation
 from app.services.competition.common import compute_distance
+from app.services.training.common import (
+    validate_route_data, build_geometry, extract_checkpoints_from_route_data, 
+    evaluate_route_training_checkpoint_path, extract_path_points
+)
 from app.crud.competition.bike import get_season_now, get_score_by_season_and_user, add_or_update_career_xp
 from app.db.models.user import User
 from app.schemas.base import BizException, Language, pick_i18n_text
@@ -11,29 +16,38 @@ from app.schemas.user import Gender
 from app.schemas.training.bike import (
     FreeTrainingFinishInfo, FreeTrainingFinishResponse, TrainingStatesHistoryResponse,
     TrainingStatesHistoryInfo, TrainingRecordsResponse, TrainingRecordInfo,
-    BikeTrainingPathPoint, FreeTrainingRecordDetailResponse
+    BikeFreeTrainingPathPoint, FreeTrainingRecordDetailResponse, CreateRouteRequest,
+    BikeRouteInfoResponse, BikeRouteInfo, BikeRouteManageInfoResponse, BikeRouteMangeInfo,
+    RouteTrainingFinishInfo, RouteTrainingFinishResponse, RouteTrainingRecordDetailResponse,
+    BikeRouteTrainingPathPoint
 )
+from app.services.mappers import equip_card_to_base_info
 from app.schemas.training.common import (
     RegionExploreResponse, GridTileKey, GridTileResponse, GridFamiliarityRankListResponse,
-    GridFamiliarityMeResponse, GridFamiliarityRankInfo
+    GridFamiliarityMeResponse, GridFamiliarityRankInfo, RouteSortType, TrainingType
 )
+from app.schemas.competition.common import CardBonusInfo, PathPoint
 from app.crud.training.bike import (
-    get_training_states_by_user_and_month, get_training_records_by_user_and_day,
+    get_training_states_by_user_and_month, get_free_training_records_by_user_and_day, get_route_training_records_by_user_and_day,
     add_or_update_daily_training_states, get_training_state_by_user, update_user_familiarity_by_grids,
-    get_region_explored_grid_count, get_record_by_record_id, get_training_state_daily_by_user_date,
-    get_familiarity_grids_by_tiles
+    get_region_explored_grid_count, get_free_training_record_by_record_id, get_training_state_daily_by_user_date,
+    get_familiarity_grids_by_tiles, get_routes_by_page_crud, get_routes_by_uesr_id, get_route_by_route_id,
+    get_route_training_record_by_record_id
 )
-from app.db.models.training import UserTrainingStateDailyBike, BikeFreeTrainingPath, BikeFreeTrainingRecord, UserTrainingStateBike
-from sqlalchemy.dialects.postgresql import insert
+from app.db.models.training import (
+    CardBonusInBikeRouteTrainingRecord, UserTrainingStateDailyBike, BikeFreeTrainingPath, BikeFreeTrainingRecord, UserTrainingStateBike,
+    BikeTrainingRoute, BikeRouteTrainingPath, BikeRouteTrainingRecord
+)
 from app.crud.user import get_user_by_id
-from app.crud.asset_manage import reward_ccasset
-from app.crud.competition.common import get_region_boundary_geojson_by_region_id, get_region_by_coordinate
-from app.core.errors import ErrorCode
+from app.crud.asset_manage import reward_ccasset, get_equip_card_by_card_id
+from app.crud.competition.common import get_region_by_coordinate, get_region_by_region_id
 from sqlalchemy import text, func
+from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date, datetime, timedelta
 from typing import List
-import math, uuid, logging, random
-import json
+from geoalchemy2.shape import from_shape
+from shapely.geometry import Point
+import json, uuid, logging, random
 
 logger = logging.getLogger(__name__)
 
@@ -55,15 +69,24 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
             raise BizException(code=ErrorCode.RECORD_ERROR, message="record.invalid.too_short")
         
         # 更新地图熟悉度
-        new_grids = await update_user_familiarity(db, season.id, user.id, info.path)
+        new_grids = await update_user_familiarity(db, season.id, user.id, [p.base for p in info.path])
 
         # 计算并更新 xp 和 训练状态 奖励，可以根据整体的训练距离、海拔累计落差、是否有心率数据等信息进行计算，xp控制在 0-50，training_state控制在 0-10
-        xp_before, xp_delta, training_state_before, training_state_delta, cc_rewards = await apply_training_rewards(db, season.id, user, info, state, new_grids)
+        xp_before, xp_delta, training_state_before, training_state_delta, cc_rewards = await apply_training_rewards(
+            db, 
+            season.id, 
+            user, 
+            info.start_time,
+            info.end_time,
+            info.path,
+            state, 
+            new_grids
+        )
 
         # 写入记录
         path_data = [p.model_dump() for p in info.path]
         path = BikeFreeTrainingPath(
-            path_id=f"path_{uuid.uuid4()}",
+            path_id=f"free_training_path_{uuid.uuid4()}",
             path=path_data
         )
         db.add(path)
@@ -76,7 +99,7 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
         for ccasset in cc_rewards:
             settlements[f"{ccasset.ccasset_type.value}"] = ccasset.reward_amount
         record = BikeFreeTrainingRecord(
-            record_id=f"record_{uuid.uuid4()}",
+            record_id=f"free_training_record_{uuid.uuid4()}",
             user_id=user.id,
             path_id=path.id,
             start_time = info.start_time,
@@ -102,7 +125,9 @@ async def apply_training_rewards(
     db: AsyncSession,
     season_id: uuid.UUID,
     user: User,
-    info: FreeTrainingFinishInfo,
+    start_time: datetime,
+    end_time: datetime,
+    path: List[BikeFreeTrainingPathPoint],
     state: UserTrainingStateBike | None,
     new_grids: int
 ) -> tuple[int, int, int, int, List[CCAssetRewardResponse]]:
@@ -113,10 +138,10 @@ async def apply_training_rewards(
     has_bpm = False
     has_power = False
     has_pedal = False
-    duration = (info.end_time - info.start_time).total_seconds()
+    duration = (end_time - start_time).total_seconds()
     altitude_sum = 0.0
-    last_altitude = info.path[0].base.altitude
-    for point in info.path:
+    last_altitude = path[0].base.altitude
+    for point in path:
         altitude_sum += abs(point.base.altitude - last_altitude)
         last_altitude = point.base.altitude
         if point.base.heart_rate:
@@ -136,7 +161,7 @@ async def apply_training_rewards(
 
     # 3 距离奖励
     distance_factor = 1.0
-    distance = compute_distance([p.base for p in info.path])
+    distance = compute_distance([p.base for p in path])
     if distance > 5:
         distance_factor += min(1.0, (distance - 5) / 45)
 
@@ -182,12 +207,12 @@ async def apply_training_rewards(
 
     current_state = 0
     new_value = min(20, state_value)
-    finish_date = get_user_local_date(user, info.end_time)
+    finish_date = get_user_local_date(user, end_time)
     if not state:
         new_state = UserTrainingStateBike(
             user_id = user.id,
             current_value = new_value,
-            last_training_at = info.end_time,
+            last_training_at = end_time,
             last_decay_date = None
         )
         db.add(new_state)
@@ -201,7 +226,7 @@ async def apply_training_rewards(
         new_value = min(100, current_state + state_value)
         state_value = new_value - current_state
         state.current_value = new_value
-        state.last_training_at = info.end_time
+        state.last_training_at = end_time
     await add_or_update_daily_training_states(db, user.id, finish_date, state_value, new_value)
 
     return current_xp, xp, current_state, state_value, cc_rewards
@@ -224,15 +249,28 @@ async def query_training_records_service(db: AsyncSession, day: str, user_id: st
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
-    records = await get_training_records_by_user_and_day(db, user.id, day)
+
+    free_training_records = await get_free_training_records_by_user_and_day(db, user.id, day)
+    route_training_records = await get_route_training_records_by_user_and_day(db, user.id, day)
+
+    # 合并并按结束时间升序排序
+    records = []
+    for record in free_training_records:
+        records.append((record, TrainingType.freeTraining))
+    for record in route_training_records:
+        records.append((record, TrainingType.routeTraining))
+    records.sort(key=lambda x: x[0].end_time)
+
     result = []
-    for record in records:
-        if "training_state" in record.settlement_rewards:
-            result.append(TrainingRecordInfo(
-                record_id=record.record_id,
-                delta_state=record.settlement_rewards["training_state"],
-                end_time=record.end_time.isoformat()
-            ))
+    for record, training_type in records:
+        settlement_rewards = record.settlement_rewards or {}
+        result.append(TrainingRecordInfo(
+            record_id=record.record_id,
+            delta_state=settlement_rewards.get("training_state", 0),
+            end_time=record.end_time.isoformat(),
+            training_type=training_type
+        ))
+
     return TrainingRecordsResponse(records=result)
 
 # 计算/应用训练状态衰减
@@ -304,9 +342,9 @@ async def query_region_exploration_service(
     season = await get_season_now(db)
     if season is None:
         raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
-    # 1 获取region & boundary (GeoJSON)
-    region, boundary_geojson = await get_region_boundary_geojson_by_region_id(db, region_id)
-    if region is None or boundary_geojson is None:
+    # 1 获取region
+    region = await get_region_by_region_id(db, region_id)
+    if region is None:
         raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
 
     # 2 统计探索grid数量
@@ -322,8 +360,7 @@ async def query_region_exploration_service(
 
     return RegionExploreResponse(
         explored_grids=explored_grids,
-        total_grids=total_grids,
-        boundary=boundary_geojson
+        total_grids=total_grids
     )
 
 # 根据训练路线，计算覆盖的网格，更新 user_grid_familiarity_bike 表
@@ -331,7 +368,7 @@ async def update_user_familiarity(
     db: AsyncSession,
     season_id: uuid.UUID,
     user_id: uuid.UUID,
-    path: List[BikeTrainingPathPoint],
+    path: List[PathPoint],
 ) -> int:
     if len(path) < 2:
         return 0
@@ -339,8 +376,8 @@ async def update_user_familiarity(
     # 构建 grid -> representative point（每个 grid 只保留一个点）
     grid_point_map = {}
     for p in path:
-        lat = p.base.lat
-        lon = p.base.lon
+        lat = p.lat
+        lon = p.lon
         gx, gy = latlon_to_grid(lat, lon)
         if (gx, gy) not in grid_point_map:
             grid_point_map[(gx, gy)] = (lat, lon)
@@ -405,19 +442,19 @@ async def query_free_training_record_detail_service(
     user_id: str,
     record_id: str
 ) -> FreeTrainingRecordDetailResponse:
-    record = await get_record_by_record_id(db, record_id)
+    record = await get_free_training_record_by_record_id(db, record_id)
     if record is None:
         raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
+
     path_points = []
     if record.path and record.path.path:
         try:
-            path_points = []
             for point_data in record.path.path:
                 # 注意兼容新旧数据格式
-                path_points.append(BikeTrainingPathPoint.model_validate(point_data))
+                path_points.append(BikeFreeTrainingPathPoint.model_validate(point_data))
         except Exception:
-            logger.exception("Handle path data failed in querying record detail info")
-            path_points = []
+            logger.exception("Handle path data failed in querying bike free training record detail info")
+
     duration = (record.end_time - record.start_time).total_seconds()
     return FreeTrainingRecordDetailResponse(
         duration=duration,
@@ -570,3 +607,300 @@ async def query_familiarity_ranking_by_grid(
         ))
 
     return GridFamiliarityRankListResponse(data=data)
+
+
+async def create_training_route_service(db: AsyncSession, user_id: str, data: CreateRouteRequest):
+    steps = validate_route_data(data.route_type, data.route_data)
+    geometry = build_geometry(steps)
+    start = steps[0]
+    end = steps[-1]
+
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    region = await get_region_by_region_id(db, data.region_id)
+    if region is None:
+        raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
+    is_subscription_active = user.subscription_info.is_active
+
+    elevation_start = get_elevation(start.lat, start.lng)
+    elevation_end = get_elevation(end.lat, end.lng)
+    if elevation_start is None or elevation_end is None:
+        raise BizException(code=ErrorCode.ROUTE_CREATE_FAILED, message="route.data_error.create")
+
+    path_points = extract_path_points(steps)
+    total_distance = compute_distance(path_points)
+
+    if total_distance > 50:
+        raise BizException(code=ErrorCode.ROUTE_CREATE_FAILED, message="route.data_error.create")
+
+    route = BikeTrainingRoute(
+        route_id=f"route_{uuid.uuid4()}",
+        user_id=user.id,
+        region_id=region.id,
+        route_type=data.route_type,
+        route_data=data.route_data,
+        route_geometry=from_shape(geometry, srid=4326),
+        is_premium=is_subscription_active,
+        start_point=from_shape(Point(start.lng, start.lat), srid=4326),
+        end_point=from_shape(Point(end.lng, end.lat), srid=4326),
+        title=data.title,
+        elevation_difference=elevation_end - elevation_start,
+        total_distance=total_distance,
+        terrain_type=data.terrain_type,
+        is_public=data.is_public,
+        enable_ranklist=data.enable_ranklist,
+        enable_magiccard=data.enable_magiccard
+    )
+    db.add(route)
+    await db.commit()
+
+
+async def query_routes_service(
+    db: AsyncSession,
+    region_id: str,
+    sort_type: RouteSortType,
+    lat: float,
+    lng: float,
+    limit: int,
+    cursor: str | None
+) -> BikeRouteInfoResponse:
+    region = await get_region_by_region_id(db, region_id)
+    if region is None:
+        raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
+
+    try:
+        cursor_data = decode_cursor(cursor) if cursor else None
+        if cursor_data and "created_at" in cursor_data:
+            cursor_data["created_at"] = datetime.fromisoformat(cursor_data["created_at"])
+    except:
+        raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"cursor解析错误")
+
+    rows = await get_routes_by_page_crud(
+        db=db,
+        region_id=region.id,
+        sort_type=sort_type,
+        lat=lat,
+        lng=lng,
+        limit=limit,
+        cursor=cursor_data
+    )
+    routes = []
+    next_cursor = None
+    for row in rows:
+        route = row["BikeTrainingRoute"]
+        if sort_type == RouteSortType.participation:
+            count = row.get("count")
+            next_cursor = {
+                "count": count,
+                "created_at": route.created_at.isoformat(),
+                "route_id": str(route.id)
+            }
+        elif sort_type == RouteSortType.distance:
+            distance = row.get("distance")
+            next_cursor = {
+                "distance": float(distance),
+                "route_id": str(route.id),
+                "lat": cursor_data.get("lat") if cursor_data else lat,
+                "lng": cursor_data.get("lng") if cursor_data else lng
+            }
+        routes.append(BikeRouteInfo(
+            route_id=route.route_id,
+            title=route.title,
+            route_type=route.route_type,
+            terrain_type=route.terrain_type,
+            is_premium=route.is_premium,
+            enable_magiccard=route.enable_magiccard,
+            distance=row.get("distance"),
+            participate_count=row.get("count"),
+            route_data=route.route_data
+        ))
+    # 如果返回数量小于 limit，说明已经到最后一页，不再返回 cursor
+    if len(rows) < limit:
+        encoded_cursor = None
+    else:
+        encoded_cursor = encode_cursor(next_cursor) if next_cursor else None
+    return BikeRouteInfoResponse(
+        routes=routes,
+        next_cursor=encoded_cursor
+    )
+
+
+async def query_my_routes_service(
+    db: AsyncSession,
+    user_id: str,
+    page: int,
+    size: int
+) -> BikeRouteManageInfoResponse:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    routes = await get_routes_by_uesr_id(db, user.id, page, size)
+    result = []
+    for route in routes:
+        result.append(BikeRouteMangeInfo(
+            route_id=route.route_id,
+            title=route.title,
+            is_public=route.is_public,
+            route_type=route.route_type,
+            terrain_type=route.terrain_type,
+            is_premium=route.is_premium,
+            enable_magiccard=route.enable_magiccard,
+            route_data=route.route_data
+        ))
+    return BikeRouteManageInfoResponse(routes=result)
+
+async def delete_route_service(db: AsyncSession, user_id: str, route_id: str):
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    route = await get_route_by_route_id(db, route_id)
+    if route is None:
+        raise BizException(code=ErrorCode.ROUTE_NOT_FOUND, message="route.not_found")
+    if route.user_id != user.id:
+        raise BizException(code=ErrorCode.ROUTE_NOT_FOUND, message="route.not_found")
+    await db.delete(route)
+    await db.commit()
+
+
+# 结束路线训练
+async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrainingFinishInfo, user_id: str) -> RouteTrainingFinishResponse:
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+        route = await get_route_by_route_id(db, finish_info.route_id)
+        if route is None:
+            raise BizException(code=ErrorCode.ROUTE_NOT_FOUND, message="route.not_found")
+        if route.user_id != user.id:
+            raise BizException(code=ErrorCode.ROUTE_NOT_FOUND, message="route.not_found")
+        season = await get_season_now(db)
+        if not season:
+            raise BizException(code=ErrorCode.SEASON_ERROR, message="season.out_of_season")
+
+        checkpoints = extract_checkpoints_from_route_data(route.route_data)
+        total_penalty, path_passes_checkpoints = evaluate_route_training_checkpoint_path([p.base for p in finish_info.path], checkpoints)
+        #print(path_passes_checkpoints)
+        if not path_passes_checkpoints:
+            raise BizException(code=ErrorCode.RECORD_ERROR, message="record.invalid.route_path")
+
+        state, _ = await compute_training_decay(db, user, True)
+        new_grids = await update_user_familiarity(db, season.id, user.id, [p.base for p in finish_info.path])
+        free_training_path = [BikeFreeTrainingPathPoint(
+            base=p.base,
+            power=p.power,
+            pedal_cadence=p.pedal_cadence
+        ) for p in finish_info.path]
+        xp_before, xp_delta, training_state_before, training_state_delta, cc_rewards = await apply_training_rewards(
+            db, 
+            season.id, 
+            user, 
+            finish_info.start_time, 
+            finish_info.end_time, 
+            free_training_path, 
+            state, 
+            new_grids
+        )
+
+        path_data = [p.model_dump() for p in finish_info.path]
+        path = BikeRouteTrainingPath(
+            path_id=f"route_training_path_{uuid.uuid4()}",
+            path=path_data
+        )
+        db.add(path)
+        await db.flush()
+
+        settlements = {
+            "xp": xp_delta,
+            "training_state": training_state_delta
+        }
+        for ccasset in cc_rewards:
+            settlements[f"{ccasset.ccasset_type.value}"] = ccasset.reward_amount
+
+        original_time = (finish_info.end_time - finish_info.start_time).total_seconds()
+        final_time = original_time
+        bonus_time = 0
+
+        record = BikeRouteTrainingRecord(
+            record_id=f"route_training_record_{uuid.uuid4()}",
+            user_id=user.id,
+            route_id=route.id,
+            path_id=path.id,
+            start_time=finish_info.start_time,
+            end_time=finish_info.end_time,
+            duration_seconds=final_time,
+            penalty_seconds=total_penalty,
+            local_date=get_user_local_date(user, finish_info.end_time),
+            settlement_rewards=settlements
+        )
+        db.add(record)
+        await db.flush()
+
+        for item in finish_info.bonus_in_cards:
+            bonus_time += item.bonus_time
+            card = await get_equip_card_by_card_id(db, item.card_id)
+            if card is not None:
+                db.add(CardBonusInBikeRouteTrainingRecord(
+                    record_id=record.id,
+                    card_id=card.id,
+                    bonus_time=item.bonus_time
+                ))
+        # 卡牌奖励时间上限为20%
+        if original_time > 0 and bonus_time / original_time > 0.2:
+            final_time = final_time * 0.8
+        else:
+            final_time -= bonus_time
+
+        record.duration_seconds = final_time + total_penalty
+        return RouteTrainingFinishResponse(
+            record_id=record.record_id, 
+            xp_before=xp_before, 
+            xp_delta=xp_delta, 
+            training_state_before=training_state_before, 
+            training_state_delta=training_state_delta, 
+            new_grids=new_grids, 
+            cc_rewards=cc_rewards
+        )
+
+
+
+async def query_route_training_record_detail_service(db: AsyncSession, lang: Language, record_id: str) -> RouteTrainingRecordDetailResponse:
+    record = await get_route_training_record_by_record_id(db, record_id)
+    if record is None:
+        raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
+    
+    path_points = []
+    if record.path and record.path.path:
+        try:
+            for point_data in record.path.path:
+                # 注意兼容新旧数据格式
+                path_points.append(BikeRouteTrainingPathPoint.model_validate(point_data))
+        except Exception:
+            logger.exception("Handle path data failed in querying bike route training record detail info")
+    
+    duration = (record.end_time - record.start_time).total_seconds()
+    final_time = record.duration_seconds
+
+    card_bonus_list = []
+    raw_duration = (record.end_time - record.start_time).total_seconds() if record.end_time and record.start_time else 0
+    for card_bonus in record.card_bonus:
+        if card_bonus.card and card_bonus.card.user:
+            card_info = equip_card_to_base_info(card_bonus.card, lang)
+            ratio_bonus = card_bonus.bonus_ratio * raw_duration if card_bonus.bonus_ratio else 0
+            if card_info is not None:
+                card_bonus_list.append(
+                    CardBonusInfo(
+                        card=card_info,
+                        bonus_time=card_bonus.bonus_time + ratio_bonus,
+                        user_id=card_bonus.card.user.user_id
+                    )
+                )
+    
+    return RouteTrainingRecordDetailResponse(
+        original_time=duration,
+        final_time=final_time,
+        penalty_time=record.penalty_seconds,
+        path=path_points,
+        card_bonus=card_bonus_list,
+        settlements=record.settlement_rewards
+    )
