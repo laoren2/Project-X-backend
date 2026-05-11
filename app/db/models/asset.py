@@ -86,7 +86,7 @@ class CPAssetDef(Base):
     __tablename__ = "cp_asset_defs"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_id = Column(String, unique=True, index=True, nullable=False)
-    prop_type = Column(Enum(CPAssetType), nullable=False)  # "registration_card", "team_card"
+    prop_type = Column(Enum(CPAssetType), nullable=False)  # "registration_card", "team_card", ...
     name_i18n = Column(JSONB, nullable=False)
     description_i18n = Column(JSONB, nullable=False)
     image_url = Column(String, nullable=False)
@@ -115,6 +115,16 @@ class CPTeamCardDef(CPAssetDef):
 
     __mapper_args__ = {
         "polymorphic_identity": "team_card",  # 当prop_type为"registration_card"时加载该子类
+    }
+
+# 创建路线卡定义表
+class CPRouteCardDef(CPAssetDef):
+    __tablename__ = "cp_route_card_defs"
+    id = Column(UUID(as_uuid=True), ForeignKey("cp_asset_defs.id"), primary_key=True)
+    sport_type = Column(Enum(SportType), nullable=False)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "route_card",  # 当prop_type为"route_card"时加载该子类
     }
 
 # 用户通用道具资产表 cp(common prop)

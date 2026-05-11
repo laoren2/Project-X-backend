@@ -49,6 +49,10 @@ class CPAssetBaseInfo(ORMBase):
     image_url: str
     amount: int
 
+class CPAssetCoverInfo(BaseModel):
+    asset_id: str
+    image_url: str
+
 class EquipCardBaseInfo(ORMBase):
     card_id: str
     def_id: str

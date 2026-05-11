@@ -678,6 +678,13 @@ ERROR_MESSAGES = {
         "en": "registration card",
         "ko": "참가 카드"
     },
+    "cpasset.route_card": {
+        "zh-Hans": "路线创建卡",
+        "zh-Hant": "路線建立卡",
+        "en": "Route creation card",
+        "ko": "경로 생성권",
+        "ja": "ルート作成カード"
+    },
 # 排行榜
     "leaderboard.expired": {
         "zh-Hans": "排行榜数据已过期,请刷新",

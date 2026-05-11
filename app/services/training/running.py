@@ -12,15 +12,15 @@ from app.crud.competition.running import get_season_now, get_score_by_season_and
 from app.db.models.user import User
 from app.schemas.base import BizException, Language
 from app.schemas.user import Gender
-from app.schemas.common import CCAssetRewardResponse, CCAssetType, PersonInfoResponse
-from app.schemas.asset import AssetOperation
+from app.schemas.common import CCAssetRewardResponse, CCAssetType, PersonInfoResponse, SportType, CPAssetCoverInfo
+from app.schemas.asset import AssetOperation, CPAssetResponse
 from app.schemas.training.running import (
     FreeTrainingFinishInfo, FreeTrainingFinishResponse, TrainingStatesHistoryResponse,
     TrainingStatesHistoryInfo, TrainingRecordsResponse, TrainingRecordInfo,
     RunningFreeTrainingPathPoint, FreeTrainingRecordDetailResponse, CreateRouteRequest,
     RunningRouteInfoResponse, RunningRouteInfo, RunningRouteManageInfoResponse, RunningRouteMangeInfo,
     RouteTrainingFinishInfo, RouteTrainingFinishResponse, RouteTrainingRecordDetailResponse,
-    RunningRouteTrainingPathPoint
+    RunningRouteTrainingPathPoint, RunningRouteRanklistResponse, RunningRouteRankInfo
 )
 from app.schemas.training.common import (
     RegionExploreResponse, GridTileKey, GridTileResponse, TrainingType, RouteSortType,
@@ -34,13 +34,12 @@ from app.crud.training.running import (
     get_familiarity_grids_by_tiles, get_route_training_records_by_user_and_day, get_routes_by_page_crud, 
     get_routes_by_uesr_id, get_route_by_route_id, get_route_training_record_by_record_id
 )
-from app.crud.asset_manage import reward_ccasset, get_equip_card_by_card_id
+from app.crud.asset_manage import reward_ccasset, get_equip_card_by_card_id, consume_cpasset, get_route_card_def
 from app.db.models.training import (
     UserTrainingStateDailyRunning, RunningFreeTrainingPath, RunningFreeTrainingRecord, 
     UserTrainingStateRunning, RunningTrainingRoute, RunningRouteTrainingPath, RunningRouteTrainingRecord,
-    CardBonusInRunningRouteTrainingRecord
+    CardBonusInRunningRouteTrainingRecord, RunningRouteRanklist
 )
-from sqlalchemy.dialects.postgresql import insert
 from app.crud.user import get_user_by_id
 from app.crud.competition.common import get_region_by_coordinate, get_region_by_region_id
 from app.core.errors import ErrorCode
@@ -602,7 +601,7 @@ async def query_familiarity_ranking_by_grid(
     return GridFamiliarityRankListResponse(data=data)
 
 
-async def create_training_route_service(db: AsyncSession, user_id: str, data: CreateRouteRequest):
+async def create_training_route_service(db: AsyncSession, user_id: str, data: CreateRouteRequest) -> CPAssetResponse:
     steps = validate_route_data(data.route_type, data.route_data)
     geometry = build_geometry(steps)
     start = steps[0]
@@ -627,6 +626,12 @@ async def create_training_route_service(db: AsyncSession, user_id: str, data: Cr
     if total_distance > 50:
         raise BizException(code=ErrorCode.ROUTE_CREATE_FAILED, message="route.data_error.create")
 
+    # 消费路线创建卡
+    route_card_def = await get_route_card_def(db, SportType.running)
+    if route_card_def is None:
+        raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.data_error")
+    new_balance = await consume_cpasset(db, user.id, route_card_def.id, 1, "跑步路线创建")
+
     route = RunningTrainingRoute(
         route_id=f"route_{uuid.uuid4()}",
         user_id=user.id,
@@ -647,7 +652,19 @@ async def create_training_route_service(db: AsyncSession, user_id: str, data: Cr
     )
     db.add(route)
     await db.commit()
+    return CPAssetResponse(
+        asset_id=route_card_def.asset_id,
+        new_balance=new_balance
+    )
 
+async def get_route_card_info_service(db: AsyncSession) -> CPAssetCoverInfo:
+    route_card_def = await get_route_card_def(db, SportType.running)
+    if route_card_def is None:
+        raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.data_error")
+    return CPAssetCoverInfo(
+        asset_id=route_card_def.asset_id,
+        image_url=build_resource_url(route_card_def.image_url)
+    )
 
 async def query_routes_service(
     db: AsyncSession,
@@ -705,6 +722,8 @@ async def query_routes_service(
             is_premium=route.is_premium,
             enable_magiccard=route.enable_magiccard,
             distance=row.get("distance"),
+            total_distance=route.total_distance,
+            elevation_diff=route.elevation_difference,
             participate_count=row.get("count"),
             route_data=route.route_data
         ))
@@ -764,8 +783,6 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
             raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         route = await get_route_by_route_id(db, finish_info.route_id)
         if route is None:
-            raise BizException(code=ErrorCode.ROUTE_NOT_FOUND, message="route.not_found")
-        if route.user_id != user.id:
             raise BizException(code=ErrorCode.ROUTE_NOT_FOUND, message="route.not_found")
         season = await get_season_now(db)
         if not season:
@@ -848,6 +865,89 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
             final_time -= bonus_time
 
         record.duration_seconds = final_time + total_penalty
+
+        # 更新路线排行榜
+        final_score = final_time + total_penalty
+
+        ranklist_stmt = text(
+            """
+            SELECT *
+            FROM running_route_ranklists
+            WHERE route_id = :route_id
+              AND user_id = :user_id
+            LIMIT 1
+            """
+        )
+
+        ranklist_result = await db.execute(ranklist_stmt, {
+            "route_id": route.id,
+            "user_id": user.id
+        })
+        existing_rank = ranklist_result.fetchone()
+
+        should_update_rank = False
+
+        if existing_rank is None:
+            should_update_rank = True
+        elif final_score < existing_rank.duration_seconds:
+            should_update_rank = True
+
+        if should_update_rank:
+            if existing_rank is None:
+                db.add(RunningRouteRanklist(
+                    route_id=route.id,
+                    user_id=user.id,
+                    gender=user.gender if user.gender else Gender.male,
+                    record_id=record.id,
+                    duration_seconds=final_score
+                ))
+            else:
+                await db.execute(
+                    text(
+                        """
+                        UPDATE running_route_ranklists
+                        SET
+                            record_id = :record_id,
+                            duration_seconds = :duration_seconds
+                        WHERE id = :id
+                        """
+                    ),
+                    {
+                        "id": existing_rank.id,
+                        "record_id": record.id,
+                        "duration_seconds": final_score
+                    }
+                )
+
+            # 非 premium 路线排行榜最多只保留100条
+            if not route.is_premium:
+                trim_stmt = text(
+                    """
+                    SELECT id
+                    FROM running_route_ranklists
+                    WHERE route_id = :route_id
+                    ORDER BY duration_seconds ASC, user_id ASC
+                    OFFSET 100
+                    """
+                )
+                trim_result = await db.execute(trim_stmt, {
+                    "route_id": route.id
+                })
+                overflow_ids = [row.id for row in trim_result.fetchall()]
+
+                if overflow_ids:
+                    await db.execute(
+                        text(
+                            """
+                            DELETE FROM running_route_ranklists
+                            WHERE id = ANY(:ids)
+                            """
+                        ),
+                        {
+                            "ids": overflow_ids
+                        }
+                    )
+
         return RouteTrainingFinishResponse(
             record_id=record.record_id, 
             xp_before=xp_before, 
@@ -899,4 +999,108 @@ async def query_route_training_record_detail_service(db: AsyncSession, lang: Lan
         path=path_points,
         card_bonus=card_bonus_list,
         settlements=record.settlement_rewards
+    )
+
+async def query_route_ranklist_service(
+    db: AsyncSession,
+    route_id: str,
+    gender: Gender | None,
+    limit: int,
+    cursor: str | None
+) -> RunningRouteRanklistResponse:
+    route = await get_route_by_route_id(db, route_id)
+    if route is None:
+        raise BizException(code=ErrorCode.ROUTE_NOT_FOUND, message="route.not_found")
+
+    try:
+        cursor_data = decode_cursor(cursor) if cursor else None
+    except:
+        raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"cursor解析错误")
+
+    params = {
+        "route_id": route.id,
+        "limit": limit + 1
+    }
+
+    ranked_where_sql = "WHERE r.route_id = :route_id"
+    if gender is not None:
+        ranked_where_sql += " AND r.gender = :gender"
+        params["gender"] = gender.value
+    
+    cursor_where_sql = ""
+    if cursor_data:
+        cursor_where_sql += """
+        AND (
+            duration_seconds > :cursor_duration
+            OR (
+                duration_seconds = :cursor_duration
+                AND user_id > :cursor_user_id
+            )
+        )
+        """
+
+        params["cursor_duration"] = cursor_data["duration_seconds"]
+        params["cursor_user_id"] = cursor_data["user_id"]
+
+    sql = text(
+        f"""
+        WITH ranked AS (
+            SELECT
+                r.user_id,
+                r.duration_seconds,
+
+                u.user_id AS public_user_id,
+                u.nickname,
+                u.avatar_image_url,
+
+                ROW_NUMBER() OVER (
+                    ORDER BY r.duration_seconds ASC, r.user_id ASC
+                ) AS rank
+
+            FROM running_route_ranklists r
+            JOIN users u ON u.id = r.user_id
+
+            {ranked_where_sql}
+        )
+
+        SELECT *
+        FROM ranked
+        {cursor_where_sql}
+        ORDER BY duration_seconds ASC, user_id ASC
+        LIMIT :limit
+        """
+    )
+
+    result = await db.execute(sql, params)
+    rows = result.fetchall()
+
+    has_next = len(rows) > limit
+    rows = rows[:limit]
+
+    rank_infos = []
+
+    for _, row in enumerate(rows):
+        rank_infos.append(RunningRouteRankInfo(
+            rank=row.rank,
+            duration_seconds=row.duration_seconds,
+            user=PersonInfoResponse(
+                user_id=str(row.public_user_id),
+                nickname=row.nickname,
+                avatar_image_url=build_resource_url(row.avatar_image_url)
+            )
+        ))
+
+    next_cursor = None
+
+    if has_next and rows:
+        last_row = rows[-1]
+
+        next_cursor = encode_cursor({
+            "duration_seconds": last_row.duration_seconds,
+            "user_id": str(last_row.user_id)
+        })
+
+    return RunningRouteRanklistResponse(
+        ranklist=rank_infos,
+        next_cursor=next_cursor
     )

@@ -1,14 +1,16 @@
 from fastapi import APIRouter, Depends, Query
 from app.api.deps import get_current_user, get_language, Language
 from app.schemas.base import BaseResponse
+from app.schemas.common import CPAssetCoverInfo
+from app.schemas.asset import CPAssetResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
-from app.schemas.user import AuthContext
+from app.schemas.user import AuthContext, Gender
 from app.schemas.training.bike import (
     FreeTrainingFinishInfo, FreeTrainingFinishResponse, TrainingStatesHistoryResponse,
     TrainingRecordsResponse, FreeTrainingRecordDetailResponse, CreateRouteRequest,
     BikeRouteInfoResponse, BikeRouteManageInfoResponse, RouteTrainingFinishInfo, RouteTrainingFinishResponse,
-    RouteTrainingRecordDetailResponse
+    RouteTrainingRecordDetailResponse, BikeRouteRanklistResponse
 )
 from app.schemas.training.common import (
     RegionExploreResponse, GridTileResponse, GridTileRequest, GridFamiliarityMeResponse,
@@ -19,7 +21,8 @@ from app.services.training.bike import (
     query_training_states_service, query_region_exploration_service, query_free_training_record_detail_service,
     query_familiarity_grids_by_tiles_service, query_me_familiarity_by_grid, query_familiarity_ranking_by_grid,
     create_training_route_service, query_routes_service, query_my_routes_service, delete_route_service, 
-    finish_route_training_service, query_route_training_record_detail_service
+    finish_route_training_service, query_route_training_record_detail_service, get_route_card_info_service,
+    query_route_ranklist_service
 )
 
 router = APIRouter(dependencies=[Depends(get_language)])
@@ -130,14 +133,34 @@ async def query_grid_familiarity_ranklist(
     return BaseResponse.success(data=result)
 
 # 创建训练路线
-@router.post("/create_route",response_model=BaseResponse[None],summary="创建训练路线")
+@router.post("/create_route",response_model=BaseResponse[CPAssetResponse],summary="创建训练路线")
 async def create_training_route(
     request: CreateRouteRequest,
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    await create_training_route_service(db, auth.payload["user_id"], request)
-    return BaseResponse.success(token=auth.new_token, data=None)
+    result = await create_training_route_service(db, auth.payload["user_id"], request)
+    return BaseResponse.success(token=auth.new_token, data=result)
+
+# 查询路线创建卡信息
+@router.get("/route_card_info",response_model=BaseResponse[CPAssetCoverInfo],summary="查询路线创建卡信息")
+async def query_route_card_info(
+    db: AsyncSession = Depends(get_db)
+):
+    result = await get_route_card_info_service(db)
+    return BaseResponse.success(data=result)
+
+# 查询路线排行榜
+@router.get("/route_ranklist",response_model=BaseResponse[BikeRouteRanklistResponse],summary="查询路线排行榜")
+async def query_route_ranklist(
+    route_id: str = Query(...),
+    gender: Gender = Query(None),
+    limit: int = Query(...),
+    cursor: str = Query(None),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_route_ranklist_service(db, route_id, gender, limit, cursor)
+    return BaseResponse.success(data=result)
 
 # 分页查询路线
 @router.get("/routes",response_model=BaseResponse[BikeRouteInfoResponse],summary="分页查询路线")

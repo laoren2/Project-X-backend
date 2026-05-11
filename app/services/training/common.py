@@ -132,7 +132,8 @@ def extract_checkpoints_from_route_data(route_data: dict | None) -> list[dict]:
 
 
 def _inside_checkpoint(lat: float, lon: float, cp: dict) -> bool:
-    return haversine(lat, lon, cp["lat"], cp["lng"]) <= cp["radius"]
+    # 3m buffer
+    return haversine(lat, lon, cp["lat"], cp["lng"]) <= (cp["radius"] + 3.0)
 
 
 def evaluate_route_training_checkpoint_path(

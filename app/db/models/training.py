@@ -3,6 +3,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from app.schemas.competition.bike import BikeTrackTerrainType
 from app.schemas.competition.running import RunningTrackTerrainType
 from app.schemas.training.common import RouteType
+from app.schemas.user import Gender
 from app.db.base import Base
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
@@ -371,6 +372,46 @@ class BikeRouteTrainingRecord(Base):
     path = relationship("BikeRouteTrainingPath", primaryjoin="foreign(BikeRouteTrainingRecord.path_id)==BikeRouteTrainingPath.id", uselist=False)
     card_bonus = relationship("CardBonusInBikeRouteTrainingRecord", primaryjoin="BikeRouteTrainingRecord.id==foreign(CardBonusInBikeRouteTrainingRecord.record_id)", uselist=True)
 
+    __table_args__ = (
+        Index(
+            "idx_bike_route_training_records_route_user",
+            "route_id",
+            "user_id"
+        ),
+    )
+
+class BikeRouteRanklist(Base):
+    __tablename__ = "bike_route_ranklists"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    route_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    gender = Column(Enum(Gender), nullable=False)
+
+    # 最佳成绩来源record
+    record_id = Column(UUID(as_uuid=True), nullable=False)
+    duration_seconds = Column(Float, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "route_id",
+            "user_id",
+            name="uq_bike_route_ranklist_route_user"
+        ),
+        # 核心排行榜索引
+        Index(
+            "idx_bike_route_ranklist_route_score",
+            "route_id",
+            "gender",
+            "duration_seconds",
+            "user_id"
+        ),
+    )
+
 class BikeRouteTrainingPath(Base):
     __tablename__ = "bike_route_training_paths"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -415,6 +456,46 @@ class RunningRouteTrainingRecord(Base):
     route = relationship("RunningTrainingRoute", primaryjoin="foreign(RunningRouteTrainingRecord.route_id)==RunningTrainingRoute.id", uselist=False)
     path = relationship("RunningRouteTrainingPath", primaryjoin="foreign(RunningRouteTrainingRecord.path_id)==RunningRouteTrainingPath.id", uselist=False)
     card_bonus = relationship("CardBonusInRunningRouteTrainingRecord", primaryjoin="RunningRouteTrainingRecord.id==foreign(CardBonusInRunningRouteTrainingRecord.record_id)", uselist=True)
+
+    __table_args__ = (
+        Index(
+            "idx_running_route_training_records_route_user",
+            "route_id",
+            "user_id"
+        ),
+    )
+
+class RunningRouteRanklist(Base):
+    __tablename__ = "running_route_ranklists"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    route_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    gender = Column(Enum(Gender), nullable=False)
+
+    # 最佳成绩来源record
+    record_id = Column(UUID(as_uuid=True), nullable=False)
+    duration_seconds = Column(Float, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "route_id",
+            "user_id",
+            name="uq_running_route_ranklist_route_user"
+        ),
+        # 核心排行榜索引
+        Index(
+            "idx_running_route_ranklist_route_score",
+            "route_id",
+            "gender",
+            "duration_seconds",
+            "user_id"
+        ),
+    )
 
 class RunningRouteTrainingPath(Base):
     __tablename__ = "running_route_training_paths"

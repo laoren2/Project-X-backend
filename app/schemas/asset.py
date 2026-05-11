@@ -10,11 +10,13 @@ from pydantic import BaseModel, field_validator
 class CPAssetType(str, Enum):
     registration_card = "registration_card"     # 报名卡
     team_card = "team_card"                     # 创建队伍卡
+    route_card = "route_card"                   # 创建路线卡
 
     def display_name(self) -> str:
         names = {
             CPAssetType.registration_card: "报名卡",
-            CPAssetType.team_card: "组队卡"
+            CPAssetType.team_card: "组队卡",
+            CPAssetType.route_card: "创建路线卡"
         }
         return names.get(self, "未知类型")
 

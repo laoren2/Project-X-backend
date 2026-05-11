@@ -1,6 +1,6 @@
 from sqlalchemy import select, func
 from app.db.models.asset import (
-    CCUserAsset, CCAssetTransaction, CPUserAsset, 
+    CCUserAsset, CCAssetTransaction, CPUserAsset, CPRouteCardDef,
     CPAssetTransaction, CPAssetDef, CPRegistrationCardDef, CPAssetPrice, CPTeamCardDef,
     EquipmentCardDef, EquipCardPrice, UserEquipmentCard, EquipCardTransaction, CouponPrice
 )
@@ -200,6 +200,14 @@ async def get_team_card_def(db: AsyncSession, sport_type: SportType) -> CPTeamCa
     if team_card_def is None:
         raise BizException(code=ErrorCode.ASSET_ERROR, message="asset.data_error")
     return team_card_def
+
+async def get_route_card_def(db: AsyncSession, sport_type: SportType) -> CPRouteCardDef | None:
+    result = await db.execute(
+        select(CPRouteCardDef).where(
+            CPRouteCardDef.sport_type == sport_type
+        )
+    )
+    return result.scalar_one_or_none()
 
 async def get_cpassets_on_shelves_crud(db: AsyncSession) -> List[CPAssetPrice]:
     result = await db.execute(

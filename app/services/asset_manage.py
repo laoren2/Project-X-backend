@@ -10,7 +10,10 @@ from app.crud.asset_manage import (
     get_equip_card_price_on_shelves, create_user_equip_card, create_equip_card_transaction
 )
 from app.crud.user import get_user_by_id
-from app.db.models.asset import CPRegistrationCardDef, CPTeamCardDef, CPAssetDef, CPAssetPrice, EquipmentCardDef, EquipCardPrice, UserEquipmentCard
+from app.db.models.asset import (
+    CPRegistrationCardDef, CPRouteCardDef, CPTeamCardDef, CPAssetDef, 
+    CPAssetPrice, EquipmentCardDef, EquipCardPrice, UserEquipmentCard
+)
 from app.core.errors import ErrorCode
 from app.schemas.base import BizException, pick_i18n_text
 from app.schemas.asset import (
@@ -37,7 +40,8 @@ import uuid, random, math, json
 # 子类映射表
 CP_ASSET_SUBCLASS_MAP = {
     CPAssetType.registration_card: CPRegistrationCardDef,
-    CPAssetType.team_card: CPTeamCardDef
+    CPAssetType.team_card: CPTeamCardDef,
+    CPAssetType.route_card: CPRouteCardDef
     # 后续新增类型只需在这里添加映射
 }
 
@@ -48,6 +52,10 @@ CP_ASSET_FIELD_VALIDATION = {
         "optional": []
     },
     CPAssetType.team_card: {
+        "required": ["sport_type"],
+        "optional": []
+    },
+    CPAssetType.route_card: {
         "required": ["sport_type"],
         "optional": []
     }
