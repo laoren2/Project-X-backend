@@ -1,4 +1,4 @@
-from app.schemas.common import CCAssetRewardResponse
+from app.schemas.common import CCAssetRewardResponse, PersonInfoResponse
 from app.schemas.competition.common import PathPoint, CardBonusItem, CardBonusInfo
 from app.schemas.training.common import RouteType, TrainingType
 from app.schemas.competition.running import RunningTrackTerrainType
@@ -81,6 +81,8 @@ class RunningRouteInfo(BaseModel):
     is_premium: bool
     enable_magiccard: bool
     distance: float
+    total_distance: float
+    elevation_diff: int
     participate_count: int
     route_data: dict
 
@@ -124,3 +126,12 @@ class RouteTrainingRecordDetailResponse(BaseModel):
     path: List[RunningRouteTrainingPathPoint]
     card_bonus: List[CardBonusInfo]
     settlements: dict[str, Any]
+
+class RunningRouteRankInfo(BaseModel):
+    rank: int
+    duration_seconds: float
+    user: PersonInfoResponse
+
+class RunningRouteRanklistResponse(BaseModel):
+    ranklist: List[RunningRouteRankInfo]
+    next_cursor: str | None

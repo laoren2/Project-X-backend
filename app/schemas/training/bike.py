@@ -1,6 +1,6 @@
 from fastapi import Form
 from app.schemas.base import ORMBase
-from app.schemas.common import CCAssetRewardResponse
+from app.schemas.common import CCAssetRewardResponse, PersonInfoResponse
 from app.schemas.competition.bike import BikeTrackTerrainType
 from app.schemas.competition.common import PathPoint, CardBonusItem, CardBonusInfo
 from app.schemas.training.common import RouteType, TrainingType
@@ -77,6 +77,8 @@ class BikeRouteInfo(BaseModel):
     is_premium: bool
     enable_magiccard: bool
     distance: float
+    total_distance: float
+    elevation_diff: int
     participate_count: int
     route_data: dict
 
@@ -120,3 +122,12 @@ class RouteTrainingRecordDetailResponse(BaseModel):
     path: List[BikeRouteTrainingPathPoint]
     card_bonus: List[CardBonusInfo]
     settlements: dict[str, Any]
+
+class BikeRouteRankInfo(BaseModel):
+    rank: int
+    duration_seconds: float
+    user: PersonInfoResponse
+
+class BikeRouteRanklistResponse(BaseModel):
+    ranklist: List[BikeRouteRankInfo]
+    next_cursor: str | None
