@@ -2,7 +2,9 @@ from sqlalchemy import Column, String, Boolean, DateTime, func, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from app.schemas.competition.bike import BikeTrackTerrainType
 from app.schemas.competition.running import RunningTrackTerrainType
-from app.schemas.training.common import RouteType
+from app.schemas.training.common import RouteType, GridEffectType
+from app.schemas.training.bike import BikeGridConditionType
+from app.schemas.training.running import RunningGridConditionType
 from app.schemas.user import Gender
 from app.db.base import Base
 from sqlalchemy.orm import relationship
@@ -22,38 +24,133 @@ COUNTRY_GRIDS_BBOX = {
 }
 
 # 网格 buff 系统
-'''class EffectGrid(Base):
-    __tablename__ = "effect_grids"
+class BikeEffectGrid(Base):
+    __tablename__ = "bike_effect_grids"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    # 所属区域
-    region_id = Column(UUID(as_uuid=True), index=True, nullable=False)
-    # 网格坐标
+    region_id = Column(UUID(as_uuid=True), index=True, nullable=False)      # 所属区域
     grid_x = Column(Integer, nullable=False)
     grid_y = Column(Integer, nullable=False)
-    # 类型
-    # effect_type = Column(String, nullable=False)  
-    # e.g. "buff", "debuff"
-    # 奖励
-    reward_type = Column(String, nullable=False)  
-    # e.g. "xp", "coin", "energy"
-    reward_value = Column(Float, nullable=False)
-    # 条件（核心）
-    condition_type = Column(String, nullable=False)  
-    # e.g. "visit_count", "distance", "unique_grids"
-    condition_params = Column(MutableDict.as_mutable(JSONB), nullable=False)
-    # e.g. {"min": 3}
-    # 生命周期（用于每日刷新）
-    active_date = Column(Date, nullable=False, index=True)
+
+    description_i18n = Column(JSONB, nullable=False)
+    effect_type = Column(Enum(GridEffectType), nullable=False)            # buff / debuff
+    condition_type = Column(Enum(BikeGridConditionType), nullable=False)     # e.g. "visit_count", "distance", "unique_grids"
+    condition_params = Column(JSONB, nullable=False)    # e.g. {"min": 3}
+    reward_type = Column(String, nullable=False)
+    reward_count = Column(Integer, nullable=False)
+    active_date = Column(Date, nullable=False, index=True)      # 生命周期（用于每日刷新）
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
-            "region_id", "grid_x", "grid_y", "active_date",
-            name="uq_effect_grids_region_grid_date"
+            "grid_x", "grid_y", "active_date",
+            name="uq_bike_effect_grids_grid_date"
         ),
-    )'''
+    )
 
+# 记录用户 buff 网格的应用情况（应用后不可重复展示和应用）
+class BikeEffectGridHistory(Base):
+    __tablename__ = "bike_effect_grids_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    grid_x = Column(Integer, nullable=False)
+    grid_y = Column(Integer, nullable=False)
+    active_date = Column(Date, nullable=False, index=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "grid_x", "grid_y", "active_date",
+            name="uq_bike_effect_grids_history_user_grid_date"
+        ),
+    )
+
+class BikeEffectGridTileAgg(Base):
+    __tablename__ = "bike_effect_grid_tile_aggs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    active_date = Column(Date, nullable=False, index=True)
+    level = Column(Integer, nullable=False)
+    grid_x = Column(Integer, nullable=False)
+    grid_y = Column(Integer, nullable=False)
+
+    grid_previews = Column(JSONB, nullable=False)      # tile 内所有 buff grid 预览信息
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "active_date", "level", "grid_x", "grid_y",
+            name="uq_bike_effect_grid_tile_aggs_level_grid_date"
+        ),
+    )
+
+class RunningEffectGrid(Base):
+    __tablename__ = "running_effect_grids"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    region_id = Column(UUID(as_uuid=True), index=True, nullable=False)      # 所属区域
+    grid_x = Column(Integer, nullable=False)
+    grid_y = Column(Integer, nullable=False)
+
+    description_i18n = Column(JSONB, nullable=False)
+    effect_type = Column(Enum(GridEffectType), nullable=False)            # buff / debuff
+    condition_type = Column(Enum(RunningGridConditionType), nullable=False)     # e.g. "visit_count", "distance", "unique_grids"
+    condition_params = Column(JSONB, nullable=False)    # e.g. {"min": 3}
+    reward_type = Column(String, nullable=False)
+    reward_count = Column(Integer, nullable=False)
+    active_date = Column(Date, nullable=False, index=True)      # 生命周期（用于每日刷新）
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "grid_x", "grid_y", "active_date",
+            name="uq_running_effect_grids_grid_date"
+        ),
+    )
+
+# 记录用户 buff 网格的应用情况（应用后不可重复展示和应用）
+class RunningEffectGridHistory(Base):
+    __tablename__ = "running_effect_grids_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    grid_x = Column(Integer, nullable=False)
+    grid_y = Column(Integer, nullable=False)
+    active_date = Column(Date, nullable=False, index=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "grid_x", "grid_y", "active_date",
+            name="uq_running_effect_grids_history_user_grid_date"
+        ),
+    )
+
+class RunningEffectGridTileAgg(Base):
+    __tablename__ = "running_effect_grid_tile_aggs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    active_date = Column(Date, nullable=False, index=True)
+    level = Column(Integer, nullable=False)
+    grid_x = Column(Integer, nullable=False)
+    grid_y = Column(Integer, nullable=False)
+
+    grid_previews = Column(JSONB, nullable=False)      # tile 内所有 buff grid 预览信息
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "active_date", "level", "grid_x", "grid_y",
+            name="uq_running_effect_grid_tile_aggs_level_grid_date"
+        ),
+    )
 
 # 用户网格熟悉度表
 class UserGridFamiliarityBike(Base):
@@ -156,6 +253,7 @@ class BikeFreeTrainingRecord(Base):
     duration_seconds = Column(Float, nullable=False)
     local_date = Column(Date, nullable=False)
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)      # 此次训练的结算，可能包含 xp/state_value/familiarity...
+    triggered_buffs = Column(JSONB, nullable=False, server_default="[]")            # 训练触发的 buff grids 快照
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -195,6 +293,7 @@ class RunningFreeTrainingRecord(Base):
     duration_seconds = Column(Float, nullable=False)
     local_date = Column(Date, nullable=False)
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)
+    triggered_buffs = Column(JSONB, nullable=False, server_default="[]")            # 训练触发的 buff grids 快照
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

@@ -3,12 +3,17 @@ from app.schemas.base import ORMBase
 from app.schemas.common import CCAssetRewardResponse, PersonInfoResponse
 from app.schemas.competition.bike import BikeTrackTerrainType
 from app.schemas.competition.common import PathPoint, CardBonusItem, CardBonusInfo
-from app.schemas.training.common import RouteType, TrainingType
+from app.schemas.training.common import RouteType, TrainingType, GridCellInfo, GridTileKey, GridEffectType
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Any
 from pydantic import BaseModel, Field
 
+
+class BikeGridConditionType(str, Enum):
+    distance = "distance"
+    speed = "speed"
+    none = "none"
 
 class BikeFreeTrainingPathPoint(BaseModel):
     base: PathPoint
@@ -35,6 +40,7 @@ class FreeTrainingFinishResponse(BaseModel):
     training_state_before: int
     training_state_delta: int
     new_grids: int
+    triggered_buff_count: int
     cc_rewards: List[CCAssetRewardResponse]
 
 class TrainingStatesHistoryInfo(BaseModel):
@@ -57,6 +63,7 @@ class FreeTrainingRecordDetailResponse(BaseModel):
     duration: float
     path: List[BikeFreeTrainingPathPoint]
     settlements: dict[str, Any]      # 训练的结算信息
+    triggered_buffs: list[dict[str, Any]] = []      # 训练的 buff 快照
 
 
 class CreateRouteRequest(BaseModel):
@@ -131,3 +138,29 @@ class BikeRouteRankInfo(BaseModel):
 class BikeRouteRanklistResponse(BaseModel):
     ranklist: List[BikeRouteRankInfo]
     next_cursor: str | None
+
+class BikeGridBuffPreview(BaseModel):
+    grid_x: int
+    grid_y: int
+    effect_type: str
+    condition_type: BikeGridConditionType
+    reward_type: str
+
+class BikeGridTileInfo(BaseModel):
+    key: GridTileKey
+    cells: List[GridCellInfo]
+    buff_info: List[BikeGridBuffPreview]
+
+class BikeGridDetailInfo(BaseModel):
+    description: str
+    effect_type: GridEffectType
+    condition_type: BikeGridConditionType
+    condition_params: dict
+    reward_type: str
+    reward_count: int
+
+class BikeGridInfoResponse(BaseModel):
+    grids: List[BikeGridDetailInfo]
+
+class BikeGridTileResponse(BaseModel):
+    tiles: List[BikeGridTileInfo]

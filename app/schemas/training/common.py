@@ -20,6 +20,10 @@ class RouteSortType(str, Enum):
     participation = "participation"
     distance = "distance"
 
+class GridEffectType(str, Enum):
+    buff = "buff"
+    debuff = "debuff"
+
 class Checkpoint(BaseModel):
     kind: Literal["checkpoint"]
     lat: float
@@ -42,19 +46,13 @@ class GridTileKey(BaseModel):
     y: int
 
 class GridTileRequest(BaseModel):
+    region_id: str
     tiles: List[GridTileKey]
 
 class GridCellInfo(BaseModel):
     grid_x: int
     grid_y: int
     count: int
-
-class GridTileInfo(BaseModel):
-    key: GridTileKey
-    cells: List[GridCellInfo]
-
-class GridTileResponse(BaseModel):
-    tiles: List[GridTileInfo]
 
 class GridFamiliarityMeResponse(BaseModel):
     count: int

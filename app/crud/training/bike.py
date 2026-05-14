@@ -1,21 +1,29 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, func, and_, text, desc, asc, literal
-from app.db.models.competition import BikeTrack
+from sqlalchemy import select, update, func, and_, text, desc, asc, literal, tuple_
+from app.db.models.competition import BikeTrack, Region
 from app.db.models.training import (
     BikeFreeTrainingRecord, CardBonusInBikeRouteTrainingRecord, UserTrainingStateBike, BikeTrainingRoute,
-    UserGridFamiliarityBike, UserTrainingStateDailyBike, UserGridFamiliarityBikeAgg, BikeRouteTrainingRecord
+    UserGridFamiliarityBike, UserTrainingStateDailyBike, UserGridFamiliarityBikeAgg, BikeRouteTrainingRecord,
+    BikeRouteRanklist, BikeEffectGrid, BikeEffectGridTileAgg, BikeEffectGridHistory
 )
 from app.db.models.asset import UserEquipmentCard
 from sqlalchemy.orm import selectinload
-from app.schemas.training.common import GridTileKey, GridCellInfo, GridTileResponse, GridTileInfo, RouteSortType
+from app.db.models.user import User
+from app.schemas.training.common import (
+    GridTileKey, GridCellInfo, RouteSortType, GridEffectType
+)
+from app.schemas.training.bike import BikeGridTileResponse, BikeGridTileInfo, BikeGridBuffPreview, BikeGridConditionType
 from typing import List
 from datetime import date, timedelta, datetime
 from sqlalchemy.dialects.postgresql import insert
-from app.core.tools import get_tile_size
+from app.core.tools import get_tile_size, get_user_local_date
 from collections import defaultdict
-from geoalchemy2.functions import ST_Distance, ST_SetSRID, ST_MakePoint
+from geoalchemy2.functions import (
+    ST_Distance, ST_SetSRID,ST_MakePoint, ST_Contains,
+    ST_Transform, ST_XMin, ST_XMax, ST_YMin, ST_YMax
+)
 from geoalchemy2 import Geography
-import uuid, math, calendar, json
+import uuid, math, calendar, json, random, hashlib
 
 
 # 计算用户对某条赛道的熟悉度（起终点直线 + Buffer 带状区域 + 指数距离衰减）
@@ -469,25 +477,312 @@ async def get_route_training_record_by_record_id(db: AsyncSession, record_id: st
     )
     return result.scalar_one_or_none()
 
-async def get_familiarity_grids_by_tiles(
+
+async def ensure_bike_effect_grids_generated(
     db: AsyncSession,
-    user_id: uuid.UUID,
+    region: Region,
+    active_date: date
+):
+    exists_stmt = (
+        select(BikeEffectGrid.id)
+        .where(
+            BikeEffectGrid.region_id == region.id,
+            BikeEffectGrid.active_date == active_date
+        )
+        .limit(1)
+    )
+
+    exists_result = await db.execute(exists_stmt)
+    if exists_result.first() is not None:
+        return
+
+    lock_raw = f"bike_effect_grid:{region.id}:{active_date.isoformat()}"
+
+    lock_key = int(
+        hashlib.md5(lock_raw.encode()).hexdigest()[:8],
+        16
+    )
+
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_key)"),
+        {"lock_key": lock_key}
+    )
+
+    recheck_result = await db.execute(exists_stmt)
+    if recheck_result.first() is not None:
+        return
+
+
+    boundary_stmt = select(
+        ST_XMin(ST_Transform(region.boundary, 3857)),
+        ST_XMax(ST_Transform(region.boundary, 3857)),
+        ST_YMin(ST_Transform(region.boundary, 3857)),
+        ST_YMax(ST_Transform(region.boundary, 3857)),
+    )
+
+    boundary_result = await db.execute(boundary_stmt)
+    bounds = boundary_result.first()
+
+    if bounds is None:
+        return
+
+    min_x, max_x, min_y, max_y = bounds
+
+    target_count = random.randint(10, 15)
+
+    condition_pool = {
+        BikeGridConditionType.distance: [
+            {"sum": 1},
+            {"sum": 5},
+            {"sum": 10},
+        ],
+        BikeGridConditionType.speed: [
+            {"avg": 20},
+            {"avg": 25},
+            {"avg": 30},
+        ],
+        BikeGridConditionType.none: [
+            {}
+        ]
+    }
+
+    reward_types = [
+        "coin",
+        "coupon",
+        "stone1",
+        "stone2",
+        "stone3"
+    ]
+
+    generated_positions = set()
+    generated_grids = []
+
+    attempts = 0
+
+    while len(generated_grids) < target_count and attempts < 500:
+        attempts += 1
+
+        rand_x = random.uniform(min_x, max_x)
+        rand_y = random.uniform(min_y, max_y)
+
+        base_grid_x = math.floor(rand_x / 500)
+        base_grid_y = math.floor(rand_y / 500)
+
+        position_key = (base_grid_x, base_grid_y)
+
+        if position_key in generated_positions:
+            continue
+
+        point_x = base_grid_x * 500 + 250
+        point_y = base_grid_y * 500 + 250
+
+        contains_stmt = select(
+            ST_Contains(
+                ST_Transform(region.boundary, 3857),
+                ST_SetSRID(
+                    ST_MakePoint(point_x, point_y),
+                    3857
+                )
+            )
+        )
+
+        contains_result = await db.execute(contains_stmt)
+
+        if not contains_result.scalar():
+            continue
+
+        generated_positions.add(position_key)
+
+        condition_type = random.choice([
+            BikeGridConditionType.distance,
+            BikeGridConditionType.speed,
+            BikeGridConditionType.none
+        ])
+
+        condition_params = random.choice(
+            condition_pool[condition_type]
+        )
+
+        reward_type = random.choice(reward_types)
+
+        if reward_type == "coin":
+            reward_count = random.randint(10, 100)
+        else:
+            reward_count = random.randint(1, 5)
+
+        # ---- Add i18n description generation ----
+        if condition_type == BikeGridConditionType.distance:
+            sum_km = condition_params["sum"]
+            description_i18n = {
+                "en": f"Receive {{{{reward}}}} reward when distance exceeds {sum_km}km",
+                "zh-Hans": f"路程距离大于{sum_km}km时可获得{{{{reward}}}}奖励",
+                "zh-Hant": f"路程距離大於{sum_km}km時可獲得{{{{reward}}}}獎勵",
+                "ko": f"주행 거리가 {sum_km}km를 초과하면 {{{{reward}}}} 보상을 획득할 수 있습니다",
+                "ja": f"走行距離が{sum_km}kmを超えると{{{{reward}}}}報酬を獲得できます"
+            }
+        elif condition_type == BikeGridConditionType.speed:
+            avg_speed = condition_params["avg"]
+            description_i18n = {
+                "en": f"Receive {{{{reward}}}} reward when average speed exceeds {avg_speed}km/h",
+                "zh-Hans": f"平均配速超过{avg_speed}km/h时可获得{{{{reward}}}}奖励",
+                "zh-Hant": f"平均配速超過{avg_speed}km/h時可獲得{{{{reward}}}}獎勵",
+                "ko": f"평균 속도가 {avg_speed}km/h를 초과하면 {{{{reward}}}} 보상을 획득할 수 있습니다",
+                "ja": f"平均速度が{avg_speed}km/hを超えると{{{{reward}}}}報酬を獲得できます"
+            }
+        elif condition_type == BikeGridConditionType.none:
+            description_i18n = {
+                "en": "Receive {{reward}} reward when passing through",
+                "zh-Hans": "经过时可获得{{reward}}奖励",
+                "zh-Hant": "經過時可獲得{{reward}}獎勵",
+                "ko": "통과 시 {{reward}} 보상을 획득할 수 있습니다",
+                "ja": "通過時に{{reward}}報酬を獲得できます"
+            }
+        else:
+            continue
+
+        generated_grids.append({
+            "grid_x": base_grid_x,
+            "grid_y": base_grid_y,
+            "description_i18n": description_i18n,
+            "effect_type": GridEffectType.buff.value,
+            "condition_type": condition_type.value,
+            "condition_params": condition_params,
+            "reward_type": reward_type,
+            "reward_count": reward_count
+        })
+
+    if not generated_grids:
+        return
+
+    effect_rows = []
+
+    for grid in generated_grids:
+        effect_rows.append({
+            "id": uuid.uuid4(),
+            "region_id": region.id,
+            "grid_x": grid["grid_x"],
+            "grid_y": grid["grid_y"],
+            "description_i18n": grid["description_i18n"],
+            "effect_type": grid["effect_type"],
+            "condition_type": grid["condition_type"],
+            "condition_params": grid["condition_params"],
+            "reward_type": grid["reward_type"],
+            "reward_count": grid["reward_count"],
+            "active_date": active_date
+        })
+
+    effect_stmt = (
+        insert(BikeEffectGrid)
+        .values(effect_rows)
+        .on_conflict_do_nothing(
+            index_elements=[
+                "grid_x",
+                "grid_y",
+                "active_date"
+            ]
+        )
+        .returning(
+            BikeEffectGrid.grid_x,
+            BikeEffectGrid.grid_y,
+            BikeEffectGrid.effect_type,
+            BikeEffectGrid.condition_type,
+            BikeEffectGrid.reward_type,
+            BikeEffectGrid.reward_count
+        )
+    )
+
+    effect_result = await db.execute(effect_stmt)
+
+    inserted_grids = effect_result.mappings().all()
+
+    if not inserted_grids:
+        return
+
+    tile_preview_map = defaultdict(list)
+
+    for grid in inserted_grids:
+        for level in range(0, 4):
+            grid_scale = 2 ** level
+
+            agg_grid_x = grid["grid_x"] // grid_scale
+            agg_grid_y = grid["grid_y"] // grid_scale
+
+            tile_preview_map[
+                (level, agg_grid_x, agg_grid_y)
+            ].append({
+                "grid_x": grid["grid_x"],
+                "grid_y": grid["grid_y"],
+                "effect_type": (
+                    grid["effect_type"].value
+                    if hasattr(grid["effect_type"], "value")
+                    else grid["effect_type"]
+                ),
+                "condition_type": grid["condition_type"],
+                "reward_type": grid["reward_type"]
+            })
+
+    agg_rows = []
+
+    for (level, grid_x, grid_y), previews in tile_preview_map.items():
+        agg_rows.append({
+            "id": uuid.uuid4(),
+            "active_date": active_date,
+            "level": level,
+            "grid_x": grid_x,
+            "grid_y": grid_y,
+            "grid_previews": previews
+        })
+
+    agg_stmt = insert(BikeEffectGridTileAgg).values(agg_rows)
+
+    agg_stmt = agg_stmt.on_conflict_do_update(
+        index_elements=[
+            "active_date",
+            "level",
+            "grid_x",
+            "grid_y"
+        ],
+        set_={
+            "grid_previews": (
+                BikeEffectGridTileAgg.grid_previews.op("||")(
+                    agg_stmt.excluded.grid_previews
+                )
+            )
+        }
+    )
+    await db.execute(agg_stmt)
+    print(f"create buff grids for region{region.region_id}")
+
+
+async def get_grids_info_by_tiles(
+    db: AsyncSession,
+    user: User,
+    region: Region,
     season_id: uuid.UUID,
     tiles: List[GridTileKey]
-) -> GridTileResponse:
+) -> BikeGridTileResponse:
     if not tiles:
-        return GridTileResponse(tiles=[])
+        return BikeGridTileResponse(tiles=[])
+    
+    local_date = get_user_local_date(user)
 
-    level = tiles[0].level  # 同一批一定同 level
+    # lazy ensure buff grids
+    await ensure_bike_effect_grids_generated(db, region, local_date)
+
+    level = tiles[0].level
     tile_size = get_tile_size(level)
 
-    # 计算整体 bounding box（超级关键优化）
-    min_x = min(t.x for t in tiles) * tile_size
-    max_x = (max(t.x for t in tiles) + 1) * tile_size - 1
-    min_y = min(t.y for t in tiles) * tile_size
-    max_y = (max(t.y for t in tiles) + 1) * tile_size - 1
+    min_tile_x = min(t.x for t in tiles)
+    max_tile_x = max(t.x for t in tiles)
+    min_tile_y = min(t.y for t in tiles)
+    max_tile_y = max(t.y for t in tiles)
 
-    stmt = (
+    min_x = min_tile_x * tile_size
+    max_x = (max_tile_x + 1) * tile_size - 1
+    min_y = min_tile_y * tile_size
+    max_y = (max_tile_y + 1) * tile_size - 1
+
+    familiarity_stmt = (
         select(
             UserGridFamiliarityBikeAgg.grid_x,
             UserGridFamiliarityBikeAgg.grid_y,
@@ -495,7 +790,7 @@ async def get_familiarity_grids_by_tiles(
         )
         .where(
             and_(
-                UserGridFamiliarityBikeAgg.user_id == user_id,
+                UserGridFamiliarityBikeAgg.user_id == user.id,
                 UserGridFamiliarityBikeAgg.season_id == season_id,
                 UserGridFamiliarityBikeAgg.level == level,
                 UserGridFamiliarityBikeAgg.grid_x >= min_x,
@@ -506,34 +801,144 @@ async def get_familiarity_grids_by_tiles(
         )
     )
 
-    result = await db.execute(stmt)
-    rows = result.all()
+    familiarity_result = await db.execute(familiarity_stmt)
+    familiarity_rows = familiarity_result.all()
 
-    # 分桶到 tile
+    buff_stmt = (
+        select(
+            BikeEffectGridTileAgg.grid_x,
+            BikeEffectGridTileAgg.grid_y,
+            BikeEffectGridTileAgg.grid_previews
+        )
+        .where(
+            and_(
+                BikeEffectGridTileAgg.active_date == local_date,
+                BikeEffectGridTileAgg.level == level,
+                BikeEffectGridTileAgg.grid_x >= min_x,
+                BikeEffectGridTileAgg.grid_x <= max_x,
+                BikeEffectGridTileAgg.grid_y >= min_y,
+                BikeEffectGridTileAgg.grid_y <= max_y,
+            )
+        )
+    )
+
+    buff_result = await db.execute(buff_stmt)
+    buff_rows = buff_result.all()
+
+    preview_positions = set()
+
+    for row in buff_rows:
+        previews = row.grid_previews
+
+        if not isinstance(previews, list):
+            continue
+
+        for preview in previews:
+            if not isinstance(preview, dict):
+                continue
+            preview_positions.add((
+                preview["grid_x"],
+                preview["grid_y"]
+            ))
+
+    history_set = set()
+
+    if preview_positions:
+        history_stmt = (
+            select(
+                BikeEffectGridHistory.grid_x,
+                BikeEffectGridHistory.grid_y
+            )
+            .where(
+                and_(
+                    BikeEffectGridHistory.user_id == user.id,
+                    BikeEffectGridHistory.active_date == local_date,
+                    tuple_(
+                        BikeEffectGridHistory.grid_x,
+                        BikeEffectGridHistory.grid_y
+                    ).in_(preview_positions)
+                )
+            )
+        )
+
+        history_result = await db.execute(history_stmt)
+        history_rows = history_result.all()
+
+        history_set = {
+            (r.grid_x, r.grid_y)
+            for r in history_rows
+        }
+
     tile_map = defaultdict(list)
 
-    for r in rows:
-        tile_x = r.grid_x // tile_size
-        tile_y = r.grid_y // tile_size
-
+    for row in familiarity_rows:
+        tile_x = row.grid_x // tile_size
+        tile_y = row.grid_y // tile_size
         key = (tile_x, tile_y)
 
-        tile_map[key].append(GridCellInfo(
-            grid_x=r.grid_x,
-            grid_y=r.grid_y,
-            count=r.familiarity_count
-        ))
+        tile_map[key].append(
+            GridCellInfo(
+                grid_x=row.grid_x,
+                grid_y=row.grid_y,
+                count=row.familiarity_count
+            )
+        )
 
-    # 组装返回
+    buff_map = defaultdict(list)
+
+    for row in buff_rows:
+        tile_x = row.grid_x // tile_size
+        tile_y = row.grid_y // tile_size
+        key = (tile_x, tile_y)
+        previews = row.grid_previews
+
+        if not isinstance(previews, list):
+            continue
+
+        selected_preview = None
+        previews = sorted(
+            previews,
+            key=lambda p: (
+                p.get("grid_x", 0),
+                p.get("grid_y", 0)
+            ) if isinstance(p, dict) else (0, 0)
+        )
+
+        for preview in previews:
+            if not isinstance(preview, dict):
+                continue
+            grid_key = (
+                preview["grid_x"],
+                preview["grid_y"]
+            )
+            if grid_key in history_set:
+                continue
+            selected_preview = BikeGridBuffPreview(
+                grid_x=row.grid_x,
+                grid_y=row.grid_y,
+                effect_type=preview["effect_type"],
+                condition_type=preview["condition_type"],
+                reward_type=preview["reward_type"]
+            )
+            break
+        if selected_preview is not None:
+            buff_map[key].append(selected_preview)
+
     result_tiles = []
     for tile in tiles:
         key = (tile.x, tile.y)
-        result_tiles.append(GridTileInfo(
-            key=GridTileKey(level=tile.level, x=tile.x, y=tile.y),
-            cells=tile_map.get(key, [])
-        ))
-
-    return GridTileResponse(tiles=result_tiles)
+        result_tiles.append(
+            BikeGridTileInfo(
+                key=GridTileKey(
+                    level=tile.level,
+                    x=tile.x,
+                    y=tile.y
+                ),
+                cells=tile_map.get(key, []),
+                buff_info=buff_map.get(key, [])
+            )
+        )
+    return BikeGridTileResponse(tiles=result_tiles)
 
 
 async def get_routes_by_page_crud(
@@ -665,3 +1070,39 @@ async def get_route_by_route_id(db: AsyncSession, route_id: str) -> BikeTraining
         .where(BikeTrainingRoute.route_id == route_id)
     )
     return result.scalar_one_or_none()
+
+async def get_rank_info_by_route_and_user(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    route_id: uuid.UUID
+) -> tuple[BikeRouteRanklist | None, int | None]:
+    rank_info_result = await db.execute(
+        select(BikeRouteRanklist)
+        .where(
+            BikeRouteRanklist.route_id == route_id,
+            BikeRouteRanklist.user_id == user_id
+        )
+    )
+
+    rank_info = rank_info_result.scalar_one_or_none()
+    if rank_info is None:
+        return None, None
+
+    rank_result = await db.execute(
+        select(func.count())
+        .select_from(BikeRouteRanklist)
+        .where(
+            BikeRouteRanklist.route_id == route_id,
+            (
+                (BikeRouteRanklist.duration_seconds < rank_info.duration_seconds)
+                |
+                (
+                    (BikeRouteRanklist.duration_seconds == rank_info.duration_seconds)
+                    &
+                    (BikeRouteRanklist.user_id < rank_info.user_id)
+                )
+            )
+        )
+    )
+    rank = (rank_result.scalar() or 0) + 1
+    return rank_info, rank
