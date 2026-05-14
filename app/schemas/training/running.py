@@ -1,12 +1,17 @@
 from app.schemas.common import CCAssetRewardResponse, PersonInfoResponse
 from app.schemas.competition.common import PathPoint, CardBonusItem, CardBonusInfo
-from app.schemas.training.common import RouteType, TrainingType
+from app.schemas.training.common import RouteType, TrainingType, GridCellInfo, GridTileKey, GridEffectType
 from app.schemas.competition.running import RunningTrackTerrainType
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Any
 from pydantic import BaseModel, Field
 
+
+class RunningGridConditionType(str, Enum):
+    distance = "distance"
+    speed = "speed"
+    none = "none"
 
 class RunningFreeTrainingPathPoint(BaseModel):
     base: PathPoint
@@ -39,6 +44,7 @@ class FreeTrainingFinishResponse(BaseModel):
     training_state_before: int
     training_state_delta: int
     new_grids: int
+    triggered_buff_count: int
     cc_rewards: List[CCAssetRewardResponse]
 
 class TrainingStatesHistoryInfo(BaseModel):
@@ -61,6 +67,7 @@ class FreeTrainingRecordDetailResponse(BaseModel):
     duration: float
     path: List[RunningFreeTrainingPathPoint]
     settlements: dict[str, Any]      # 训练的结算信息
+    triggered_buffs: list[dict[str, Any]] = []      # 训练的 buff 快照
 
 
 class CreateRouteRequest(BaseModel):
@@ -135,3 +142,29 @@ class RunningRouteRankInfo(BaseModel):
 class RunningRouteRanklistResponse(BaseModel):
     ranklist: List[RunningRouteRankInfo]
     next_cursor: str | None
+
+class RunningGridBuffPreview(BaseModel):
+    grid_x: int
+    grid_y: int
+    effect_type: str
+    condition_type: RunningGridConditionType
+    reward_type: str
+
+class RunningGridTileInfo(BaseModel):
+    key: GridTileKey
+    cells: List[GridCellInfo]
+    buff_info: List[RunningGridBuffPreview]
+
+class RunningGridDetailInfo(BaseModel):
+    description: str
+    effect_type: GridEffectType
+    condition_type: RunningGridConditionType
+    condition_params: dict
+    reward_type: str
+    reward_count: int
+
+class RunningGridInfoResponse(BaseModel):
+    grids: List[RunningGridDetailInfo]
+
+class RunningGridTileResponse(BaseModel):
+    tiles: List[RunningGridTileInfo]

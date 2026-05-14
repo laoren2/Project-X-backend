@@ -10,19 +10,20 @@ from app.schemas.training.bike import (
     FreeTrainingFinishInfo, FreeTrainingFinishResponse, TrainingStatesHistoryResponse,
     TrainingRecordsResponse, FreeTrainingRecordDetailResponse, CreateRouteRequest,
     BikeRouteInfoResponse, BikeRouteManageInfoResponse, RouteTrainingFinishInfo, RouteTrainingFinishResponse,
-    RouteTrainingRecordDetailResponse, BikeRouteRanklistResponse
+    RouteTrainingRecordDetailResponse, BikeRouteRanklistResponse, BikeRouteRankInfo,
+    BikeGridTileResponse, BikeGridInfoResponse
 )
 from app.schemas.training.common import (
-    RegionExploreResponse, GridTileResponse, GridTileRequest, GridFamiliarityMeResponse,
+    RegionExploreResponse, GridTileRequest, GridFamiliarityMeResponse,
     GridFamiliarityRankListResponse, RouteSortType
 )
 from app.services.training.bike import (
     finish_free_training_service, query_training_states_history_service, query_training_records_service,
     query_training_states_service, query_region_exploration_service, query_free_training_record_detail_service,
-    query_familiarity_grids_by_tiles_service, query_me_familiarity_by_grid, query_familiarity_ranking_by_grid,
+    query_grids_info_by_tiles_service, query_me_familiarity_by_grid, query_familiarity_ranking_by_grid,
     create_training_route_service, query_routes_service, query_my_routes_service, delete_route_service, 
     finish_route_training_service, query_route_training_record_detail_service, get_route_card_info_service,
-    query_route_ranklist_service
+    query_route_ranklist_service, query_route_ranklist_me_service, query_grid_info_service
 )
 
 router = APIRouter(dependencies=[Depends(get_language)])
@@ -98,13 +99,13 @@ async def query_free_training_record_detail(
     return BaseResponse.success(token=auth.new_token, data=result)
 
 # 查询熟悉度网格 tiles
-@router.post("/query_grid_tiles",response_model=BaseResponse[GridTileResponse],summary="查询熟悉度网格 tiles")
+@router.post("/query_grid_tiles",response_model=BaseResponse[BikeGridTileResponse],summary="查询熟悉度网格 tiles")
 async def query_grid_tiles(
     request: GridTileRequest,
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await query_familiarity_grids_by_tiles_service(db, auth.payload["user_id"], request.tiles)
+    result = await query_grids_info_by_tiles_service(db, auth.payload["user_id"], request.region_id, request.tiles)
     return BaseResponse.success(token=auth.new_token, data=result)
 
 # 查询我的网格熟悉度状态
@@ -131,6 +132,19 @@ async def query_grid_familiarity_ranklist(
 ):
     result = await query_familiarity_ranking_by_grid(db, grid_x, grid_y, level, page, size)
     return BaseResponse.success(data=result)
+
+# 查询网格 buff 信息
+@router.get("/query_grid_info",response_model=BaseResponse[BikeGridInfoResponse],summary="查询网格 buff 信息")
+async def query_grid_info(
+    grid_x: int = Query(...),
+    grid_y: int = Query(...),
+    level: int = Query(...),
+    lang: Language = Depends(get_language),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_grid_info_service(db, lang, auth.payload["user_id"], grid_x, grid_y, level)
+    return BaseResponse.success(token=auth.new_token, data=result)
 
 # 创建训练路线
 @router.post("/create_route",response_model=BaseResponse[CPAssetResponse],summary="创建训练路线")
@@ -161,6 +175,16 @@ async def query_route_ranklist(
 ):
     result = await query_route_ranklist_service(db, route_id, gender, limit, cursor)
     return BaseResponse.success(data=result)
+
+# 查询我的路线排行信息
+@router.get("/route_ranklist/me",response_model=BaseResponse[BikeRouteRankInfo | None],summary="查询我的路线排行信息")
+async def query_route_ranklist(
+    route_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_route_ranklist_me_service(db, auth.payload["user_id"], route_id)
+    return BaseResponse.success(token=auth.new_token, data=result)
 
 # 分页查询路线
 @router.get("/routes",response_model=BaseResponse[BikeRouteInfoResponse],summary="分页查询路线")

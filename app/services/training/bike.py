@@ -4,7 +4,7 @@ from app.core.errors import ErrorCode
 from app.schemas.common import CCAssetRewardResponse, CCAssetType, PersonInfoResponse, SportType, CPAssetCoverInfo
 from app.schemas.asset import AssetOperation, CPAssetResponse
 from app.schemas.training.common import (
-    RegionExploreResponse, GridTileKey, GridTileResponse, GridFamiliarityRankListResponse,
+    RegionExploreResponse, GridTileKey, GridFamiliarityRankListResponse,
     GridFamiliarityMeResponse, GridFamiliarityRankInfo, RouteSortType, TrainingType
 )
 from app.schemas.competition.common import CardBonusInfo, PathPoint
@@ -16,7 +16,8 @@ from app.schemas.training.bike import (
     BikeFreeTrainingPathPoint, FreeTrainingRecordDetailResponse, CreateRouteRequest,
     BikeRouteInfoResponse, BikeRouteInfo, BikeRouteManageInfoResponse, BikeRouteMangeInfo,
     RouteTrainingFinishInfo, RouteTrainingFinishResponse, RouteTrainingRecordDetailResponse,
-    BikeRouteTrainingPathPoint, BikeRouteRanklistResponse, BikeRouteRankInfo
+    BikeRouteTrainingPathPoint, BikeRouteRanklistResponse, BikeRouteRankInfo, BikeGridTileResponse,
+    BikeGridInfoResponse, BikeGridDetailInfo
 )
 from app.services.common import get_elevation
 from app.services.competition.common import compute_distance
@@ -28,20 +29,20 @@ from app.services.mappers import equip_card_to_base_info
 from app.db.models.user import User
 from app.db.models.training import (
     CardBonusInBikeRouteTrainingRecord, UserTrainingStateDailyBike, BikeFreeTrainingPath, BikeFreeTrainingRecord, UserTrainingStateBike,
-    BikeTrainingRoute, BikeRouteTrainingPath, BikeRouteTrainingRecord, BikeRouteRanklist
+    BikeTrainingRoute, BikeRouteTrainingPath, BikeRouteTrainingRecord, BikeRouteRanklist, BikeEffectGrid, BikeEffectGridHistory
 )
 from app.crud.training.bike import (
     get_training_states_by_user_and_month, get_free_training_records_by_user_and_day, get_route_training_records_by_user_and_day,
     add_or_update_daily_training_states, get_training_state_by_user, update_user_familiarity_by_grids,
     get_region_explored_grid_count, get_free_training_record_by_record_id, get_training_state_daily_by_user_date,
-    get_familiarity_grids_by_tiles, get_routes_by_page_crud, get_routes_by_uesr_id, get_route_by_route_id,
-    get_route_training_record_by_record_id
+    get_grids_info_by_tiles, get_routes_by_page_crud, get_routes_by_uesr_id, get_route_by_route_id,
+    get_route_training_record_by_record_id, get_rank_info_by_route_and_user
 )
 from app.crud.competition.bike import get_season_now, get_score_by_season_and_user, add_or_update_career_xp
 from app.crud.user import get_user_by_id
 from app.crud.asset_manage import reward_ccasset, get_equip_card_by_card_id, get_route_card_def, consume_cpasset
 from app.crud.competition.common import get_region_by_coordinate, get_region_by_region_id
-from sqlalchemy import text, func
+from sqlalchemy import text, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date, datetime, timedelta
 from typing import List
@@ -72,7 +73,7 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
         new_grids = await update_user_familiarity(db, season.id, user.id, [p.base for p in info.path])
 
         # 计算并更新 xp 和 训练状态 奖励，可以根据整体的训练距离、海拔累计落差、是否有心率数据等信息进行计算，xp控制在 0-50，training_state控制在 0-10
-        xp_before, xp_delta, training_state_before, training_state_delta, cc_rewards = await apply_training_rewards(
+        xp_before, xp_delta, training_state_before, training_state_delta, base_rewards = await apply_training_rewards(
             db, 
             season.id, 
             user, 
@@ -82,6 +83,34 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
             state, 
             new_grids
         )
+
+        # buff grids 结算
+        triggered_count, buff_rewards, triggered_buffs_data = await apply_buff_grids(db, user, info)
+
+        # 合并相同资产类型奖励，统一结算
+        reward_map: dict[CCAssetType, int] = {}
+
+        for reward_type, amount in base_rewards + buff_rewards:
+            reward_map[reward_type] = reward_map.get(reward_type, 0) + amount
+
+        cc_rewards: list[CCAssetRewardResponse] = []
+
+        for reward_type, amount in reward_map.items():
+            new_amount = await reward_ccasset(
+                db,
+                reward_type,
+                amount,
+                user.id,
+                "自行车训练结算",
+                AssetOperation.REWARD
+            )
+            cc_rewards.append(
+                CCAssetRewardResponse(
+                    ccasset_type=reward_type,
+                    new_ccamount=new_amount,
+                    reward_amount=amount
+                )
+            )
 
         # 写入记录
         path_data = [p.model_dump() for p in info.path]
@@ -106,7 +135,8 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
             end_time = info.end_time,
             duration_seconds = duration,
             local_date = get_user_local_date(user, info.end_time),
-            settlement_rewards = settlements
+            settlement_rewards = settlements,
+            triggered_buffs = triggered_buffs_data
         )
         db.add(record)
 
@@ -117,8 +147,155 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
             training_state_before=training_state_before,
             training_state_delta=training_state_delta,
             new_grids=new_grids,
+            triggered_buff_count=triggered_count,
             cc_rewards=cc_rewards
         )
+
+
+async def apply_buff_grids(
+    db: AsyncSession,
+    user: User,
+    info: FreeTrainingFinishInfo
+) -> tuple[int, list[tuple[CCAssetType, int]], list[dict]]:
+    # 统计 path 回放依次经过的 grids（仅忽略连续重复 grid）
+    # 这里需要保留“重复进入同一 grid”的事件，因为同一个 buff grid 可以在一次运动中多次经过
+    passed_grids: list[tuple[int, int, int]] = []
+    last_grid = None
+    for idx, point in enumerate(info.path):
+        gx, gy = latlon_to_grid(point.base.lat, point.base.lon)
+        current_grid = (gx, gy)
+        # 只忽略连续重复 grid
+        if current_grid != last_grid:
+            passed_grids.append((gx, gy, idx))
+            last_grid = current_grid
+
+    triggered_count: int = 0
+    triggered_buffs_data: list[dict] = []
+    cc_rewards: list[tuple[CCAssetType, int]] = []
+
+    if passed_grids:
+        local_date = get_user_local_date(user, info.end_time)
+
+        # 查询所有经过过的 buff grids（过滤已触发 history）
+        unique_grids = list({(gx, gy) for gx, gy, _ in passed_grids})
+        effect_stmt = (
+            select(BikeEffectGrid)
+            .outerjoin(
+                BikeEffectGridHistory,
+                (
+                    (BikeEffectGridHistory.user_id == user.id)
+                    & (BikeEffectGridHistory.grid_x == BikeEffectGrid.grid_x)
+                    & (BikeEffectGridHistory.grid_y == BikeEffectGrid.grid_y)
+                    & (BikeEffectGridHistory.active_date == BikeEffectGrid.active_date)
+                )
+            )
+            .where(
+                BikeEffectGrid.active_date == local_date,
+                tuple_(BikeEffectGrid.grid_x, BikeEffectGrid.grid_y).in_(unique_grids),
+                BikeEffectGridHistory.id.is_(None)
+            )
+        )
+
+        effect_result = await db.execute(effect_stmt)
+        effect_grids = effect_result.scalars().all()
+
+        # 建立 grid -> effect 映射
+        # 虽然数据库约束保证唯一，但这里做 map 可以避免 O(n²) 查找
+        effect_map = {
+            (effect.grid_x, effect.grid_y): effect
+            for effect in effect_grids
+        }
+
+        triggered_histories = []
+
+        # 按 path 顺序依次处理经过的 buff grid
+        for gx, gy, path_index in passed_grids:
+            effect = effect_map.get((gx, gy))
+            if effect is None:
+                continue
+
+            # 只统计到当前 buff grid 为止的 path 数据
+            current_path = info.path[: path_index + 1]
+
+            # 当前累计距离（km）
+            current_distance = compute_distance([p.base for p in current_path])
+
+            # 当前累计平均速度（km/h）
+            current_duration = (
+                current_path[-1].base.timestamp - current_path[0].base.timestamp
+            ).total_seconds()
+
+            current_avg_speed = 0.0
+            if current_duration > 0:
+                current_avg_speed = current_distance / (current_duration / 3600)
+
+            should_trigger = False
+            trigger_value = None
+            # distance 条件
+            if effect.condition_type.value == "distance":
+                min_distance = effect.condition_params.get("sum", 0)
+                trigger_value = round(current_distance, 2)
+                should_trigger = current_distance >= min_distance
+            # speed 条件
+            elif effect.condition_type.value == "speed":
+                min_speed = effect.condition_params.get("avg", 0)
+                trigger_value = round(current_avg_speed, 2)
+                should_trigger = current_avg_speed >= min_speed
+            # 无条件触发
+            elif effect.condition_type.value == "none":
+                trigger_value = 1
+                should_trigger = True
+
+            if not should_trigger:
+                continue
+
+            triggered_buffs_data.append({
+                "grid_x": effect.grid_x,
+                "grid_y": effect.grid_y,
+                "effect_type": effect.effect_type.value,
+                "condition_type": effect.condition_type.value,
+                "condition_params": effect.condition_params,
+                "reward_type": effect.reward_type,
+                "reward_count": effect.reward_count,
+                "trigger_value": trigger_value
+            })
+
+            reward_type = effect.reward_type
+            reward_count = effect.reward_count
+
+            ccasset_type = None
+
+            if reward_type == "coin":
+                ccasset_type = CCAssetType.COIN
+            elif reward_type == "coupon":
+                ccasset_type = CCAssetType.COUPON
+            elif reward_type == "stone1":
+                ccasset_type = CCAssetType.STONE1
+            elif reward_type == "stone2":
+                ccasset_type = CCAssetType.STONE2
+            elif reward_type == "stone3":
+                ccasset_type = CCAssetType.STONE3
+
+            if ccasset_type is not None:
+                cc_rewards.append((ccasset_type, reward_count))
+
+            # 一旦成功触发，后续同一 grid 不再触发
+            triggered_histories.append(
+                BikeEffectGridHistory(
+                    user_id=user.id,
+                    grid_x=effect.grid_x,
+                    grid_y=effect.grid_y,
+                    active_date=effect.active_date
+                )
+            )
+            # 防止本次训练后续再次触发同一个 grid
+            effect_map.pop((gx, gy), None)
+
+        if triggered_histories:
+            db.add_all(triggered_histories)
+            triggered_count = len(triggered_histories)
+
+    return triggered_count, cc_rewards, triggered_buffs_data
 
 
 async def apply_training_rewards(
@@ -130,7 +307,7 @@ async def apply_training_rewards(
     path: List[BikeFreeTrainingPathPoint],
     state: UserTrainingStateBike | None,
     new_grids: int
-) -> tuple[int, int, int, int, List[CCAssetRewardResponse]]:
+) -> tuple[int, int, int, int, list[tuple[CCAssetType, int]]]:
     gender = user.gender if user.gender else Gender.male
     season_data = await get_score_by_season_and_user(db, user.id, season_id)
     current_xp = season_data.xp if season_data else 0
@@ -181,7 +358,7 @@ async def apply_training_rewards(
     await add_or_update_career_xp(db, season_id, gender, user.id, xp)
 
     # 计算金币奖励
-    cc_rewards = []
+    cc_rewards: list[tuple[CCAssetType, int]] = []
     coin = 0
     for _ in range(new_grids):
         r = random.random()
@@ -192,12 +369,7 @@ async def apply_training_rewards(
         else:
             coin += 4
     if coin > 0:
-        new_coin = await reward_ccasset(db, CCAssetType.COIN, coin, user.id, "bike训练结算", AssetOperation.REWARD)
-        cc_rewards.append(CCAssetRewardResponse(
-            ccasset_type=CCAssetType.COIN,
-            new_ccamount=new_coin,
-            reward_amount=coin
-        ))
+        cc_rewards.append((CCAssetType.COIN, coin))
 
     # 计算运动状态
     state_value = 1
@@ -459,22 +631,95 @@ async def query_free_training_record_detail_service(
     return FreeTrainingRecordDetailResponse(
         duration=duration,
         path=path_points,
-        settlements=record.settlement_rewards
+        settlements=record.settlement_rewards,
+        triggered_buffs=record.triggered_buffs or []
     )
 
 # tiles 分块查询
-async def query_familiarity_grids_by_tiles_service(
+async def query_grids_info_by_tiles_service(
     db: AsyncSession,
     user_id: str,
+    region_id: str,
     tiles: List[GridTileKey]
-) -> GridTileResponse:
+) -> BikeGridTileResponse:
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+        season = await get_season_now(db)
+        if season is None:
+            raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
+        region = await get_region_by_region_id(db, region_id)
+        if region is None:
+            raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
+        return await get_grids_info_by_tiles(db, user, region, season.id, tiles)
+
+
+# 查询当前 level grid 包含的所有 buff 信息
+async def query_grid_info_service(
+    db: AsyncSession,
+    lang: Language,
+    user_id: str,
+    grid_x: int,
+    grid_y: int,
+    level: int
+) -> BikeGridInfoResponse:
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
-    season = await get_season_now(db)
-    if season is None:
-        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
-    return await get_familiarity_grids_by_tiles(db, user.id, season.id, tiles)
+
+    local_date = get_user_local_date(user)
+
+    # 当前 level 下一个 grid 覆盖的基础 grid 范围
+    base_grid_size = 2 ** level
+
+    min_x = grid_x * base_grid_size
+    max_x = min_x + base_grid_size - 1
+    min_y = grid_y * base_grid_size
+    max_y = min_y + base_grid_size - 1
+
+    stmt = (
+        select(BikeEffectGrid)
+        .outerjoin(
+            BikeEffectGridHistory,
+            (
+                (BikeEffectGridHistory.user_id == user.id)
+                & (BikeEffectGridHistory.grid_x == BikeEffectGrid.grid_x)
+                & (BikeEffectGridHistory.grid_y == BikeEffectGrid.grid_y)
+                & (BikeEffectGridHistory.active_date == BikeEffectGrid.active_date)
+            )
+        )
+        .where(
+            BikeEffectGrid.active_date == local_date,
+            BikeEffectGrid.grid_x >= min_x,
+            BikeEffectGrid.grid_x <= max_x,
+            BikeEffectGrid.grid_y >= min_y,
+            BikeEffectGrid.grid_y <= max_y,
+            BikeEffectGridHistory.id.is_(None)
+        )
+        .order_by(
+            BikeEffectGrid.grid_x.asc(),
+            BikeEffectGrid.grid_y.asc()
+        )
+    )
+
+    result = await db.execute(stmt)
+    grids = result.scalars().all()
+
+    grid_infos = []
+
+    for grid in grids:
+        grid_infos.append(
+            BikeGridDetailInfo(
+                description=pick_i18n_text(grid.description_i18n, lang),
+                effect_type=grid.effect_type,
+                condition_type=grid.condition_type,
+                condition_params=grid.condition_params,
+                reward_type=grid.reward_type,
+                reward_count=grid.reward_count
+            )
+        )
+    return BikeGridInfoResponse(grids=grid_infos)
 
 # 查询某网格我的访问次数和名次
 async def query_me_familiarity_by_grid(
@@ -1109,3 +1354,17 @@ async def query_route_ranklist_service(
         ranklist=rank_infos,
         next_cursor=next_cursor
     )
+
+async def query_route_ranklist_me_service(db: AsyncSession, user_id: str, route_id: str) -> BikeRouteRankInfo | None:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    route = await get_route_by_route_id(db, route_id)
+    if route is None:
+        raise BizException(code=ErrorCode.ROUTE_NOT_FOUND, message="route.not_found")
+    rankInfo, rank = await get_rank_info_by_route_and_user(db, user.id, route.id)
+    return BikeRouteRankInfo(
+        rank=rank,
+        duration_seconds=rankInfo.duration_seconds,
+        user=PersonInfoResponse(user_id="", avatar_image_url="", nickname="")
+    ) if rankInfo and rank else None
