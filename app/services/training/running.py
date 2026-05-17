@@ -224,9 +224,7 @@ async def apply_buff_grids(
             current_distance = compute_distance([p.base for p in current_path])
 
             # 当前累计平均速度（km/h）
-            current_duration = (
-                current_path[-1].base.timestamp - current_path[0].base.timestamp
-            ).total_seconds()
+            current_duration = current_path[-1].base.timestamp - current_path[0].base.timestamp
 
             current_avg_speed = 0.0
             if current_duration > 0:

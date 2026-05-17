@@ -614,24 +614,24 @@ async def ensure_bike_effect_grids_generated(
         if condition_type == BikeGridConditionType.distance:
             sum_km = condition_params["sum"]
             description_i18n = {
-                "en": f"Receive {{{{reward}}}} reward when distance exceeds {sum_km}km",
-                "zh-Hans": f"路程距离大于{sum_km}km时可获得{{{{reward}}}}奖励",
-                "zh-Hant": f"路程距離大於{sum_km}km時可獲得{{{{reward}}}}獎勵",
-                "ko": f"주행 거리가 {sum_km}km를 초과하면 {{{{reward}}}} 보상을 획득할 수 있습니다",
-                "ja": f"走行距離が{sum_km}kmを超えると{{{{reward}}}}報酬を獲得できます"
+                "en": f"Receive {{{{reward}}}} reward when passing through and total distance exceeds {sum_km}km",
+                "zh-Hans": f"经过时，累计运动距离大于{sum_km}km时可获得{{{{reward}}}}奖励",
+                "zh-Hant": f"經過時，累計運動距離大於{sum_km}km時可獲得{{{{reward}}}}獎勵",
+                "ko": f"통과 시 누적 이동 거리가 {sum_km}km를 넘으면 {{{{reward}}}} 보상을 획득할 수 있습니다",
+                "ja": f"通過時に累計走行距離が{sum_km}kmを超えると{{{{reward}}}}報酬を獲得できます"
             }
         elif condition_type == BikeGridConditionType.speed:
             avg_speed = condition_params["avg"]
             description_i18n = {
-                "en": f"Receive {{{{reward}}}} reward when average speed exceeds {avg_speed}km/h",
-                "zh-Hans": f"平均配速超过{avg_speed}km/h时可获得{{{{reward}}}}奖励",
-                "zh-Hant": f"平均配速超過{avg_speed}km/h時可獲得{{{{reward}}}}獎勵",
-                "ko": f"평균 속도가 {avg_speed}km/h를 초과하면 {{{{reward}}}} 보상을 획득할 수 있습니다",
-                "ja": f"平均速度が{avg_speed}km/hを超えると{{{{reward}}}}報酬を獲得できます"
+                "en": f"Receive {{{{reward}}}} reward when passing through and pace is faster than {avg_speed}km/h",
+                "zh-Hans": f"经过时，平均配速超过{avg_speed}km/h时可获得{{{{reward}}}}奖励",
+                "zh-Hant": f"經過時，平均配速超過{avg_speed}km/h時可獲得{{{{reward}}}}獎勵",
+                "ko": f"통과 시 평균 페이스가 {avg_speed}km/h를 초과하면 {{{{reward}}}} 보상을 획득할 수 있습니다",
+                "ja": f"通過時に平均ペースが{avg_speed}km/hを超えると{{{{reward}}}}報酬を獲得できます"
             }
         elif condition_type == BikeGridConditionType.none:
             description_i18n = {
-                "en": "Receive {{reward}} reward when passing through",
+                "en": "Receive {{reward}} reward upon passing through",
                 "zh-Hans": "经过时可获得{{reward}}奖励",
                 "zh-Hant": "經過時可獲得{{reward}}獎勵",
                 "ko": "통과 시 {{reward}} 보상을 획득할 수 있습니다",
