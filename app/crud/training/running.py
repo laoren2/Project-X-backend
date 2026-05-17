@@ -613,7 +613,7 @@ async def ensure_running_effect_grids_generated(
         if condition_type == RunningGridConditionType.distance:
             sum_km = condition_params["sum"]
             description_i18n = {
-                "en": f"Receive {{{{reward}}}} reward when distance exceeds {sum_km}km",
+                "en": f"Receive {{{{reward}}}} reward when passing through and total distance exceeds {sum_km}km",
                 "zh-Hans": f"经过时，累计运动距离大于{sum_km}km时可获得{{{{reward}}}}奖励",
                 "zh-Hant": f"經過時，累計運動距離大於{sum_km}km時可獲得{{{{reward}}}}獎勵",
                 "ko": f"통과 시 누적 이동 거리가 {sum_km}km를 넘으면 {{{{reward}}}} 보상을 획득할 수 있습니다",
@@ -634,7 +634,7 @@ async def ensure_running_effect_grids_generated(
             pace_text = f"{pace_min}'{pace_sec:02d}''/km"
 
             description_i18n = {
-                "en": f"Receive {{{{reward}}}} reward when pace is faster than {pace_text}",
+                "en": f"Receive {{{{reward}}}} reward when passing through and pace is faster than {pace_text}",
                 "zh-Hans": f"经过时，平均配速快于{pace_text}时可获得{{{{reward}}}}奖励",
                 "zh-Hant": f"經過時，平均配速快於{pace_text}時可獲得{{{{reward}}}}獎勵",
                 "ko": f"통과 시 평균 페이스가 {pace_text}보다 빠르면 {{{{reward}}}} 보상을 획득할 수 있습니다",
@@ -642,7 +642,7 @@ async def ensure_running_effect_grids_generated(
             }
         elif condition_type == RunningGridConditionType.none:
             description_i18n = {
-                "en": "Receive {{reward}} reward when passing through",
+                "en": "Receive {{reward}} reward upon passing through",
                 "zh-Hans": "经过时可获得{{reward}}奖励",
                 "zh-Hant": "經過時可獲得{{reward}}獎勵",
                 "ko": "통과 시 {{reward}} 보상을 획득할 수 있습니다",
