@@ -104,7 +104,7 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
                 reward_type,
                 amount,
                 user.id,
-                "跑步训练结算",
+                "跑步自由训练结算",
                 AssetOperation.REWARD
             )
             cc_rewards.append(
@@ -1049,7 +1049,7 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
             touchdown_time=p.touchdown_time,
             step_size=p.step_size
         ) for p in finish_info.path]
-        xp_before, xp_delta, training_state_before, training_state_delta, cc_rewards = await apply_training_rewards(
+        xp_before, xp_delta, training_state_before, training_state_delta, training_rewards = await apply_training_rewards(
             db, 
             season.id, 
             user, 
@@ -1059,6 +1059,24 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
             state, 
             new_grids
         )
+
+        cc_rewards: list[CCAssetRewardResponse] = []
+        for reward_type, amount in training_rewards:
+            new_amount = await reward_ccasset(
+                db,
+                reward_type,
+                amount,
+                user.id,
+                "跑步路线训练结算",
+                AssetOperation.REWARD
+            )
+            cc_rewards.append(
+                CCAssetRewardResponse(
+                    ccasset_type=reward_type,
+                    new_ccamount=new_amount,
+                    reward_amount=amount
+                )
+            )
 
         path_data = [p.model_dump() for p in finish_info.path]
         path = RunningRouteTrainingPath(
