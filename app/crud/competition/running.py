@@ -802,7 +802,8 @@ async def add_or_update_career_score(
         set_={
             "score": RunningCareerScore.score + score,
             "voucher_bonus": RunningCareerScore.voucher_bonus + voucher,
-            "gender": gender  # 冲突时强制更新为新 gender
+            "gender": gender,  # 冲突时强制更新为新 gender
+            "updated_at": func.now()
         }
     )
     await db.execute(stmt)
@@ -824,7 +825,8 @@ async def add_or_update_career_xp(
     ).on_conflict_do_update(
         index_elements=[RunningCareerScore.season_id, RunningCareerScore.user_id],
         set_={
-            "xp": RunningCareerScore.xp + xp
+            "xp": RunningCareerScore.xp + xp,
+            "updated_at": func.now()
         }
     )
     await db.execute(stmt)
