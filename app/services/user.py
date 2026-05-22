@@ -56,12 +56,13 @@ async def distribute_newcomer_gift(db: AsyncSession, user_id: uuid.UUID):
         mail_id=f"mail_{uuid.uuid4()}",
         user_id=user_id,
         mail_type=MailType.REWARD,
-        title_i18n={"en": "Newcomer Gift Pack", "zh-Hans": "新人礼包", "zh-Hant": "新人禮包", "ko": "신규 사용자 선물 세트"},
+        title_i18n={"en": "Newcomer Gift Pack", "zh-Hans": "新人礼包", "zh-Hant": "新人禮包", "ko": "신규 사용자 선물 세트", "ja": "新人ギフト"},
         content_i18n={
             "en": "Welcome to Movmov! Ready to start your sporting career? We've prepared a welcome gift for you, have fun!", 
             "zh-Hans": "欢迎来到 Movmov，准备好开启你的运动生涯了吗？我们为您准备了一份见面礼，玩的开心！",
             "zh-Hant": "歡迎來到 Movmov，準備好開啟你的運動生涯了嗎？我們為您準備了一份見面禮，玩的開心！",
-            "ko": "Movmov 오신 것을 환영합니다! 스포츠 선수 생활을 시작할 준비가 되셨나요? 여러분을 위한 환영 선물을 준비했습니다. 즐거운 시간 보내세요!"
+            "ko": "Movmov 오신 것을 환영합니다! 스포츠 선수 생활을 시작할 준비가 되셨나요? 여러분을 위한 환영 선물을 준비했습니다. 즐거운 시간 보내세요!",
+            "ja": "Movmovへようこそ！新しいスポーツライフを始める準備はできましたか？ささやかなウェルカムギフトをご用意しました。ぜひお楽しみください！"
         },
         attachment = attachment,
         is_received = False,
@@ -1198,6 +1199,12 @@ async def send_email_code_service(to_email: str, lang: Language):
         title2 = "5분 이내에 이 인증 코드를 입력해 주세요. 이 인증 코드를 다른 사람에게 절대 알려주지 마세요."
         title3 = "그러한 요청을 하지 않으셨다면 이 이메일을 무시하시고 답장하지 않으셔도 됩니다."
         title4 = "Movmov 팀"
+    elif lang == Language.ja:
+        title0 = "ログイン認証コード"
+        title1 = "認証コード:"
+        title2 = "5分以内にこの認証コードを入力してください。認証コードを他人に共有しないでください。"
+        title3 = "このリクエストに心当たりがない場合は、このメールを無視してください。返信は不要です。"
+        title4 = "Movmov チーム"
     else:
         title0 = "Your login verification code"
         title1 = "Your verification Code:"

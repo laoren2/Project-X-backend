@@ -14,6 +14,7 @@ class Language(str, Enum):
     zh_hant = "zh-Hant"
     en = "en"
     ko = "ko"
+    ja = "ja"
 
 DEFAULT_LANGUAGE = Language.en
 

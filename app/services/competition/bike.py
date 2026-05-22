@@ -1609,12 +1609,13 @@ async def settle_bike_leaderboard_service(db: AsyncSession, track_id: str) -> tu
                         mail_id=f"mail_{uuid.uuid4()}",
                         user_id=user.id,
                         mail_type=MailType.REWARD,
-                        title_i18n={"en": "Cycling race settlement", "zh-Hans": "自行车赛事结算", "zh-Hant": "自行車賽事結算", "ko": "사이클 경주 보상금 정산"},
+                        title_i18n={"en": "Cycling race settlement", "zh-Hans": "自行车赛事结算", "zh-Hant": "自行車賽事結算", "ko": "사이클 경주 보상금 정산", "ja": "自転車レースリザルト"},
                         content_i18n={
                             "en": f"Congratulations on achieving rank {rank} in the {pick_i18n_text(track.event.name_i18n, Language.en)} - {pick_i18n_text(track.name_i18n, Language.en)} competition! Please claim your reward as soon as possible:", 
                             "zh-Hans": f"恭喜您在 {pick_i18n_text(track.event.name_i18n, Language.zh_hans)} - {pick_i18n_text(track.name_i18n, Language.zh_hans)} 比赛中获得第 {rank} 名，请尽快领取奖励:", 
                             "zh-Hant": f"恭喜您在 {pick_i18n_text(track.event.name_i18n, Language.zh_hant)} - {pick_i18n_text(track.name_i18n, Language.zh_hant)} 比賽中獲得第 {rank} 名，請盡快領取獎勵:",
-                            "ko": f"{pick_i18n_text(track.event.name_i18n, Language.ko)} - {pick_i18n_text(track.name_i18n, Language.ko)} 대회에서 {rank}위를 달성하신 것을 진심으로 축하드립니다! 가능한 한 빨리 상품을 수령해 가세요:"
+                            "ko": f"{pick_i18n_text(track.event.name_i18n, Language.ko)} - {pick_i18n_text(track.name_i18n, Language.ko)} 대회에서 {rank}위를 달성하신 것을 진심으로 축하드립니다! 가능한 한 빨리 상품을 수령해 가세요:",
+                            "ja": f"{pick_i18n_text(track.event.name_i18n, Language.ja)} - {pick_i18n_text(track.name_i18n, Language.ja)} の大会で第 {rank} 位を獲得しました。おめでとうございます！報酬をお早めにお受け取りください:"
                         },
                         attachment={"voucher": voucher, "description": "比赛结算奖励"},
                         is_read=False,
