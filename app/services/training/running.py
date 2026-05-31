@@ -360,12 +360,12 @@ async def apply_training_rewards(
 
     # 计算金币奖励
     cc_rewards: list[tuple[CCAssetType, int]] = []
-    coin = 0
+    coin = 10 * distance_factor * altitude_factor * extra_data_factor
     for _ in range(new_grids):
         r = random.random()
         if r < 0.6:
             coin += 1
-        elif r < 0.95:
+        elif r < 0.9:
             coin += 2
         else:
             coin += 4
