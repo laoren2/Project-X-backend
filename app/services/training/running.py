@@ -18,7 +18,7 @@ from app.schemas.asset import AssetOperation, CPAssetResponse
 from app.schemas.training.running import (
     FreeTrainingFinishInfo, FreeTrainingFinishResponse, RunningGridDetailInfo, RunningGridInfoResponse, TrainingStatesHistoryResponse,
     TrainingStatesHistoryInfo, TrainingRecordsResponse, TrainingRecordInfo,
-    RunningFreeTrainingPathPoint, FreeTrainingRecordDetailResponse, CreateRouteRequest,
+    RunningFreeTrainingPathPoint, FreeTrainingRecordDetailResponse, CreateRouteRequest, UpdateRouteRequest,
     RunningRouteInfoResponse, RunningRouteInfo, RunningRouteManageInfoResponse, RunningRouteMangeInfo,
     RouteTrainingFinishInfo, RouteTrainingFinishResponse, RouteTrainingRecordDetailResponse,
     RunningRouteTrainingPathPoint, RunningRouteRanklistResponse, RunningRouteRankInfo,
@@ -858,7 +858,7 @@ async def create_training_route_service(db: AsyncSession, user_id: str, data: Cr
     region = await get_region_by_region_id(db, data.region_id)
     if region is None:
         raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
-    is_subscription_active = user.subscription_info.is_active
+    is_subscription_active = user.subscription_info.is_active if user.subscription_info else False
 
     elevation_start = get_elevation(start.lat, start.lng)
     elevation_end = get_elevation(end.lat, end.lng)
@@ -901,6 +901,49 @@ async def create_training_route_service(db: AsyncSession, user_id: str, data: Cr
         asset_id=route_card_def.asset_id,
         new_balance=new_balance
     )
+
+async def update_training_route_service(db: AsyncSession, user_id: str, data: UpdateRouteRequest):
+    steps = validate_route_data(data.route_type, data.route_data)
+    geometry = build_geometry(steps)
+    start = steps[0]
+    end = steps[-1]
+
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    route = await get_route_by_route_id(db, data.route_id)
+    if route is None or route.user_id != user.id:
+        raise BizException(code=ErrorCode.ROUTE_NOT_FOUND, message="route.not_found")
+    # 仅私有路线可编辑（公开路线已产生排行榜数据，不允许修改）
+    if route.is_public:
+        raise BizException(code=ErrorCode.ROUTE_UPDATE_FAILED, message="route.edit_forbidden")
+    is_subscription_active = user.subscription_info.is_active if user.subscription_info else False
+
+    elevation_start = get_elevation(start.lat, start.lng)
+    elevation_end = get_elevation(end.lat, end.lng)
+    if elevation_start is None or elevation_end is None:
+        raise BizException(code=ErrorCode.ROUTE_UPDATE_FAILED, message="route.data_error.update")
+
+    path_points = extract_path_points(steps)
+    total_distance = compute_distance(path_points)
+
+    if total_distance > 50:
+        raise BizException(code=ErrorCode.ROUTE_UPDATE_FAILED, message="route.data_error.update")
+
+    route.route_type = data.route_type
+    route.route_data = data.route_data
+    route.route_geometry = from_shape(geometry, srid=4326)
+    route.is_premium = is_subscription_active
+    route.start_point = from_shape(Point(start.lng, start.lat), srid=4326)
+    route.end_point = from_shape(Point(end.lng, end.lat), srid=4326)
+    route.title = data.title
+    route.elevation_difference = elevation_end - elevation_start
+    route.total_distance = total_distance
+    route.terrain_type = data.terrain_type
+    route.is_public = data.is_public
+    route.enable_ranklist = data.enable_ranklist
+    route.enable_magiccard = data.enable_magiccard
+    await db.commit()
 
 async def get_route_card_info_service(db: AsyncSession) -> CPAssetCoverInfo:
     route_card_def = await get_route_card_def(db, SportType.running)

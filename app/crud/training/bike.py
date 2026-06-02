@@ -16,7 +16,7 @@ from app.schemas.training.bike import BikeGridTileResponse, BikeGridTileInfo, Bi
 from typing import List
 from datetime import date, timedelta, datetime
 from sqlalchemy.dialects.postgresql import insert
-from app.core.tools import get_tile_size, get_user_local_date
+from app.core.tools import get_tile_size, get_user_local_date, compute_effect_grid_count
 from collections import defaultdict
 from geoalchemy2.functions import (
     ST_Distance, ST_SetSRID,ST_MakePoint, ST_Contains,
@@ -483,6 +483,9 @@ async def ensure_bike_effect_grids_generated(
     region: Region,
     active_date: date
 ):
+    if region.grid_count < 1:
+        return
+
     exists_stmt = (
         select(BikeEffectGrid.id)
         .where(
@@ -528,7 +531,8 @@ async def ensure_bike_effect_grids_generated(
 
     min_x, max_x, min_y, max_y = bounds
 
-    target_count = random.randint(10, 15)
+    # 依据 region 网格总数动态决定 buff 奖励网格数量
+    target_count = compute_effect_grid_count(region.grid_count)
 
     condition_pool = {
         BikeGridConditionType.distance: [

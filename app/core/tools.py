@@ -7,7 +7,7 @@ from app.schemas.base import BizException
 from datetime import date, datetime, UTC, timedelta
 from zoneinfo import ZoneInfo
 from functools import lru_cache
-import logging, hashlib, math, json, base64
+import logging, hashlib, math, json, base64, random
 
 EARTH_RADIUS = 6378137
 HK_TZ = ZoneInfo("Asia/Hong_Kong")
@@ -139,6 +139,26 @@ def latlon_to_grid(lat: int, lng: int) -> tuple[int, int]:
     grid_x = int(math.floor(x / 500))
     grid_y = int(math.floor(y / 500))
     return grid_x, grid_y
+
+def compute_effect_grid_count(grid_count: int) -> int:
+    """根据 region 的网格总数动态决定当日生成的 buff 奖励网格数量。
+    分档（按 grid_count）：
+      - >= 50000        : 50
+      - 10000 ~ 50000   : 随机 10 ~ 50
+      - 1000  ~ 10000   : 随机 5 ~ 10
+      - 100   ~ 1000    : 随机 1 ~ 5
+      - < 100           : 1
+    """
+    if grid_count >= 50000:
+        return 50
+    elif grid_count >= 10000:
+        return random.randint(10, 50)
+    elif grid_count >= 1000:
+        return random.randint(5, 10)
+    elif grid_count >= 100:
+        return random.randint(1, 5)
+    else:
+        return 1
 
 def haversine(lat1, lon1, lat2, lon2):
     """计算两点距离（米）"""

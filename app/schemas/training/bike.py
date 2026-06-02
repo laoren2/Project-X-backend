@@ -76,6 +76,16 @@ class CreateRouteRequest(BaseModel):
     route_type: RouteType
     route_data: dict
 
+class UpdateRouteRequest(BaseModel):
+    route_id: str
+    title: str
+    terrain_type: BikeTrackTerrainType
+    is_public: bool
+    enable_ranklist: bool
+    enable_magiccard: bool
+    route_type: RouteType
+    route_data: dict
+
 class BikeRouteInfo(BaseModel):
     route_id: str
     title: str

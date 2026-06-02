@@ -41,6 +41,7 @@ class ErrorCode:
     REWARD_CLAIM_FAILED = 4012
     ROUTE_NOT_FOUND = 4013
     ROUTE_CREATE_FAILED = 4014
+    ROUTE_UPDATE_FAILED = 4015
 
     # 第三方服务
     SMS_SERVICE_ERROR = 5001
@@ -394,6 +395,20 @@ ERROR_MESSAGES = {
         "en": "Route invalid, creation failed",
         "ko": "경로가 잘못되었습니다, 생성에 실패했습니다",
         "ja": "ルートが不正なため、作成に失敗しました"
+    },
+    "route.data_error.update": {
+        "zh-Hans": "路线非法，修改失败",
+        "zh-Hant": "路線非法，修改失敗",
+        "en": "Route invalid, update failed",
+        "ko": "경로가 잘못되었습니다, 수정에 실패했습니다",
+        "ja": "ルートが不正なため、更新に失敗しました"
+    },
+    "route.edit_forbidden": {
+        "zh-Hans": "公开路线不可编辑",
+        "zh-Hant": "公開路線不可編輯",
+        "en": "Public routes cannot be edited",
+        "ko": "공개된 경로는 편집할 수 없습니다",
+        "ja": "公開ルートは編集できません"
     },
 # 记录
     "record.not_found": {
