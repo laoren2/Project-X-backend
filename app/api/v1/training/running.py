@@ -8,7 +8,7 @@ from app.schemas.asset import CPAssetResponse
 from app.schemas.user import AuthContext, Gender
 from app.schemas.training.running import (
     FreeTrainingFinishInfo, FreeTrainingFinishResponse, RunningGridInfoResponse, TrainingStatesHistoryResponse,
-    TrainingRecordsResponse, FreeTrainingRecordDetailResponse, CreateRouteRequest,
+    TrainingRecordsResponse, FreeTrainingRecordDetailResponse, CreateRouteRequest, UpdateRouteRequest,
     RunningRouteInfoResponse, RunningRouteManageInfoResponse, RouteTrainingFinishInfo, RouteTrainingFinishResponse,
     RouteTrainingRecordDetailResponse, RunningRouteRanklistResponse, RunningGridTileResponse, RunningRouteRankInfo
 )
@@ -20,7 +20,7 @@ from app.services.training.running import (
     finish_free_training_service, query_training_states_history_service, query_training_records_service,
     query_training_states_service, query_region_exploration_service, query_free_training_record_detail_service,
     query_grids_info_by_tiles_service, query_me_familiarity_by_grid, query_familiarity_ranking_by_grid,
-    create_training_route_service, query_routes_service, query_my_routes_service, delete_route_service, 
+    create_training_route_service, update_training_route_service, query_routes_service, query_my_routes_service, delete_route_service,
     finish_route_training_service, query_route_training_record_detail_service, get_route_card_info_service,
     query_route_ranklist_service, query_grid_info_service, query_route_ranklist_me_service
 )
@@ -154,6 +154,16 @@ async def create_training_route(
 ):
     result = await create_training_route_service(db, auth.payload["user_id"], request)
     return BaseResponse.success(token=auth.new_token, data=result)
+
+# 编辑训练路线（仅私有路线）
+@router.post("/routes/update",response_model=BaseResponse[None],summary="编辑训练路线")
+async def update_training_route(
+    request: UpdateRouteRequest,
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    await update_training_route_service(db, auth.payload["user_id"], request)
+    return BaseResponse.success(token=auth.new_token, data=None)
 
 # 查询路线创建卡信息
 @router.get("/route_card_info",response_model=BaseResponse[CPAssetCoverInfo],summary="查询路线创建卡信息")

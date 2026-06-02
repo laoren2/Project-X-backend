@@ -80,6 +80,16 @@ class CreateRouteRequest(BaseModel):
     route_type: RouteType
     route_data: dict
 
+class UpdateRouteRequest(BaseModel):
+    route_id: str
+    title: str
+    terrain_type: RunningTrackTerrainType
+    is_public: bool
+    enable_ranklist: bool
+    enable_magiccard: bool
+    route_type: RouteType
+    route_data: dict
+
 class RunningRouteInfo(BaseModel):
     route_id: str
     title: str
