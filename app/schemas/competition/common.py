@@ -31,6 +31,10 @@ class DailyTaskType(str, Enum):
     distance = "distance"
     time = "time"
 
+class EventType(str, Enum):
+    normal = "normal"           # 运营创建的常规赛事
+    community = "community"      # 承载由热门训练路线转换而来的赛道的社区赛事（每个 season+region 唯一）
+
 class RegionCreate(ORMBase):
     name: str
 

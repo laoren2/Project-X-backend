@@ -1,8 +1,9 @@
 from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, func, UniqueConstraint, Integer, Float, Enum, Date, Index
 from sqlalchemy.dialects.postgresql import UUID
-from app.schemas.competition.common import RecordStatus, TeamStatus, DailyTaskType
+from app.schemas.competition.common import RecordStatus, TeamStatus, DailyTaskType, EventType
 from app.schemas.competition.bike import BikeTrackTerrainType
 from app.schemas.competition.running import RunningTrackTerrainType
+from app.schemas.training.common import RouteType
 from app.schemas.user import Gender
 from app.schemas.common import CCAssetType
 from app.db.base import Base
@@ -71,6 +72,7 @@ class BikeEvent(Base):
     end_date = Column(DateTime(timezone=True), nullable=False)
     region_id = Column(UUID(as_uuid=True), nullable=False)
     season_id = Column(UUID(as_uuid=True), nullable=False)
+    event_type = Column(Enum(EventType), default=EventType.normal, nullable=False)  # community 类型承载由热门路线转换的赛道
     image_url = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -88,12 +90,12 @@ class BikeTrack(Base):
     start_date = Column(DateTime(timezone=True), nullable=False)
     end_date = Column(DateTime(timezone=True), nullable=False)
     event_id = Column(UUID(as_uuid=True), nullable=False)
-    from_lat = Column(Float, nullable=False)
-    from_lng = Column(Float, nullable=False)
-    from_radius = Column(Integer, default=10, nullable=False)
-    to_lat = Column(Float, nullable=False)
-    to_lng = Column(Float, nullable=False)
-    to_radius = Column(Integer, default=10, nullable=False)
+    # 路线数据（对齐 BikeTrainingRoute，支持多检查点路线）
+    route_type = Column(Enum(RouteType), nullable=False)
+    route_data = Column(JSONB, nullable=False)
+    route_geometry = Column(Geometry("LINESTRING", srid=4326, spatial_index=False), nullable=False)
+    start_point = Column(Geometry("POINT", srid=4326, spatial_index=False), nullable=False)
+    end_point = Column(Geometry("POINT", srid=4326, spatial_index=False), nullable=False)
     single_register_card_id = Column(UUID(as_uuid=True), nullable=False)
     team_register_card_id = Column(UUID(as_uuid=True), nullable=False)
 
@@ -104,12 +106,19 @@ class BikeTrack(Base):
     distance = Column(Float, nullable=False)
     terrain_type = Column(Enum(BikeTrackTerrainType), nullable=False)
 
-    image_url = Column(String, nullable=False)
+    image_url = Column(String, nullable=True)       # 由热门路线转换的赛道暂无封面图
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     event = relationship("BikeEvent", primaryjoin="foreign(BikeTrack.event_id)==BikeEvent.id", back_populates="tracks")
     single_register_card_def = relationship("CPRegistrationCardDef", primaryjoin="foreign(BikeTrack.single_register_card_id)==CPRegistrationCardDef.id", uselist=False)
     team_register_card_def = relationship("CPRegistrationCardDef", primaryjoin="foreign(BikeTrack.team_register_card_id)==CPRegistrationCardDef.id", uselist=False)
+
+    # 空间索引
+    __table_args__ = (
+        Index("idx_bike_tracks_start_point", "start_point", postgresql_using="gist"),
+        Index("idx_bike_tracks_end_point", "end_point", postgresql_using="gist"),
+        Index("idx_bike_tracks_geometry", "route_geometry", postgresql_using="gist"),
+    )
 
 
 # Running赛事表
@@ -123,6 +132,7 @@ class RunningEvent(Base):
     end_date = Column(DateTime(timezone=True), nullable=False)
     region_id = Column(UUID(as_uuid=True), nullable=False)
     season_id = Column(UUID(as_uuid=True), nullable=False)
+    event_type = Column(Enum(EventType), default=EventType.normal, nullable=False)  # community 类型承载由热门路线转换的赛道
     image_url = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -140,12 +150,12 @@ class RunningTrack(Base):
     start_date = Column(DateTime(timezone=True), nullable=False)
     end_date = Column(DateTime(timezone=True), nullable=False)
     event_id = Column(UUID(as_uuid=True), nullable=False)
-    from_lat = Column(Float, nullable=False)
-    from_lng = Column(Float, nullable=False)
-    from_radius = Column(Integer, default=10, nullable=False)
-    to_lat = Column(Float, nullable=False)
-    to_lng = Column(Float, nullable=False)
-    to_radius = Column(Integer, default=10, nullable=False)
+    # 路线数据（对齐 RunningTrainingRoute，支持多检查点路线）
+    route_type = Column(Enum(RouteType), nullable=False)
+    route_data = Column(JSONB, nullable=False)
+    route_geometry = Column(Geometry("LINESTRING", srid=4326, spatial_index=False), nullable=False)
+    start_point = Column(Geometry("POINT", srid=4326, spatial_index=False), nullable=False)
+    end_point = Column(Geometry("POINT", srid=4326, spatial_index=False), nullable=False)
     single_register_card_id = Column(UUID(as_uuid=True), nullable=False)
     team_register_card_id = Column(UUID(as_uuid=True), nullable=False)
 
@@ -156,12 +166,19 @@ class RunningTrack(Base):
     distance = Column(Float, nullable=False)
     terrain_type = Column(Enum(RunningTrackTerrainType), nullable=False)
 
-    image_url = Column(String, nullable=False)
+    image_url = Column(String, nullable=True)       # 由热门路线转换的赛道暂无封面图
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     event = relationship("RunningEvent", primaryjoin="foreign(RunningTrack.event_id)==RunningEvent.id", back_populates="tracks")
     single_register_card_def = relationship("CPRegistrationCardDef", primaryjoin="foreign(RunningTrack.single_register_card_id)==CPRegistrationCardDef.id", uselist=False)
     team_register_card_def = relationship("CPRegistrationCardDef", primaryjoin="foreign(RunningTrack.team_register_card_id)==CPRegistrationCardDef.id", uselist=False)
+
+    # 空间索引
+    __table_args__ = (
+        Index("idx_running_tracks_start_point", "start_point", postgresql_using="gist"),
+        Index("idx_running_tracks_end_point", "end_point", postgresql_using="gist"),
+        Index("idx_running_tracks_geometry", "route_geometry", postgresql_using="gist"),
+    )
 
 
 # 需要定期迁移,不要外部依赖
@@ -175,11 +192,13 @@ class BikeRaceRecord(Base):
     team_id = Column(UUID(as_uuid=True), nullable=True)
     path_id = Column(UUID(as_uuid=True), nullable=True)
 
+    route_data = Column(JSONB, nullable=False)                      # 报名时对赛道路线的快照（多检查点路线）
     status = Column(Enum(RecordStatus), default=RecordStatus.notStarted, nullable=False)
     validation_score = Column(Float, nullable=True)
     start_time = Column(DateTime(timezone=True), nullable=True)
     end_time = Column(DateTime(timezone=True), nullable=True)
     duration_seconds = Column(Float, nullable=True)                 # 有效成绩
+    penalty_seconds = Column(Float, default=0, nullable=True)      # 多检查点 miss 的累计罚时（已并入 duration_seconds，单独留存用于展示）
     is_finish_bonus_computing = Column(Boolean, nullable=True)      # 是否完成有效成绩计算
     local_date = Column(Date, index=True, nullable=True)            # 本地日期，以结束时间为准
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=True)               # 此次记录的结算奖励
@@ -230,11 +249,13 @@ class RunningRaceRecord(Base):
     team_id = Column(UUID(as_uuid=True), nullable=True)
     path_id = Column(UUID(as_uuid=True), nullable=True)
 
+    route_data = Column(JSONB, nullable=False)                      # 报名时对赛道路线的快照（多检查点路线）
     status = Column(Enum(RecordStatus), default=RecordStatus.notStarted, nullable=False)
     validation_score = Column(Float, nullable=True)
     start_time = Column(DateTime(timezone=True), nullable=True)
     end_time = Column(DateTime(timezone=True), nullable=True)
     duration_seconds = Column(Float, nullable=True)
+    penalty_seconds = Column(Float, default=0, nullable=True)      # 多检查点 miss 的累计罚时（已并入 duration_seconds，单独留存用于展示）
     is_finish_bonus_computing = Column(Boolean, nullable=True)
     local_date = Column(Date, index=True, nullable=True)
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=True)

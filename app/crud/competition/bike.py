@@ -1,5 +1,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, func, and_, exists, case
+from sqlalchemy import select, update, func, and_, exists, case, tuple_, desc, asc, literal
+from geoalchemy2.functions import ST_Distance, ST_SetSRID, ST_MakePoint
+from geoalchemy2 import Geography
+from app.schemas.training.common import RouteSortType
 from app.db.models.competition import (
     BikeCareerStatisticData, Region, BikeEvent, BikeSeason, 
     BikeTrack, BikeRaceRecord, BikeTeam, BikeTeamMember, BikeTeamAppliedMember,
@@ -8,7 +11,7 @@ from app.db.models.competition import (
 )
 from app.db.models.user import UserSubscription, User
 from app.db.models.asset import EquipmentCardDef, UserEquipmentCard
-from app.schemas.competition.common import RecordStatus, TeamStatus, DailyTaskType
+from app.schemas.competition.common import RecordStatus, TeamStatus, DailyTaskType, EventType
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
 from datetime import date, timedelta, datetime
@@ -130,6 +133,22 @@ async def get_event_by_season_id_and_region_id(db: AsyncSession, season_id: uuid
     )
     return result.scalars().all()
 
+async def get_community_event(db: AsyncSession, season_id: uuid.UUID, region_id: uuid.UUID) -> BikeEvent | None:
+    """取某 season+region 下承载热门路线转赛道的 community 赛事（唯一）。"""
+    result = await db.execute(
+        select(BikeEvent)
+        .options(selectinload(BikeEvent.region), selectinload(BikeEvent.season))
+        .where(
+            BikeEvent.season_id == season_id,
+            BikeEvent.region_id == region_id,
+            BikeEvent.event_type == EventType.community,
+            BikeEvent.start_date <= func.now(),
+            BikeEvent.end_date >= func.now()
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def create_event_crud(db: AsyncSession, event: BikeEvent) -> BikeEvent:
     db.add(event)
     await db.flush()
@@ -188,6 +207,22 @@ async def get_track_by_track_id(db: AsyncSession, track_id: str) -> BikeTrack | 
     )
     return result.scalar_one_or_none()
 
+async def get_tracks_by_track_ids(db: AsyncSession, track_ids: List[str]) -> List[BikeTrack]:
+    """批量按 track_id 取赛道，供列表态信息一次性填充，避免逐条查询。"""
+    if not track_ids:
+        return []
+    result = await db.execute(
+        select(BikeTrack)
+        .where(BikeTrack.track_id.in_(track_ids))
+        .options(
+            selectinload(BikeTrack.event).selectinload(BikeEvent.season),
+            selectinload(BikeTrack.event).selectinload(BikeEvent.region),
+            selectinload(BikeTrack.single_register_card_def),
+            selectinload(BikeTrack.team_register_card_def)
+        )
+    )
+    return list(result.scalars().all())
+
 async def get_track_by_track_id_for_update(db: AsyncSession, track_id: str) -> BikeTrack | None:
     result = await db.execute(
         select(BikeTrack)
@@ -222,6 +257,80 @@ async def get_track_by_event_id(db: AsyncSession, event_id: uuid.UUID) -> List[B
         .order_by(BikeTrack.start_date.desc())
     )
     return result.scalars().all()
+
+
+async def get_tracks_by_event_page_crud(
+    db: AsyncSession,
+    event_id: uuid.UUID,
+    sort_type: RouteSortType,
+    lat: float | None,
+    lng: float | None,
+    limit: int,
+    cursor: dict | None
+):
+    base_where = [
+        BikeTrack.event_id == event_id,
+        BikeTrack.start_date <= func.now() + timedelta(days=3),
+        BikeTrack.end_date >= func.now()
+    ]
+    options = [
+        selectinload(BikeTrack.single_register_card_def),
+        selectinload(BikeTrack.team_register_card_def)
+    ]
+    # 参与人数（热度）= 该赛道的报名/比赛记录数
+    subq = (
+        select(BikeRaceRecord.track_id, func.count().label("count"))
+        .group_by(BikeRaceRecord.track_id)
+        .subquery()
+    )
+
+    if sort_type == "participation":
+        distance_expr = None
+        if lat is not None and lng is not None:
+            point = ST_SetSRID(ST_MakePoint(lng, lat), 4326)
+            distance_expr = ST_Distance(BikeTrack.start_point.cast(Geography), point.cast(Geography))
+        query = (
+            select(
+                BikeTrack,
+                func.coalesce(subq.c.count, 0).label("count"),
+                (distance_expr if distance_expr is not None else literal(None)).label("user_distance")
+            )
+            .outerjoin(subq, BikeTrack.id == subq.c.track_id)
+            .where(*base_where).options(*options)
+        )
+        if cursor:
+            count_expr = func.coalesce(subq.c.count, 0)
+            query = query.where(
+                (count_expr < cursor["count"]) |
+                ((count_expr == cursor["count"]) & (BikeTrack.created_at > cursor["created_at"])) |
+                ((count_expr == cursor["count"]) & (BikeTrack.created_at == cursor["created_at"]) & (BikeTrack.id > cursor["track_id"]))
+            )
+        query = query.order_by(desc("count"), asc(BikeTrack.created_at), asc(BikeTrack.id)).limit(limit)
+    else:
+        # distance 排序：冻结 cursor 中的 lat/lng 保证分页稳定
+        if cursor and "lat" in cursor and "lng" in cursor:
+            lat = cursor["lat"]
+            lng = cursor["lng"]
+        point = ST_SetSRID(ST_MakePoint(lng, lat), 4326)
+        distance_expr = ST_Distance(BikeTrack.start_point.cast(Geography), point.cast(Geography))
+        query = (
+            select(
+                BikeTrack,
+                func.coalesce(subq.c.count, 0).label("count"),
+                distance_expr.label("user_distance")
+            )
+            .outerjoin(subq, BikeTrack.id == subq.c.track_id)
+            .where(*base_where).options(*options)
+        )
+        if cursor:
+            query = query.where(
+                (distance_expr > cursor["distance"]) |
+                ((distance_expr == cursor["distance"]) & (BikeTrack.id > cursor["track_id"]))
+            )
+        query = query.order_by(asc("user_distance"), asc(BikeTrack.id)).limit(limit)
+
+    result = await db.execute(query)
+    return result.mappings().all()
 
 
 async def create_track_crud(db: AsyncSession, track: BikeTrack) -> BikeTrack:

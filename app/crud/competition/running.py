@@ -1,5 +1,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, func, and_, exists, case
+from sqlalchemy import select, update, func, and_, exists, case, tuple_, desc, asc, literal
+from geoalchemy2.functions import ST_Distance, ST_SetSRID, ST_MakePoint
+from geoalchemy2 import Geography
+from app.schemas.training.common import RouteSortType
 from app.db.models.competition import (
     Region, RunningEvent, RunningSeason, 
     RunningTrack, RunningRaceRecord, RunningTeam, RunningTeamMember, RunningTeamAppliedMember,
@@ -8,7 +11,7 @@ from app.db.models.competition import (
 )
 from app.db.models.asset import UserEquipmentCard
 from app.db.models.user import UserSubscription, User
-from app.schemas.competition.common import RecordStatus, TeamStatus, DailyTaskType
+from app.schemas.competition.common import RecordStatus, TeamStatus, DailyTaskType, EventType
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
 from datetime import timedelta, date, datetime
@@ -129,6 +132,22 @@ async def get_event_by_season_id_and_region_id(db: AsyncSession, season_id: uuid
     )
     return result.scalars().all()
 
+async def get_community_event(db: AsyncSession, season_id: uuid.UUID, region_id: uuid.UUID) -> RunningEvent | None:
+    """取某 season+region 下承载热门路线转赛道的 community 赛事（唯一）。"""
+    result = await db.execute(
+        select(RunningEvent)
+        .options(selectinload(RunningEvent.region), selectinload(RunningEvent.season))
+        .where(
+            RunningEvent.season_id == season_id,
+            RunningEvent.region_id == region_id,
+            RunningEvent.event_type == EventType.community,
+            RunningEvent.start_date <= func.now(),
+            RunningEvent.end_date >= func.now()
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def create_event_crud(db: AsyncSession, event: RunningEvent) -> RunningEvent:
     db.add(event)
     await db.flush()
@@ -187,6 +206,22 @@ async def get_track_by_track_id(db: AsyncSession, track_id: str) -> RunningTrack
     )
     return result.scalar_one_or_none()
 
+async def get_tracks_by_track_ids(db: AsyncSession, track_ids: List[str]) -> List[RunningTrack]:
+    """批量按 track_id 取赛道，供列表态信息一次性填充，避免逐条查询。"""
+    if not track_ids:
+        return []
+    result = await db.execute(
+        select(RunningTrack)
+        .where(RunningTrack.track_id.in_(track_ids))
+        .options(
+            selectinload(RunningTrack.event).selectinload(RunningEvent.season),
+            selectinload(RunningTrack.event).selectinload(RunningEvent.region),
+            selectinload(RunningTrack.single_register_card_def),
+            selectinload(RunningTrack.team_register_card_def)
+        )
+    )
+    return list(result.scalars().all())
+
 async def get_track_by_track_id_for_update(db: AsyncSession, track_id: str) -> RunningTrack | None:
     result = await db.execute(
         select(RunningTrack)
@@ -221,6 +256,78 @@ async def get_track_by_event_id(db: AsyncSession, event_id: uuid.UUID) -> List[R
         .order_by(RunningTrack.start_date.desc())
     )
     return result.scalars().all()
+
+
+async def get_tracks_by_event_page_crud(
+    db: AsyncSession,
+    event_id: uuid.UUID,
+    sort_type: RouteSortType,
+    lat: float | None,
+    lng: float | None,
+    limit: int,
+    cursor: dict | None
+):
+    base_where = [
+        RunningTrack.event_id == event_id,
+        RunningTrack.start_date <= func.now() + timedelta(days=3),
+        RunningTrack.end_date >= func.now()
+    ]
+    options = [
+        selectinload(RunningTrack.single_register_card_def),
+        selectinload(RunningTrack.team_register_card_def)
+    ]
+    subq = (
+        select(RunningRaceRecord.track_id, func.count().label("count"))
+        .group_by(RunningRaceRecord.track_id)
+        .subquery()
+    )
+
+    if sort_type == "participation":
+        distance_expr = None
+        if lat is not None and lng is not None:
+            point = ST_SetSRID(ST_MakePoint(lng, lat), 4326)
+            distance_expr = ST_Distance(RunningTrack.start_point.cast(Geography), point.cast(Geography))
+        query = (
+            select(
+                RunningTrack,
+                func.coalesce(subq.c.count, 0).label("count"),
+                (distance_expr if distance_expr is not None else literal(None)).label("user_distance")
+            )
+            .outerjoin(subq, RunningTrack.id == subq.c.track_id)
+            .where(*base_where).options(*options)
+        )
+        if cursor:
+            count_expr = func.coalesce(subq.c.count, 0)
+            query = query.where(
+                (count_expr < cursor["count"]) |
+                ((count_expr == cursor["count"]) & (RunningTrack.created_at > cursor["created_at"])) |
+                ((count_expr == cursor["count"]) & (RunningTrack.created_at == cursor["created_at"]) & (RunningTrack.id > cursor["track_id"]))
+            )
+        query = query.order_by(desc("count"), asc(RunningTrack.created_at), asc(RunningTrack.id)).limit(limit)
+    else:
+        if cursor and "lat" in cursor and "lng" in cursor:
+            lat = cursor["lat"]
+            lng = cursor["lng"]
+        point = ST_SetSRID(ST_MakePoint(lng, lat), 4326)
+        distance_expr = ST_Distance(RunningTrack.start_point.cast(Geography), point.cast(Geography))
+        query = (
+            select(
+                RunningTrack,
+                func.coalesce(subq.c.count, 0).label("count"),
+                distance_expr.label("user_distance")
+            )
+            .outerjoin(subq, RunningTrack.id == subq.c.track_id)
+            .where(*base_where).options(*options)
+        )
+        if cursor:
+            query = query.where(
+                (distance_expr > cursor["distance"]) |
+                ((distance_expr == cursor["distance"]) & (RunningTrack.id > cursor["track_id"]))
+            )
+        query = query.order_by(asc("user_distance"), asc(RunningTrack.id)).limit(limit)
+
+    result = await db.execute(query)
+    return result.mappings().all()
 
 
 async def create_track_crud(db: AsyncSession, track: RunningTrack) -> RunningTrack:

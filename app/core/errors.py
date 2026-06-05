@@ -42,6 +42,7 @@ class ErrorCode:
     ROUTE_NOT_FOUND = 4013
     ROUTE_CREATE_FAILED = 4014
     ROUTE_UPDATE_FAILED = 4015
+    ROUTE_APPLY_ERROR = 4016
 
     # 第三方服务
     SMS_SERVICE_ERROR = 5001
@@ -409,6 +410,34 @@ ERROR_MESSAGES = {
         "en": "Public routes cannot be edited",
         "ko": "공개된 경로는 편집할 수 없습니다",
         "ja": "公開ルートは編集できません"
+    },
+    "route.apply_forbidden": {
+        "zh-Hans": "仅公开且热度达标的路线可申请",
+        "zh-Hant": "僅公開且熱度達標的路線可申請",
+        "en": "Only public routes with enough popularity can apply",
+        "ko": "공개되고 인기가 충분한 경로만 신청할 수 있습니다",
+        "ja": "公開かつ人気が一定以上のルートのみ申請できます"
+    },
+    "route.apply_pending": {
+        "zh-Hans": "该路线已有申请正在审核中",
+        "zh-Hant": "該路線已有申請正在審核中",
+        "en": "This route already has a pending application",
+        "ko": "이 경로에는 이미 심사 중인 신청이 있습니다",
+        "ja": "このルートには審査中の申請が既にあります"
+    },
+    "route.apply_not_found": {
+        "zh-Hans": "申请不存在",
+        "zh-Hant": "申請不存在",
+        "en": "Application not found",
+        "ko": "신청을 찾을 수 없습니다",
+        "ja": "申請が見つかりません"
+    },
+    "route.apply_handled": {
+        "zh-Hans": "该申请已被处理",
+        "zh-Hant": "該申請已被處理",
+        "en": "This application has already been handled",
+        "ko": "이 신청은 이미 처리되었습니다",
+        "ja": "この申請は既に処理されています"
     },
 # 记录
     "record.not_found": {

@@ -20,6 +20,17 @@ class RouteSortType(str, Enum):
     participation = "participation"
     distance = "distance"
 
+class RouteApplyStatus(str, Enum):
+    none = "none"               # 未申请（默认，可申请）
+    pending = "pending"         # 审核中
+    approved = "approved"       # 审核通过（已转成赛道）
+    rejected = "rejected"       # 审核驳回（允许重新申请，回到可申请态由 service 控制）
+
+class TrackLifecycle(str, Enum):
+    oneMonth = "oneMonth"       # 自审核通过起 1 个月
+    twoMonth = "twoMonth"       # 自审核通过起 2 个月
+    seasonEnd = "seasonEnd"     # 到赛季结束（= 承载 Event 的 end_date）
+
 class GridEffectType(str, Enum):
     buff = "buff"
     debuff = "debuff"

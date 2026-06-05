@@ -49,7 +49,7 @@ CP_ASSET_SUBCLASS_MAP = {
 CP_ASSET_FIELD_VALIDATION = {
     CPAssetType.registration_card: {
         "required": ["sport_type", "is_team"],
-        "optional": []
+        "optional": ["premium"]
     },
     CPAssetType.team_card: {
         "required": ["sport_type"],
@@ -348,10 +348,11 @@ async def create_cp_asset_def_with_subclass(db: AsyncSession, parent_data: dict,
     # 3. 校验必填字段
     validation_rules = CP_ASSET_FIELD_VALIDATION.get(prop_type, {})
     required_fields = validation_rules.get("required", [])
+    optional_fields = validation_rules.get("optional", [])
     for field in required_fields:
         if field not in extra_fields:
             raise BizException(code=ErrorCode.PROPERTY_ERROR, message=f"extra_fields字段错误")
-    filtered_data = {k: v for k, v in extra_fields.items() if k in required_fields}
+    filtered_data = {k: v for k, v in extra_fields.items() if k in required_fields or k in optional_fields}
     filtered_data = auto_cast_fields(subclass, filtered_data)
 
     await insert_cp_asset_def_and_child(db, parent_data, subclass, filtered_data)

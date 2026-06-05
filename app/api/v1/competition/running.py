@@ -13,8 +13,10 @@ from app.schemas.competition.running import (
     RunningTeamStatusUpdateInfo, RunningTeamMembersResponse, RunningTeamAppliedRequest,
     RunningTeamExpiredResponse, RunningRecordDetailInfo, RunningSummaryRecordResponse,
     RunningHistorySeasonResponse, RunningCareerRecordResponse, RunningScoreLeaderboardResponse,
-    RunningCareerDataInfo, RunningEventBaseInfo
+    RunningCareerDataInfo, RunningEventBaseInfo,
+    RunningTracksUserInfoRequest, RunningTracksUserInfoResponse
 )
+from app.schemas.training.common import RouteSortType
 from app.schemas.asset import CPAssetResponse, DailyTaskRewardResponse
 from app.schemas.user import AuthContext, Gender
 from app.services.competition.running import (
@@ -34,7 +36,8 @@ from app.services.competition.running import (
     query_leaderboard_history_in_page, get_score_leaderboard_service, get_career_data_service,
     get_completed_records_all, get_incompleted_records_all, query_daily_task_status_service,
     claimed_daily_task_reward_service, start_competition_with_team_bonus_card_service,
-    query_event_detail_service, query_record_familiarity_service, query_track_familiarity_service
+    query_event_detail_service, query_record_familiarity_service, query_track_familiarity_service,
+    query_tracks_user_info_service
 )
 from app.api.deps import get_current_user, get_language, Language
 from typing import Optional
@@ -79,11 +82,27 @@ async def query_event_detail(
 @router.get("/query_tracks", response_model=BaseResponse[RunningTrackListResponse], summary="查询running赛道")
 async def query_tracks(
     event_id: str = Query(...),
+    sort_type: RouteSortType = Query(RouteSortType.participation),
+    lat: float = Query(None),
+    lng: float = Query(None),
+    cursor: str = Query(None),
+    limit: int = Query(10),
     lang: Language = Depends(get_language),
     db: AsyncSession = Depends(get_db)
 ):
-    tracks = await query_tracks_by_event(db, lang, event_id)
-    return BaseResponse.success(data=RunningTrackListResponse(tracks=tracks))
+    result = await query_tracks_by_event(db, lang, event_id, sort_type, lat, lng, cursor, limit)
+    return BaseResponse.success(data=result)
+
+
+# 批量查询赛道的用户态信息（熟悉度 + 我的排名）
+@router.post("/query_tracks_user_info", response_model=BaseResponse[RunningTracksUserInfoResponse], summary="批量查询赛道用户态信息")
+async def query_tracks_user_info(
+    request: RunningTracksUserInfoRequest,
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    infos = await query_tracks_user_info_service(db, auth.payload["user_id"], request.track_ids)
+    return BaseResponse.success(token=auth.new_token, data=RunningTracksUserInfoResponse(infos=infos))
 
 
 # 单人比赛报名

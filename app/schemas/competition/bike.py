@@ -2,9 +2,10 @@ from fastapi import Form
 from app.schemas.base import ORMBase
 from app.schemas.common import PersonInfoResponse, CPAssetBaseInfo
 from app.schemas.competition.common import (
-    TeamStatus, RecordStatus, CardBonusItem, CardBonusInfo, 
+    TeamStatus, RecordStatus, CardBonusItem, CardBonusInfo,
     MemberScoreInfo, PathPoint, TeamMagicCardBonusInfo
 )
+from app.schemas.training.common import RouteType, RouteApplyStatus, TrackLifecycle
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Any
@@ -117,19 +118,13 @@ class BikeTrackCreateForm:
     start_date: datetime
     end_date: datetime
     event_id: str
-    from_latitude: float
-    from_longitude: float
-    from_radius: int
-    to_latitude: float
-    to_longitude: float
-    to_radius: int
+    route_type: RouteType
+    route_data: str             # JSON 字符串（multipart 表单），service 内 json.loads
     single_registercard_id: str
     team_registercard_id: str
-    elevationDifference: int
     subRegioName: str
     prizePool: int
     score: int
-    distance: float
     terrain_type: BikeTrackTerrainType
 
     def __init__(
@@ -138,38 +133,26 @@ class BikeTrackCreateForm:
         start_date: datetime = Form(...),
         end_date: datetime = Form(...),
         event_id: str = Form(...),
-        from_latitude: float = Form(...),
-        from_longitude: float = Form(...),
-        from_radius: int = Form(...),
-        to_latitude: float = Form(...),
-        to_longitude: float = Form(...),
-        to_radius: int = Form(...),
+        route_type: RouteType = Form(...),
+        route_data: str = Form(...),
         single_registercard_id: str = Form(...),
         team_registercard_id: str = Form(...),
-        elevationDifference: int = Form(...),
         subRegioName: str = Form(...),
         prizePool: int = Form(...),
         score: int = Form(...),
-        distance: float = Form(...),
         terrain_type: BikeTrackTerrainType = Form(...)
     ):
         self.name = name
         self.start_date = start_date
         self.end_date = end_date
         self.event_id = event_id
-        self.from_latitude = from_latitude
-        self.from_longitude = from_longitude
-        self.from_radius = from_radius
-        self.to_latitude = to_latitude
-        self.to_longitude = to_longitude
-        self.to_radius = to_radius
+        self.route_type = route_type
+        self.route_data = route_data
         self.single_registercard_id = single_registercard_id
         self.team_registercard_id = team_registercard_id
-        self.elevationDifference = elevationDifference
         self.subRegioName = subRegioName
         self.prizePool = prizePool
         self.score = score
-        self.distance = distance
         self.terrain_type = terrain_type
 
 
@@ -178,17 +161,11 @@ class BikeTrackUpdateForm:
     name: str
     start_date: datetime
     end_date: datetime
-    from_latitude: float
-    from_longitude: float
-    from_radius: int
-    to_latitude: float
-    to_longitude: float
-    to_radius: int
-    elevationDifference: int
+    route_type: RouteType
+    route_data: str             # JSON 字符串（multipart 表单），service 内 json.loads
     subRegioName: str
     prizePool: int
     score: int
-    distance: float
     terrain_type: BikeTrackTerrainType
 
     def __init__(
@@ -197,34 +174,22 @@ class BikeTrackUpdateForm:
         name: str = Form(...),
         start_date: datetime = Form(...),
         end_date: datetime = Form(...),
-        from_latitude: float = Form(...),
-        from_longitude: float = Form(...),
-        from_radius: int = Form(...),
-        to_latitude: float = Form(...),
-        to_longitude: float = Form(...),
-        to_radius: int = Form(...),
-        elevationDifference: int = Form(...),
+        route_type: RouteType = Form(...),
+        route_data: str = Form(...),
         subRegioName: str = Form(...),
         prizePool: int = Form(...),
         score: int = Form(...),
-        distance: float = Form(...),
         terrain_type: BikeTrackTerrainType = Form(...)
     ):
         self.track_id = track_id
         self.name = name
         self.start_date = start_date
         self.end_date = end_date
-        self.from_latitude = from_latitude
-        self.from_longitude = from_longitude
-        self.from_radius = from_radius
-        self.to_latitude = to_latitude
-        self.to_longitude = to_longitude
-        self.to_radius = to_radius
-        self.elevationDifference = elevationDifference
+        self.route_type = route_type
+        self.route_data = route_data
         self.subRegioName = subRegioName
         self.prizePool = prizePool
         self.score = score
-        self.distance = distance
         self.terrain_type = terrain_type
 
 
@@ -236,14 +201,10 @@ class BikeTrackBaseInfoInternal(ORMBase):
     event_name: str
     season_name: str
     region_id: str
-    image_url: str
+    image_url: str | None
 
-    from_latitude: str
-    from_longitude: str
-    from_radius: int
-    to_latitude: str
-    to_longitude: str
-    to_radius: int
+    route_type: RouteType
+    route_data: dict
     elevation_difference: str
     sub_region_name: dict[str, Any]
     prize_pool: str
@@ -256,31 +217,58 @@ class BikeTrackBaseInfoInternal(ORMBase):
 class BikeTrackListInternalResponse(ORMBase):
     tracks: List[BikeTrackBaseInfoInternal]
 
+# 热门路线申请转赛道 —— 后台审核列表项
+class BikeRouteApplicationInfoInternal(ORMBase):
+    application_id: str
+    route_id: str
+    applicant_user_id: str
+    applicant_nickname: str
+    title: str
+    sub_region_name: str
+    language: str
+    terrain_type: BikeTrackTerrainType
+    lifecycle: TrackLifecycle
+    is_premium: bool
+    participate_count: int                  # 申请时热度快照
+    current_participate_count: int          # 审核时实时热度
+    region_id: str
+    route_type: RouteType
+    route_data: dict
+    distance: float
+    elevation_difference: int
+    status: RouteApplyStatus
+    review_note: str | None
+    track_id: str | None
+    created_at: str
+    reviewed_at: str | None
+
+class BikeRouteApplicationListInternalResponse(ORMBase):
+    applications: List[BikeRouteApplicationInfoInternal]
+
 class BikeTrackBaseInfo(ORMBase):
     track_id: str
     name: str
     start_date: str
     end_date: str
-    image_url: str
+    image_url: str | None
     single_register_card_url: str
     team_register_card_url: str
 
-    from_latitude: float
-    from_longitude: float
-    from_radius: int
-    to_latitude: float
-    to_longitude: float
-    to_radius: int
+    route_type: RouteType
+    route_data: dict
     elevation_difference: int
     sub_region_name: str
     prize_pool: int
     score: int
     totalParticipants: int
+    participate_count: int              # 报名/比赛记录数（用于热度排序与展示）
+    distance_to_user: Optional[float] = None    # 起点到用户的距离（米，distance 排序时返回）
     distance: float
     terrain_type: BikeTrackTerrainType
 
 class BikeTrackListResponse(ORMBase):
     tracks: List[BikeTrackBaseInfo]
+    next_cursor: Optional[str] = None
 
 class BikeRankInfo(ORMBase):
     record_id: Optional[str] = None
@@ -288,6 +276,18 @@ class BikeRankInfo(ORMBase):
     duration_seconds: Optional[float] = None
     reward_voucher_amount: Optional[int] = None
     score: Optional[int] = None
+
+# 批量查询赛道的用户态信息（熟悉度 + 排名），需登录
+class BikeTracksUserInfoRequest(BaseModel):
+    track_ids: List[str]
+
+class BikeTrackUserInfo(ORMBase):
+    track_id: str
+    familiarity: float
+    rank_info: Optional[BikeRankInfo] = None
+
+class BikeTracksUserInfoResponse(ORMBase):
+    infos: List[BikeTrackUserInfo]
 
 class BikeBeginInfo(ORMBase):
     record_id: str
@@ -316,12 +316,8 @@ class BikeRecordInfo(ORMBase):
     region_id: str
     event_name: str
     track_name: str
-    track_start_lat: float
-    track_start_lng: float
-    track_start_radius: int
-    track_end_lat: float
-    track_end_lng: float
-    track_end_radius: int
+    route_type: RouteType
+    route_data: dict
     track_end_date: str
     status: RecordStatus
     start_date: Optional[str]
@@ -483,6 +479,7 @@ class BikeRecordDetailInfo(BaseModel):
     status: RecordStatus
     original_time: float
     final_time: float
+    penalty_time: float
     is_finish_computed: bool
     path: List[BikePathPoint]
     card_bonus: List[CardBonusInfo]

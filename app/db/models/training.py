@@ -2,7 +2,7 @@ from sqlalchemy import Column, String, Boolean, DateTime, func, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from app.schemas.competition.bike import BikeTrackTerrainType
 from app.schemas.competition.running import RunningTrackTerrainType
-from app.schemas.training.common import RouteType, GridEffectType
+from app.schemas.training.common import RouteType, GridEffectType, RouteApplyStatus, TrackLifecycle
 from app.schemas.training.bike import BikeGridConditionType
 from app.schemas.training.running import RunningGridConditionType
 from app.schemas.user import Gender
@@ -393,6 +393,7 @@ class BikeTrainingRoute(Base):
     is_public = Column(Boolean, nullable=False)
     enable_ranklist = Column(Boolean, nullable=False)
     enable_magiccard = Column(Boolean, nullable=False)
+    apply_status = Column(Enum(RouteApplyStatus), default=RouteApplyStatus.none, nullable=False)  # 申请转为赛道的状态
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -433,6 +434,7 @@ class RunningTrainingRoute(Base):
     is_public = Column(Boolean, nullable=False)
     enable_ranklist = Column(Boolean, nullable=False)
     enable_magiccard = Column(Boolean, nullable=False)
+    apply_status = Column(Enum(RouteApplyStatus), default=RouteApplyStatus.none, nullable=False)  # 申请转为赛道的状态
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -616,3 +618,71 @@ class CardBonusInRunningRouteTrainingRecord(Base):
     card = relationship("UserEquipmentCard", primaryjoin="foreign(CardBonusInRunningRouteTrainingRecord.card_id)==UserEquipmentCard.id")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# 热门路线申请转为赛道（Bike）
+class BikeRouteTrackApplication(Base):
+    __tablename__ = "bike_route_track_applications"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    application_id = Column(String, unique=True, index=True, nullable=False)
+
+    route_id = Column(UUID(as_uuid=True), index=True, nullable=False)    # 关联 BikeTrainingRoute.id
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)     # 申请人
+    region_id = Column(UUID(as_uuid=True), nullable=False)              # 申请时路线所在 region 快照
+
+    # 申请表单（i18n 仅保存申请语言一档，language 标记其语言）
+    language = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    sub_region_name = Column(String, nullable=False)
+    terrain_type = Column(Enum(BikeTrackTerrainType), nullable=False)
+    lifecycle = Column(Enum(TrackLifecycle), nullable=False)
+    is_premium = Column(Boolean, nullable=False)                        # 取自 route.is_premium，决定报名卡档位
+    participate_count = Column(Integer, default=0, nullable=False)      # 申请时的热度快照
+
+    status = Column(Enum(RouteApplyStatus), default=RouteApplyStatus.pending, nullable=False)
+    review_note = Column(String, nullable=True)                        # 驳回原因 / 审核备注
+    track_id = Column(String, nullable=True)                          # 审核通过后生成的赛道业务 id
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    route = relationship("BikeTrainingRoute", primaryjoin="foreign(BikeRouteTrackApplication.route_id)==BikeTrainingRoute.id", uselist=False)
+    user = relationship("User", primaryjoin="foreign(BikeRouteTrackApplication.user_id)==User.id", uselist=False)
+
+    __table_args__ = (
+        Index("idx_bike_route_track_applications_status", "status", "created_at"),
+    )
+
+
+# 热门路线申请转为赛道（Running）
+class RunningRouteTrackApplication(Base):
+    __tablename__ = "running_route_track_applications"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    application_id = Column(String, unique=True, index=True, nullable=False)
+
+    route_id = Column(UUID(as_uuid=True), index=True, nullable=False)    # 关联 RunningTrainingRoute.id
+    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)     # 申请人
+    region_id = Column(UUID(as_uuid=True), nullable=False)              # 申请时路线所在 region 快照
+
+    # 申请表单（i18n 仅保存申请语言一档，language 标记其语言）
+    language = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    sub_region_name = Column(String, nullable=False)
+    terrain_type = Column(Enum(RunningTrackTerrainType), nullable=False)
+    lifecycle = Column(Enum(TrackLifecycle), nullable=False)
+    is_premium = Column(Boolean, nullable=False)                        # 取自 route.is_premium，决定报名卡档位
+    participate_count = Column(Integer, default=0, nullable=False)      # 申请时的热度快照
+
+    status = Column(Enum(RouteApplyStatus), default=RouteApplyStatus.pending, nullable=False)
+    review_note = Column(String, nullable=True)                        # 驳回原因 / 审核备注
+    track_id = Column(String, nullable=True)                          # 审核通过后生成的赛道业务 id
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    route = relationship("RunningTrainingRoute", primaryjoin="foreign(RunningRouteTrackApplication.route_id)==RunningTrainingRoute.id", uselist=False)
+    user = relationship("User", primaryjoin="foreign(RunningRouteTrackApplication.user_id)==User.id", uselist=False)
+
+    __table_args__ = (
+        Index("idx_running_route_track_applications_status", "status", "created_at"),
+    )

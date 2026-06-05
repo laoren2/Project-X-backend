@@ -17,8 +17,9 @@ from app.schemas.training.bike import (
     BikeRouteInfoResponse, BikeRouteInfo, BikeRouteManageInfoResponse, BikeRouteMangeInfo,
     RouteTrainingFinishInfo, RouteTrainingFinishResponse, RouteTrainingRecordDetailResponse,
     BikeRouteTrainingPathPoint, BikeRouteRanklistResponse, BikeRouteRankInfo, BikeGridTileResponse,
-    BikeGridInfoResponse, BikeGridDetailInfo
+    BikeGridInfoResponse, BikeGridDetailInfo, RouteTrackApplyRequest
 )
+from app.schemas.training.common import RouteApplyStatus
 from app.services.common import get_elevation
 from app.services.competition.common import compute_distance
 from app.services.training.common import (
@@ -29,14 +30,17 @@ from app.services.mappers import equip_card_to_base_info
 from app.db.models.user import User
 from app.db.models.training import (
     CardBonusInBikeRouteTrainingRecord, UserTrainingStateDailyBike, BikeFreeTrainingPath, BikeFreeTrainingRecord, UserTrainingStateBike,
-    BikeTrainingRoute, BikeRouteTrainingPath, BikeRouteTrainingRecord, BikeRouteRanklist, BikeEffectGrid, BikeEffectGridHistory
+    BikeTrainingRoute, BikeRouteTrainingPath, BikeRouteTrainingRecord, BikeRouteRanklist, BikeEffectGrid, BikeEffectGridHistory,
+    BikeRouteTrackApplication
 )
 from app.crud.training.bike import (
     get_training_states_by_user_and_month, get_free_training_records_by_user_and_day, get_route_training_records_by_user_and_day,
     add_or_update_daily_training_states, get_training_state_by_user, update_user_familiarity_by_grids,
     get_region_explored_grid_count, get_free_training_record_by_record_id, get_training_state_daily_by_user_date,
     get_grids_info_by_tiles, get_routes_by_page_crud, get_routes_by_uesr_id, get_route_by_route_id,
-    get_route_training_record_by_record_id, get_rank_info_by_route_and_user
+    get_route_training_record_by_record_id, get_rank_info_by_route_and_user,
+    count_route_training_records, count_route_training_records_by_routes,
+    create_route_track_application_crud, get_active_application_by_route
 )
 from app.crud.competition.bike import get_season_now, get_score_by_season_and_user, add_or_update_career_xp
 from app.crud.user import get_user_by_id
@@ -1042,6 +1046,7 @@ async def query_my_routes_service(
     if user is None:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     routes = await get_routes_by_uesr_id(db, user.id, page, size)
+    count_map = await count_route_training_records_by_routes(db, [route.id for route in routes])
     result = []
     for route in routes:
         result.append(BikeRouteMangeInfo(
@@ -1052,9 +1057,52 @@ async def query_my_routes_service(
             terrain_type=route.terrain_type,
             is_premium=route.is_premium,
             enable_magiccard=route.enable_magiccard,
+            participate_count=count_map.get(route.id, 0),
+            apply_status=route.apply_status,
             route_data=route.route_data
         ))
     return BikeRouteManageInfoResponse(routes=result)
+
+
+# 申请热门路线转为赛道：仅公开、热度 > 阈值、且无进行中申请的路线可申请
+ROUTE_APPLY_MIN_PARTICIPATION = 1
+
+async def apply_route_to_track_service(db: AsyncSession, user_id: str, lang: Language, request: RouteTrackApplyRequest):
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+        route = await get_route_by_route_id(db, request.route_id)
+        if route is None or route.user_id != user.id:
+            raise BizException(code=ErrorCode.ROUTE_NOT_FOUND, message="route.not_found")
+        if not route.is_public:
+            raise BizException(code=ErrorCode.ROUTE_APPLY_ERROR, message="route.apply_forbidden")
+        # 仅 none / rejected 可再次申请；pending/approved 不可
+        if route.apply_status == RouteApplyStatus.pending or await get_active_application_by_route(db, route.id) is not None:
+            raise BizException(code=ErrorCode.ROUTE_APPLY_ERROR, message="route.apply_pending")
+        if route.apply_status == RouteApplyStatus.approved:
+            raise BizException(code=ErrorCode.ROUTE_APPLY_ERROR, message="route.apply_forbidden")
+        count = await count_route_training_records(db, route.id)
+        if count < ROUTE_APPLY_MIN_PARTICIPATION:
+            raise BizException(code=ErrorCode.ROUTE_APPLY_ERROR, message="route.apply_forbidden")
+
+        application = BikeRouteTrackApplication(
+            application_id=f"rta_{uuid.uuid4()}",
+            route_id=route.id,
+            user_id=user.id,
+            region_id=route.region_id,
+            language=lang.value,
+            title=request.title,
+            sub_region_name=request.sub_region_name,
+            terrain_type=request.terrain_type,
+            lifecycle=request.lifecycle,
+            is_premium=route.is_premium,
+            participate_count=count,
+            status=RouteApplyStatus.pending
+        )
+        await create_route_track_application_crud(db, application)
+        route.apply_status = RouteApplyStatus.pending
+        db.add(route)
 
 async def delete_route_service(db: AsyncSession, user_id: str, route_id: str):
     user = await get_user_by_id(db, user_id)

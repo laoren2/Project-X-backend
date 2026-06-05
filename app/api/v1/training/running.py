@@ -10,7 +10,8 @@ from app.schemas.training.running import (
     FreeTrainingFinishInfo, FreeTrainingFinishResponse, RunningGridInfoResponse, TrainingStatesHistoryResponse,
     TrainingRecordsResponse, FreeTrainingRecordDetailResponse, CreateRouteRequest, UpdateRouteRequest,
     RunningRouteInfoResponse, RunningRouteManageInfoResponse, RouteTrainingFinishInfo, RouteTrainingFinishResponse,
-    RouteTrainingRecordDetailResponse, RunningRouteRanklistResponse, RunningGridTileResponse, RunningRouteRankInfo
+    RouteTrainingRecordDetailResponse, RunningRouteRanklistResponse, RunningGridTileResponse, RunningRouteRankInfo,
+    RouteTrackApplyRequest
 )
 from app.schemas.training.common import (
     RegionExploreResponse, GridTileRequest,
@@ -22,7 +23,8 @@ from app.services.training.running import (
     query_grids_info_by_tiles_service, query_me_familiarity_by_grid, query_familiarity_ranking_by_grid,
     create_training_route_service, update_training_route_service, query_routes_service, query_my_routes_service, delete_route_service,
     finish_route_training_service, query_route_training_record_detail_service, get_route_card_info_service,
-    query_route_ranklist_service, query_grid_info_service, query_route_ranklist_me_service
+    query_route_ranklist_service, query_grid_info_service, query_route_ranklist_me_service,
+    apply_route_to_track_service
 )
 
 router = APIRouter(dependencies=[Depends(get_language)])
@@ -220,6 +222,17 @@ async def query_routes(
 ):
     result = await query_my_routes_service(db, auth.payload["user_id"], page, size)
     return BaseResponse.success(data=result)
+
+# 申请热门路线转为赛道
+@router.post("/routes/apply_track",response_model=BaseResponse[None],summary="申请热门路线转为赛道")
+async def apply_route_to_track(
+    request: RouteTrackApplyRequest,
+    auth: AuthContext = Depends(get_current_user),
+    lang: Language = Depends(get_language),
+    db: AsyncSession = Depends(get_db)
+):
+    await apply_route_to_track_service(db, auth.payload["user_id"], lang, request)
+    return BaseResponse.success(token=auth.new_token, data=None)
 
 # 删除路线
 @router.post("/routes/delete",response_model=BaseResponse[None],summary="删除路线")

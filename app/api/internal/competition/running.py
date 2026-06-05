@@ -4,9 +4,9 @@ from app.db.session import get_db
 from app.schemas.base import BaseResponse, BizException
 from app.schemas.user import AuthContext
 from app.schemas.competition.running import (
-    RunningEventCreateForm, RunningTrackCreateForm, RunningEventUpdateForm, 
+    RunningEventCreateForm, RunningTrackCreateForm, RunningEventUpdateForm,
     RunningTrackUpdateForm, RunningEventListInternalResponse, RunningTrackListInternalResponse,
-    RunningSeasonCreateForm, RunningUnverifiedRecordResponse
+    RunningSeasonCreateForm, RunningUnverifiedRecordResponse, RunningRouteApplicationListInternalResponse
 )
 from app.services.competition.running import (
     create_event_service, create_track_service, handle_record_verified_service,
@@ -14,8 +14,10 @@ from app.services.competition.running import (
     update_event_image_url, update_track_image_url,
     query_events_service, query_tracks_service,
     create_season_service, update_season_image_url,
-    settle_running_leaderboard_service, query_unverified_records_service
+    settle_running_leaderboard_service, query_unverified_records_service,
+    query_route_applications_service, review_route_application_service
 )
+from app.schemas.training.common import RouteApplyStatus
 from app.core.errors import ErrorCode
 from app.api.deps import get_current_admin
 from typing import Optional
@@ -241,4 +243,28 @@ async def handle_unverified_record(
     db: AsyncSession = Depends(get_db)
 ):
     await handle_record_verified_service(db, record_id, result)
+    return BaseResponse.success(token=auth.new_token, message="success")
+
+# 查询热门路线转赛道申请
+@router.get("/query_route_applications", response_model=BaseResponse[RunningRouteApplicationListInternalResponse], summary="查询热门路线转赛道申请")
+async def query_route_applications(
+    status: Optional[RouteApplyStatus] = Query(None),
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1),
+    auth: AuthContext = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_route_applications_service(db, status, page, size)
+    return BaseResponse.success(token=auth.new_token, data=result)
+
+# 审核热门路线转赛道申请
+@router.post("/review_route_application", response_model=BaseResponse[None], summary="审核热门路线转赛道申请")
+async def review_route_application(
+    application_id: str = Query(...),
+    approve: bool = Query(...),
+    review_note: Optional[str] = Query(None),
+    auth: AuthContext = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    await review_route_application_service(db, application_id, approve, review_note)
     return BaseResponse.success(token=auth.new_token, message="success")

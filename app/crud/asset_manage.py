@@ -178,11 +178,12 @@ async def query_cpasset_def_crud(
     items = result.scalars().all()
     return items
 
-async def get_registration_card_def(db: AsyncSession, sport_type: SportType, is_team: bool) -> CPRegistrationCardDef:
+async def get_registration_card_def(db: AsyncSession, sport_type: SportType, is_team: bool, premium: bool = False) -> CPRegistrationCardDef:
     result = await db.execute(
         select(CPRegistrationCardDef).where(
             CPRegistrationCardDef.sport_type == sport_type,
-            CPRegistrationCardDef.is_team == is_team
+            CPRegistrationCardDef.is_team == is_team,
+            CPRegistrationCardDef.premium == premium
         )
     )
     registration_card_def = result.scalar_one_or_none()

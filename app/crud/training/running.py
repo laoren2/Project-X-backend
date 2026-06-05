@@ -6,11 +6,11 @@ from app.db.models.training import (
     UserGridFamiliarityRunning, UserTrainingStateDailyRunning,
     UserGridFamiliarityRunningAgg, RunningRouteTrainingRecord,
     RunningTrainingRoute, CardBonusInRunningRouteTrainingRecord,
-    RunningEffectGridTileAgg, RunningEffectGrid, RunningEffectGridHistory
+    RunningEffectGridTileAgg, RunningEffectGrid, RunningEffectGridHistory, RunningRouteTrackApplication
 )
 from app.db.models.asset import UserEquipmentCard
 from app.db.models.user import User
-from app.schemas.training.common import GridTileKey, GridCellInfo, RouteSortType, GridEffectType
+from app.schemas.training.common import GridTileKey, GridCellInfo, RouteSortType, GridEffectType, RouteApplyStatus
 from app.schemas.training.running import RunningGridBuffPreview, RunningGridTileResponse, RunningGridTileInfo, RunningGridConditionType
 from sqlalchemy.orm import selectinload
 from typing import List
@@ -28,24 +28,8 @@ import uuid, math, calendar, json, random, hashlib
 
 # 计算用户对某条赛道的熟悉度（起终点直线 + Buffer 带状区域 + 指数距离衰减）
 async def get_familiarity_by_track_and_user(db: AsyncSession, track: RunningTrack, user_id: uuid.UUID) -> float:
-    start_lat = track.from_lat
-    start_lon = track.from_lng
-    end_lat = track.to_lat
-    end_lon = track.to_lng
-
-    # 根据起终点直线距离自动计算 buffer_meters
-    R = 6371000  # 地球半径（米）
-    lat1 = math.radians(start_lat)
-    lon1 = math.radians(start_lon)
-    lat2 = math.radians(end_lat)
-    lon2 = math.radians(end_lon)
-
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-
-    a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    race_length_m = R * c
+    # 赛道总长（米）：直接用已按整条 route_data 计算好的 distance(km)
+    race_length_m = (track.distance or 0.0) * 1000.0
 
     # buffer 设为赛道长度的 20%，并限制在 800m ~ 4000m 之间
     buffer_meters = max(800.0, min(race_length_m * 0.2, 4000.0))
@@ -56,25 +40,13 @@ async def get_familiarity_by_track_and_user(db: AsyncSession, track: RunningTrac
     sql = text(
         """
         WITH params AS (
-            SELECT
-                CAST(:start_lat AS float) AS start_lat,
-                CAST(:start_lon AS float) AS start_lon,
-                CAST(:end_lat AS float) AS end_lat,
-                CAST(:end_lon AS float) AS end_lon,
-                CAST(:buffer_meters AS float) AS buffer_meters
+            SELECT CAST(:buffer_meters AS float) AS buffer_meters
         ),
 
-        -- 将经纬度转为 WebMercator (米)
+        -- 取整条赛道路线几何并转为 WebMercator (米)
         line AS (
-            SELECT
-                ST_Transform(
-                    ST_SetSRID(ST_MakeLine(
-                        ST_MakePoint(start_lon, start_lat),
-                        ST_MakePoint(end_lon, end_lat)
-                    ), 4326),
-                    3857
-                ) AS geom
-            FROM params
+            SELECT ST_Transform(route_geometry, 3857) AS geom
+            FROM running_tracks WHERE id = :track_id
         ),
 
         buffered AS (
@@ -181,10 +153,7 @@ async def get_familiarity_by_track_and_user(db: AsyncSession, track: RunningTrac
         {
             "season_id": str(track.event.season_id),
             "user_id": str(user_id),
-            "start_lat": start_lat,
-            "start_lon": start_lon,
-            "end_lat": end_lat,
-            "end_lon": end_lon,
+            "track_id": str(track.id),
             "buffer_meters": buffer_meters,
             "decay_distance": decay_distance,
         },
@@ -1075,6 +1044,81 @@ async def get_route_by_route_id(db: AsyncSession, route_id: str) -> RunningTrain
         .where(RunningTrainingRoute.route_id == route_id)
     )
     return result.scalar_one_or_none()
+
+
+# ---- 热门路线申请转赛道 ----
+
+async def count_route_training_records(db: AsyncSession, route_internal_id: uuid.UUID) -> int:
+    """统计某条路线的训练参与次数（热度），用于申请资格校验与展示。"""
+    result = await db.execute(
+        select(func.count())
+        .select_from(RunningRouteTrainingRecord)
+        .where(RunningRouteTrainingRecord.route_id == route_internal_id)
+    )
+    return int(result.scalar() or 0)
+
+
+async def count_route_training_records_by_routes(db: AsyncSession, route_internal_ids: List[uuid.UUID]) -> dict:
+    """批量统计多条路线的热度，返回 {route_internal_id: count}。"""
+    if not route_internal_ids:
+        return {}
+    result = await db.execute(
+        select(RunningRouteTrainingRecord.route_id, func.count().label("count"))
+        .where(RunningRouteTrainingRecord.route_id.in_(route_internal_ids))
+        .group_by(RunningRouteTrainingRecord.route_id)
+    )
+    return {row.route_id: int(row.count) for row in result.all()}
+
+
+async def create_route_track_application_crud(db: AsyncSession, application: RunningRouteTrackApplication) -> RunningRouteTrackApplication:
+    db.add(application)
+    await db.flush()
+    await db.refresh(application)
+    return application
+
+
+async def get_active_application_by_route(db: AsyncSession, route_internal_id: uuid.UUID) -> RunningRouteTrackApplication | None:
+    """取该路线进行中（pending）的申请，用于防止重复提交。"""
+    result = await db.execute(
+        select(RunningRouteTrackApplication).where(
+            RunningRouteTrackApplication.route_id == route_internal_id,
+            RunningRouteTrackApplication.status == RouteApplyStatus.pending
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_application_by_application_id(db: AsyncSession, application_id: str) -> RunningRouteTrackApplication | None:
+    result = await db.execute(
+        select(RunningRouteTrackApplication)
+        .where(RunningRouteTrackApplication.application_id == application_id)
+        .options(
+            selectinload(RunningRouteTrackApplication.route).selectinload(RunningTrainingRoute.region),
+            selectinload(RunningRouteTrackApplication.user)
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def query_applications_by_status_crud(
+    db: AsyncSession,
+    status: RouteApplyStatus | None,
+    page: int,
+    size: int
+) -> List[RunningRouteTrackApplication]:
+    stmt = (
+        select(RunningRouteTrackApplication)
+        .options(
+            selectinload(RunningRouteTrackApplication.route).selectinload(RunningTrainingRoute.region),
+            selectinload(RunningRouteTrackApplication.user)
+        )
+    )
+    if status is not None:
+        stmt = stmt.where(RunningRouteTrackApplication.status == status)
+    stmt = stmt.order_by(RunningRouteTrackApplication.created_at.desc()).offset((page - 1) * size).limit(size)
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
 
 async def get_rank_info_by_route_and_user(
     db: AsyncSession,
