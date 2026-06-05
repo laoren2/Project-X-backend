@@ -1,12 +1,13 @@
 from app.crud.competition.common import get_region_by_region_id
 from app.crud.competition.running import (
     get_event_by_event_id, get_event_by_name, get_event_by_season_id_and_region_id,
-    get_track_by_name, get_track_by_track_id, get_track_by_event_id,
+    get_track_by_name, get_track_by_track_id, get_track_by_event_id, get_tracks_by_event_page_crud,
+    get_tracks_by_track_ids,
     create_event_crud, create_track_crud, update_event_crud, update_track_crud,
     query_events_crud, query_tracks_crud, get_track_by_track_id_for_update,
     create_record_crud, get_record_by_record_id, update_record_crud,
-    create_season_crud, get_season_by_season_id, update_season_crud, 
-    get_season_now, get_season_by_name, get_active_events_by_season_id,
+    create_season_crud, get_season_by_season_id, update_season_crud,
+    get_season_now, get_season_by_name, get_active_events_by_season_id, get_community_event,
     delete_record_crud, create_team_crud, get_active_team_by_code_for_update,
     get_created_teams_by_user_id, get_applied_teams_by_user_id, get_joined_teams_by_user_id,
     get_team_by_team_id, create_team_member_crud, update_team_crud, delete_records_by_team_id,
@@ -19,15 +20,18 @@ from app.crud.competition.running import (
     add_or_update_daily_task_record, get_unverified_records, get_bonus_record_with_team_magic_card_for_update,
     get_team_id_by_record_id, get_season_by_date, get_bonus_record_with_team_magic_card_by_team_user
 )
-from app.crud.training.running import get_familiarity_by_track_and_user, get_training_state_by_user
+from app.crud.training.running import (
+    get_familiarity_by_track_and_user, get_training_state_by_user,
+    get_application_by_application_id, query_applications_by_status_crud, count_route_training_records
+)
 from app.crud.asset_manage import (
     consume_cpasset, get_register_card_price, get_cpasset_def_by_asset_id,
     reward_cpasset, get_team_card_def, get_equip_card_by_card_id, get_cpasset_def_by_id,
-    reward_ccasset
+    reward_ccasset, get_registration_card_def
 )
 from app.crud.user import get_user_by_id, get_users_by_ids, get_users_by_user_ids, get_exist_user_by_id
 from app.core.errors import ErrorCode
-from app.core.tools import get_user_local_date
+from app.core.tools import get_user_local_date, encode_cursor, decode_cursor
 from app.core.storage import build_resource_url
 from app.schemas.base import BizException, Language, pick_i18n_text
 from app.schemas.common import PersonInfoResponse, EquipCardBaseInfo, SportType, CCAssetType, CCAssetRewardResponse
@@ -36,12 +40,12 @@ from app.schemas.user import Gender
 from app.schemas.asset import CPAssetResponse, DailyTaskRewardResponse, AssetOperation
 from app.schemas.competition.common import (
     TeamRelationship, TeamStatus, RecordStatus, MatchFinishInfo,
-    CardBonusInfo, MemberScoreInfo, DailyTaskResponse, TeamMagicCardBonusInfo, MatchFinishResponse
+    CardBonusInfo, MemberScoreInfo, DailyTaskResponse, TeamMagicCardBonusInfo, MatchFinishResponse, EventType
 )
 from app.schemas.competition.running import (
     RunningEventCreateForm, RunningEventBaseInfo, RunningEventUpdateForm, RunningEventBaseInfoInternal,
-    RunningTrackBaseInfo, RunningTrackCreateForm,
-    RunningTrackUpdateForm, RunningTrackBaseInfoInternal, 
+    RunningTrackBaseInfo, RunningTrackCreateForm, RunningTrackListResponse, RunningTrackUserInfo,
+    RunningTrackUpdateForm, RunningTrackBaseInfoInternal,
     RunningBeginInfo, RunningFinishInfo, RunningLeaderboardInfo, RunningLeaderboardResponse,
     RunningSeasonBaseInfo, RunningSeasonCreateForm, RunningRecordInfo, RunningSingleRegisterResponse, RunningRankInfo,
     RunningTeamCreateInfo, RunningTeamCreateResponse, RunningAppliedTeamInfo, RunningAppliedTeamResponse,
@@ -50,8 +54,10 @@ from app.schemas.competition.running import (
     RunningTeamStatusUpdateInfo, RunningTeamMembersResponse, RunningTeamAppliedRequest, RunningTeamExpiredResponse,
     RunningRecordDetailInfo, RunningSummaryRecordResponse, RunningSummaryRecordInfo, RunningHistorySeasonResponse, RunningHistorySeasonInfo,
     RunningCareerRecordResponse, RunningCareerRecordInfo, RunningScoreLeaderboardInfo, RunningScoreLeaderboardResponse,
-    RunningCareerDataInfo, RunningPathPoint, RunningUnverifiedRecordInfo, RunningUnverifiedRecordResponse
+    RunningCareerDataInfo, RunningPathPoint, RunningUnverifiedRecordInfo, RunningUnverifiedRecordResponse,
+    RunningRouteApplicationInfoInternal, RunningRouteApplicationListInternalResponse
 )
+from app.schemas.training.common import RouteApplyStatus, TrackLifecycle
 from app.db.models.competition import (
     RunningEvent, RunningTrack, RunningSeason, RunningRaceRecord, RunningTeam, 
     RunningTeamMember, RunningTeamAppliedMember, RunningRacePath, CardBonusInRunningRecord,
@@ -60,6 +66,11 @@ from app.db.models.competition import (
 from app.db.models.mailbox import Mailbox
 from app.db.models.user import User
 from app.services.mappers import equip_card_to_base_info
+from app.services.training.common import validate_route_data, build_geometry, extract_path_points, extract_checkpoints_from_route_data, evaluate_route_training_checkpoint_path
+from app.services.common import get_elevation
+from app.schemas.training.common import RouteSortType
+from geoalchemy2.shape import from_shape
+from shapely.geometry import Point
 from app.services.competition.common import (
     _distribute_voucher_and_scores, compute_distance, update_running_leaderboard_for_record,
     send_running_match_rewards, compute_running_match_rewards, settle_running_match_xp
@@ -273,8 +284,20 @@ async def create_track_service(db: AsyncSession, track_form: RunningTrackCreateF
     try:
         name_i18n = json.loads(track_form.name)
         sub_region_i18n = json.loads(track_form.subRegioName)
+        route_data = json.loads(track_form.route_data)
     except:
         raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"JSON格式错误")
+
+    # 校验并构建路线几何 / 海拔差 / 距离（与 training route 同构）
+    steps = validate_route_data(track_form.route_type, route_data)
+    geometry = build_geometry(steps)
+    start = steps[0]
+    end = steps[-1]
+    elevation_start = get_elevation(start.lat, start.lng)
+    elevation_end = get_elevation(end.lat, end.lng)
+    if elevation_start is None or elevation_end is None:
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.data_error")
+    total_distance = compute_distance(extract_path_points(steps))
 
     track_id = f"track_{str(uuid.uuid4())[-12:]}"
     new_track = RunningTrack(
@@ -283,25 +306,237 @@ async def create_track_service(db: AsyncSession, track_form: RunningTrackCreateF
         start_date = track_form.start_date,
         end_date = track_form.end_date,
         event_id = event.id,
-        from_lat = track_form.from_latitude,
-        from_lng = track_form.from_longitude,
-        from_radius = track_form.from_radius,
-        to_lat = track_form.to_latitude,
-        to_lng = track_form.to_longitude,
-        to_radius = track_form.to_radius,
+        route_type = track_form.route_type,
+        route_data = route_data,
+        route_geometry = from_shape(geometry, srid=4326),
+        start_point = from_shape(Point(start.lng, start.lat), srid=4326),
+        end_point = from_shape(Point(end.lng, end.lat), srid=4326),
         single_register_card_id = single_card.id,
         team_register_card_id = team_card.id,
-        elevation_difference = track_form.elevationDifference,
+        elevation_difference = elevation_end - elevation_start,
         sub_region_name_i18n = sub_region_i18n,
         prize_pool = track_form.prizePool,
         score = track_form.score,
-        distance = track_form.distance,
+        distance = total_distance,
         terrain_type = track_form.terrain_type,
         image_url = image_url
     )
     res = await create_track_crud(db, new_track)
     await db.commit()
     return res.track_id
+
+
+# ---- 热门路线申请转赛道：后台审核 ----
+
+def _compute_track_rewards(distance_m: float, elevation_diff: int, is_premium: bool) -> tuple[int, int]:
+    """根据路线长度(米)与海拔差(米)估算赛道奖池与积分。prize_pool∈[1000,3000], score∈[100,500]。"""
+    d_km = (distance_m or 0) / 1000.0
+    elev = abs(elevation_diff or 0)
+    difficulty = min(1.0, (d_km / 30.0) * 0.6 + (elev / 1000.0) * 0.4)
+    score = int(100 + difficulty * 400)
+    prize_pool = int(1000 + difficulty * 2000)
+    if is_premium:
+        score = int(score * 1.2)
+        prize_pool = int(prize_pool * 1.2)
+    score = max(100, min(500, score))
+    prize_pool = max(1000, min(3000, prize_pool))
+    return prize_pool, score
+
+
+def _build_application_info(application, current_count: int) -> RunningRouteApplicationInfoInternal:
+    route = application.route
+    return RunningRouteApplicationInfoInternal(
+        application_id=application.application_id,
+        route_id=route.route_id if route else "",
+        applicant_user_id=application.user.user_id if application.user else "",
+        applicant_nickname=application.user.nickname if application.user else "",
+        title=application.title,
+        sub_region_name=application.sub_region_name,
+        language=application.language,
+        terrain_type=application.terrain_type,
+        lifecycle=application.lifecycle,
+        is_premium=application.is_premium,
+        participate_count=application.participate_count,
+        current_participate_count=current_count,
+        region_id=route.region.region_id if route and route.region else str(application.region_id),
+        route_type=route.route_type if route else None,
+        route_data=route.route_data if route else {},
+        distance=route.total_distance if route else 0,
+        elevation_difference=route.elevation_difference if route else 0,
+        status=application.status,
+        review_note=application.review_note,
+        track_id=application.track_id,
+        created_at=application.created_at.isoformat(),
+        reviewed_at=application.reviewed_at.isoformat() if application.reviewed_at else None
+    )
+
+
+async def query_route_applications_service(
+    db: AsyncSession,
+    status: RouteApplyStatus | None,
+    page: int,
+    size: int
+) -> RunningRouteApplicationListInternalResponse:
+    applications = await query_applications_by_status_crud(db, status, page, size)
+    infos = []
+    for application in applications:
+        current_count = await count_route_training_records(db, application.route_id)
+        infos.append(_build_application_info(application, current_count))
+    return RunningRouteApplicationListInternalResponse(applications=infos)
+
+
+def _resolve_track_end_date(lifecycle: TrackLifecycle, start: datetime, event_end: datetime) -> datetime:
+    if lifecycle == TrackLifecycle.oneMonth:
+        end = start + timedelta(days=30)
+    elif lifecycle == TrackLifecycle.twoMonth:
+        end = start + timedelta(days=60)
+    else:
+        end = event_end
+    return min(end, event_end)
+
+
+async def review_route_application_service(
+    db: AsyncSession,
+    application_id: str,
+    approve: bool,
+    review_note: str | None
+):
+    async with db.begin():
+        application = await get_application_by_application_id(db, application_id)
+        if application is None:
+            raise BizException(code=ErrorCode.ROUTE_APPLY_ERROR, message="route.apply_not_found")
+        if application.status != RouteApplyStatus.pending:
+            raise BizException(code=ErrorCode.ROUTE_APPLY_ERROR, message="route.apply_handled")
+        route = application.route
+        if route is None:
+            raise BizException(code=ErrorCode.ROUTE_NOT_FOUND, message="route.not_found")
+
+        now = datetime.now(timezone.utc)
+
+        if not approve:
+            application.status = RouteApplyStatus.rejected
+            application.review_note = review_note
+            application.reviewed_at = now
+            route.apply_status = RouteApplyStatus.rejected
+            db.add(application)
+            db.add(route)
+            _send_application_mail(db, application, approved=False, track_title=application.title, review_note=review_note)
+            return
+
+        season = await get_season_now(db)
+        if season is None:
+            raise BizException(code=ErrorCode.SEASON_ERROR, message="season.out_of_season")
+
+        event = await get_community_event(db, season.id, application.region_id)
+        if event is None:
+            event = RunningEvent(
+                event_id=f"event_{uuid.uuid4()}",
+                name_i18n={"en": "Community Arena", "zh-Hans": "社区竞技场", "zh-Hant": "社區競技場", "ko": "커뮤니티 아레나", "ja": "コミュニティアリーナ"},
+                description_i18n={
+                    "en": "Welcome to the Community Arena! Every track here grew from the community's most-loved training routes, shaped by your passion and sweat. Challenge yourself, chase new records, and meet fellow runners along the way. Above all, have fun out there!",
+                    "zh-Hans": "欢迎来到社区竞技场！这里的每一条赛道都源自社区中最受欢迎的训练路线，凝聚着大家的汗水与热爱。在这里挑战自我、刷新纪录、结识同好，愿你尽情奔跑，玩得开心！",
+                    "zh-Hant": "歡迎來到社區競技場！這裡的每一條賽道都源自社區中最受歡迎的訓練路線，凝聚著大家的汗水與熱愛。在這裡挑戰自我、刷新紀錄、結識同好，願你盡情奔跑，玩得開心！",
+                    "ko": "커뮤니티 아레나에 오신 것을 환영합니다! 이곳의 모든 트랙은 커뮤니티에서 가장 사랑받은 훈련 경로에서 탄생했으며, 여러분의 땀과 열정이 담겨 있습니다. 자신에게 도전하고 기록을 경신하며 동료들을 만나 보세요. 무엇보다 마음껏 즐기시길 바랍니다!",
+                    "ja": "コミュニティアリーナへようこそ！ここにあるすべてのトラックは、コミュニティで最も愛されたトレーニングルートから生まれ、皆さんの汗と情熱が詰まっています。自分に挑戦し、記録を更新し、仲間と出会いましょう。何よりも、思いきり楽しんでください！"
+                },
+                start_date=season.start_date,
+                end_date=season.end_date,
+                region_id=application.region_id,
+                season_id=season.id,
+                event_type=EventType.community,
+                image_url=""
+            )
+            event = await create_event_crud(db, event)
+
+        single_card = await get_registration_card_def(db, SportType.running, is_team=False, premium=application.is_premium)
+        team_card = await get_registration_card_def(db, SportType.running, is_team=True, premium=application.is_premium)
+
+        start_date = now
+        end_date = _resolve_track_end_date(application.lifecycle, start_date, event.end_date)
+        prize_pool, score = _compute_track_rewards(route.total_distance, route.elevation_difference, application.is_premium)
+
+        track_id = f"track_{str(uuid.uuid4())[-12:]}"
+        new_track = RunningTrack(
+            track_id=track_id,
+            name_i18n={application.language: application.title},
+            start_date=start_date,
+            end_date=end_date,
+            event_id=event.id,
+            route_type=route.route_type,
+            route_data=route.route_data,
+            route_geometry=route.route_geometry,
+            start_point=route.start_point,
+            end_point=route.end_point,
+            single_register_card_id=single_card.id,
+            team_register_card_id=team_card.id,
+            elevation_difference=route.elevation_difference,
+            sub_region_name_i18n={application.language: application.sub_region_name},
+            prize_pool=prize_pool,
+            score=score,
+            distance=route.total_distance,
+            terrain_type=application.terrain_type,
+            image_url=None
+        )
+        await create_track_crud(db, new_track)
+
+        application.status = RouteApplyStatus.approved
+        application.review_note = review_note
+        application.track_id = track_id
+        application.reviewed_at = now
+        route.apply_status = RouteApplyStatus.approved
+        db.add(application)
+        db.add(route)
+        _send_application_mail(db, application, approved=True, track_title=application.title, review_note=None)
+
+
+def _send_application_mail(db: AsyncSession, application, approved: bool, track_title: str, review_note: str | None):
+    if approved:
+        title_i18n = {
+            "en": "Your route has been approved",
+            "zh-Hans": "你的路线已通过审核",
+            "zh-Hant": "你的路線已通過審核",
+            "ko": "경로가 승인되었습니다",
+            "ja": "ルートが承認されました"
+        }
+        content_i18n = {
+            "en": f"Congratulations! Your route \"{track_title}\" has been approved and is now a race track. Go check it out!",
+            "zh-Hans": f"恭喜！你的路线「{track_title}」已通过审核并成为正式赛道，快去看看吧！",
+            "zh-Hant": f"恭喜！你的路線「{track_title}」已通過審核並成為正式賽道，快去看看吧！",
+            "ko": f"축하합니다! 경로 \"{track_title}\"이(가) 승인되어 정식 트랙이 되었습니다. 확인해 보세요!",
+            "ja": f"おめでとうございます！ルート「{track_title}」が承認され、正式なトラックになりました。ぜひご確認ください！"
+        }
+    else:
+        reason_suffix = {
+            "en": f" Reason: {review_note}" if review_note else "",
+            "zh-Hans": f" 原因：{review_note}" if review_note else "",
+            "zh-Hant": f" 原因：{review_note}" if review_note else "",
+            "ko": f" 사유: {review_note}" if review_note else "",
+            "ja": f" 理由：{review_note}" if review_note else ""
+        }
+        title_i18n = {
+            "en": "Your route application was not approved",
+            "zh-Hans": "你的路线申请未通过",
+            "zh-Hant": "你的路線申請未通過",
+            "ko": "경로 신청이 승인되지 않았습니다",
+            "ja": "ルート申請が承認されませんでした"
+        }
+        content_i18n = {
+            "en": f"Sorry, your route \"{track_title}\" application was not approved.{reason_suffix['en']} You can improve it and apply again.",
+            "zh-Hans": f"很抱歉，你的路线「{track_title}」申请未通过。{reason_suffix['zh-Hans']} 你可以改进后重新申请。",
+            "zh-Hant": f"很抱歉，你的路線「{track_title}」申請未通過。{reason_suffix['zh-Hant']} 你可以改進後重新申請。",
+            "ko": f"죄송합니다. 경로 \"{track_title}\" 신청이 승인되지 않았습니다.{reason_suffix['ko']} 개선 후 다시 신청할 수 있습니다.",
+            "ja": f"申し訳ありません。ルート「{track_title}」の申請は承認されませんでした。{reason_suffix['ja']} 改善して再度申請できます。"
+        }
+    db.add(Mailbox(
+        mail_id=f"mail_{uuid.uuid4()}",
+        user_id=application.user_id,
+        mail_type=MailType.NOTIFICATION,
+        title_i18n=title_i18n,
+        content_i18n=content_i18n,
+        attachment=None,
+        is_received=True,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30)
+    ))
 
 
 async def update_track_service(db: AsyncSession, track: RunningTrackUpdateForm, image_url: str):
@@ -313,23 +548,34 @@ async def update_track_service(db: AsyncSession, track: RunningTrackUpdateForm, 
     try:
         name_i18n = json.loads(track.name)
         sub_region_i18n = json.loads(track.subRegioName)
+        route_data = json.loads(track.route_data)
     except:
         raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message=f"JSON格式错误")
+
+    steps = validate_route_data(track.route_type, route_data)
+    geometry = build_geometry(steps)
+    start = steps[0]
+    end = steps[-1]
+    elevation_start = get_elevation(start.lat, start.lng)
+    elevation_end = get_elevation(end.lat, end.lng)
+    if elevation_start is None or elevation_end is None:
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.data_error")
+    total_distance = compute_distance(extract_path_points(steps))
+
     update_data = {
         "name_i18n": name_i18n,
         "start_date": track.start_date,
         "end_date": track.end_date,
-        "from_lat": track.from_latitude,
-        "from_lng": track.from_longitude,
-        "from_radius": track.from_radius,
-        "to_lat": track.to_latitude,
-        "to_lng": track.to_longitude,
-        "to_radius": track.to_radius,
-        "elevation_difference": track.elevationDifference,
+        "route_type": track.route_type,
+        "route_data": route_data,
+        "route_geometry": from_shape(geometry, srid=4326),
+        "start_point": from_shape(Point(start.lng, start.lat), srid=4326),
+        "end_point": from_shape(Point(end.lng, end.lat), srid=4326),
+        "elevation_difference": elevation_end - elevation_start,
         "sub_region_name_i18n": sub_region_i18n,
         "prize_pool": track.prizePool,
         "score": track.score,
-        "distance": track.distance,
+        "distance": total_distance,
         "terrain_type": track.terrain_type,
         "image_url": image_url
     }
@@ -374,13 +620,9 @@ async def query_tracks_service(
         event_name=t.event.name_i18n["zh-Hans"] if t.event else "未知",
         season_name=t.event.season.name_i18n["zh-Hans"] if t.event and t.event.season else "未知",
         region_id=t.event.region.region_id if t.event and t.event.region else "未知",
-        image_url=build_resource_url(t.image_url),
-        from_latitude=str(t.from_lat),
-        from_longitude=str(t.from_lng),
-        from_radius=t.from_radius,
-        to_latitude=str(t.to_lat),
-        to_longitude=str(t.to_lng),
-        to_radius=t.to_radius,
+        image_url=build_resource_url(t.image_url) if t.image_url else None,
+        route_type=t.route_type,
+        route_data=t.route_data,
         elevation_difference=str(t.elevation_difference),
         sub_region_name=t.sub_region_name_i18n,
         prize_pool=str(t.prize_pool),
@@ -391,46 +633,74 @@ async def query_tracks_service(
     ) for t, is_settled in tracks]
 
 
-async def query_tracks_by_event(db: AsyncSession, lang: Language, event_id: str) -> List[RunningTrackBaseInfo]:
+async def query_tracks_by_event(
+    db: AsyncSession,
+    lang: Language,
+    event_id: str,
+    sort_type: RouteSortType,
+    lat: float | None,
+    lng: float | None,
+    cursor: str | None,
+    limit: int
+) -> RunningTrackListResponse:
     event = await get_event_by_event_id(db, event_id)
     if event is None:
         raise BizException(code=ErrorCode.EVENT_ERROR, message="event.not_found")
-    tracks = await get_track_by_event_id(db, event.id)
-    results = []
-    for t in tracks:
-        male_key = f"leaderboard:running:{t.track_id}:male"
-        female_key = f"leaderboard:running:{t.track_id}:female"
 
-        male_count = await redis_client.zcard(male_key)
-        female_count = await redis_client.zcard(female_key)
-        total_count = male_count + female_count
+    cursor_data = None
+    if cursor:
+        try:
+            cursor_data = decode_cursor(cursor)
+            if "created_at" in cursor_data:
+                cursor_data["created_at"] = datetime.fromisoformat(cursor_data["created_at"])
+            if "track_id" in cursor_data:
+                cursor_data["track_id"] = uuid.UUID(cursor_data["track_id"])
+        except:
+            raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message="cursor解析错误")
+
+    rows = await get_tracks_by_event_page_crud(db, event.id, sort_type, lat, lng, limit, cursor_data)
+    results = []
+    next_cursor = None
+    for row in rows:
+        t = row["RunningTrack"]
+        count = row.get("count") or 0
+        distance_to_user = row.get("user_distance")
+
+        # 游标按行更新（即便该 track 因缺报名卡被跳过，也要推进游标，保证分页连续）
+        if sort_type == RouteSortType.participation:
+            next_cursor = {"count": count, "created_at": t.created_at.isoformat(), "track_id": str(t.id)}
+        else:
+            next_cursor = {"distance": float(distance_to_user), "track_id": str(t.id), "lat": lat, "lng": lng}
 
         if not t.single_register_card_def or not t.team_register_card_def:
             continue
+
+        male_count = await redis_client.zcard(f"leaderboard:running:{t.track_id}:male")
+        female_count = await redis_client.zcard(f"leaderboard:running:{t.track_id}:female")
 
         results.append(RunningTrackBaseInfo(
             track_id=t.track_id,
             name=pick_i18n_text(t.name_i18n, lang),
             start_date=t.start_date.isoformat(),
             end_date=t.end_date.isoformat(),
-            image_url=build_resource_url(t.image_url),
+            image_url=build_resource_url(t.image_url) if t.image_url else None,
             single_register_card_url=build_resource_url(t.single_register_card_def.image_url),
             team_register_card_url=build_resource_url(t.team_register_card_def.image_url),
-            from_latitude=t.from_lat,
-            from_longitude=t.from_lng,
-            from_radius=t.from_radius,
-            to_latitude=t.to_lat,
-            to_longitude=t.to_lng,
-            to_radius=t.to_radius,
+            route_type=t.route_type,
+            route_data=t.route_data,
             elevation_difference=t.elevation_difference,
             sub_region_name=pick_i18n_text(t.sub_region_name_i18n, lang),
             prize_pool=t.prize_pool,
             distance=t.distance,
             score=t.score,
-            totalParticipants=total_count,
+            totalParticipants=male_count + female_count,
+            participate_count=count,
+            distance_to_user=float(distance_to_user) if distance_to_user is not None else None,
             terrain_type=t.terrain_type
         ))
-    return results
+
+    encoded_cursor = encode_cursor(next_cursor) if (len(rows) == limit and next_cursor) else None
+    return RunningTrackListResponse(tracks=results, next_cursor=encoded_cursor)
 
 
 async def single_register_service(db: AsyncSession, lang: Language, track_id: str, user_id: str) -> RunningSingleRegisterResponse:
@@ -454,7 +724,8 @@ async def single_register_service(db: AsyncSession, lang: Language, track_id: st
         new_record = RunningRaceRecord (
             record_id = record_id,
             user_id = user.id,
-            track_id = track.id
+            track_id = track.id,
+            route_data = track.route_data        # 报名时快照赛道路线
         )
         record = await create_record_crud(db, new_record)
         record_info = RunningRecordInfo(
@@ -462,12 +733,8 @@ async def single_register_service(db: AsyncSession, lang: Language, track_id: st
             region_id=record.track.event.region.region_id if record.track and record.track.event and record.track.event.region else "未知",
             event_name=pick_i18n_text(record.track.event.name_i18n, lang) if record.track and record.track.event else "未知",
             track_name=pick_i18n_text(record.track.name_i18n, lang) if record.track else "未知",
-            track_start_lat=record.track.from_lat if record.track else -1,
-            track_start_lng=record.track.from_lng if record.track else -1,
-            track_start_radius=record.track.from_radius if record.track else 10,
-            track_end_lat=record.track.to_lat if record.track else -1,
-            track_end_lng=record.track.to_lng if record.track else -1,
-            track_end_radius=record.track.to_radius if record.track else 10,
+            route_type=record.route_data.get("type", "pointToPoint"),
+            route_data=record.route_data,
             track_end_date=record.track.end_date.isoformat(),
             status=record.status,
             start_date=record.start_time.isoformat() if record.start_time else None,
@@ -516,7 +783,8 @@ async def team_register_service(db: AsyncSession, team_code: str, user_id: str) 
             record_id = record_id,
             user_id = user.id,
             track_id = team.track.id,
-            team_id = team.id
+            team_id = team.id,
+            route_data = team.track.route_data        # 报名时快照赛道路线
         )
         await create_record_crud(db, new_record)
         user_member.is_registered = True
@@ -542,12 +810,8 @@ async def get_incompleted_records_all(
         region_id=r.track.event.region.region_id if r.track and r.track.event and r.track.event.region else "未知",
         event_name=pick_i18n_text(r.track.event.name_i18n, lang) if r.track and r.track.event else "未知",
         track_name=pick_i18n_text(r.track.name_i18n, lang) if r.track else "未知",
-        track_start_lat=r.track.from_lat if r.track else -1,
-        track_start_lng=r.track.from_lng if r.track else -1,
-        track_start_radius=r.track.from_radius if r.track else 10,
-        track_end_lat=r.track.to_lat if r.track else -1,
-        track_end_lng=r.track.to_lng if r.track else -1,
-        track_end_radius=r.track.to_radius if r.track else 10,
+        route_type=r.route_data.get("type", "pointToPoint"),
+        route_data=r.route_data,
         track_end_date=r.track.end_date.isoformat(),
         status=r.status,
         start_date=r.start_time.isoformat() if r.start_time else None,
@@ -576,12 +840,8 @@ async def get_completed_records_all(
         region_id=r.track.event.region.region_id if r.track and r.track.event and r.track.event.region else "未知",
         event_name=pick_i18n_text(r.track.event.name_i18n, lang) if r.track and r.track.event else "未知",
         track_name=pick_i18n_text(r.track.name_i18n, lang) if r.track else "未知",
-        track_start_lat=r.track.from_lat if r.track else -1,
-        track_start_lng=r.track.from_lng if r.track else -1,
-        track_start_radius=r.track.from_radius if r.track else 10,
-        track_end_lat=r.track.to_lat if r.track else -1,
-        track_end_lng=r.track.to_lng if r.track else -1,
-        track_end_radius=r.track.to_radius if r.track else 10,
+        route_type=r.route_data.get("type", "pointToPoint"),
+        route_data=r.route_data,
         track_end_date=r.track.end_date.isoformat(),
         status=r.status,
         start_date=r.start_time.isoformat() if r.start_time else None,
@@ -761,6 +1021,11 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
             training_state_time = original_time * training_state_ratio
             final_time -= (familiarity_time + training_state_time)
 
+            # 多检查点路径校验（对齐 route training：首尾必经，中间点可 miss 计罚时）
+            checkpoints = extract_checkpoints_from_route_data(record.route_data)
+            checkpoint_penalty, path_passes = evaluate_route_training_checkpoint_path([p.base for p in info.path], checkpoints)
+            final_time += checkpoint_penalty
+
             path_data = [p.model_dump() for p in info.path]
             path = RunningRacePath(
                 path_id=f"race_path_{uuid.uuid4()}",
@@ -778,6 +1043,7 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
                 "path_id": path.id,
                 "end_time": info.end_time,
                 "duration_seconds": final_time,
+                "penalty_seconds": checkpoint_penalty,
                 "validation_score": validation_score,
                 "is_finish_bonus_computing": True,       # 当前只有 team mode 的 magiccard 需要延迟收益计算
                 "local_date": get_user_local_date(user, info.end_time),
@@ -785,7 +1051,9 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
                 "training_state_time": training_state_time
             }
             if record.status == RecordStatus.recording:
-                if validation_score >= 70:
+                if not path_passes:
+                    update_data["status"] = RecordStatus.invalid       # 未经过赛道首尾检查点
+                elif validation_score >= 70:
                     update_data["status"] = RecordStatus.completed
                 elif validation_score >= 30:
                     update_data["status"] = RecordStatus.toBeVerified
@@ -908,6 +1176,11 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
             training_state_time = original_time * training_state_ratio
             final_time -= (familiarity_time + training_state_time)
 
+            # 多检查点路径校验（对齐 route training：首尾必经，中间点可 miss 计罚时）
+            checkpoints = extract_checkpoints_from_route_data(record.route_data)
+            checkpoint_penalty, path_passes = evaluate_route_training_checkpoint_path([p.base for p in info.path], checkpoints)
+            final_time += checkpoint_penalty
+
             path_data = [p.model_dump() for p in info.path]
             path = RunningRacePath(
                 path_id=f"race_path_{uuid.uuid4()}",
@@ -929,17 +1202,20 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
                 if br.user_id != user.id and not br.is_applied:
                     is_finish_computed = False
 
-            if info.validation_score >= 70:
+            if not path_passes:
+                status = RecordStatus.invalid       # 未经过赛道首尾检查点
+            elif info.validation_score >= 70:
                 status = RecordStatus.completed
             elif info.validation_score >= 30:
                 status = RecordStatus.toBeVerified
             else:
                 status = RecordStatus.invalid
-            
+
             update_data = {
                 "path_id": path.id,
                 "end_time": info.end_time,
                 "duration_seconds": final_time,
+                "penalty_seconds": checkpoint_penalty,
                 "status": status,
                 "validation_score": info.validation_score,
                 "is_finish_bonus_computing": is_finish_computed,
@@ -1229,10 +1505,12 @@ async def get_score_leaderboard_service(
         ))
     return RunningScoreLeaderboardResponse(entries=entries)
 
-async def query_user_rank_info(db: AsyncSession, user_id: str, track_id: str) -> RunningRankInfo:
-    user = await get_user_by_id(db, user_id)
+async def query_user_rank_info(db: AsyncSession, user_id: str, track_id: str, user: User | None = None) -> RunningRankInfo:
+    # 批量场景下由调用方传入已查到的 user，避免逐条重复查询
     if user is None:
-        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     gender = user.gender if user.gender else Gender.male
 
     snapshot_key = await get_latest_snapshot_key(track_id, gender)
@@ -2076,6 +2354,7 @@ async def get_record_detail_service(db: AsyncSession, lang: Language, record_id:
         status=record.status,
         original_time=original_time,
         final_time=final_time,
+        penalty_time=record.penalty_seconds if record.penalty_seconds else 0,
         is_finish_computed=record.is_finish_bonus_computing if record.is_finish_bonus_computing else False,
         path=path_points,
         card_bonus=card_bonus_list,
@@ -2300,3 +2579,27 @@ async def query_track_familiarity_service(db: AsyncSession, user_id: str, track_
         raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
     familiarity = await get_familiarity_by_track_and_user(db, track, user.id)
     return familiarity
+
+async def query_tracks_user_info_service(db: AsyncSession, user_id: str, track_ids: List[str]) -> List[RunningTrackUserInfo]:
+    """批量查询一组赛道的用户态信息（熟悉度 + 我的排名），供列表分页后一次性填充。"""
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+
+    # 批量取赛道，避免逐条查询；user 已查到，透传给 rank 查询省去重复
+    tracks = await get_tracks_by_track_ids(db, track_ids)
+    track_map = {track.track_id: track for track in tracks}
+
+    infos: List[RunningTrackUserInfo] = []
+    for track_id in track_ids:
+        track = track_map.get(track_id)
+        if track is None:
+            continue
+        familiarity = await get_familiarity_by_track_and_user(db, track, user.id)
+        rank_info = await query_user_rank_info(db, user_id, track_id, user=user)
+        infos.append(RunningTrackUserInfo(
+            track_id=track_id,
+            familiarity=familiarity,
+            rank_info=rank_info
+        ))
+    return infos

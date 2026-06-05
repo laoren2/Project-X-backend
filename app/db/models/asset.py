@@ -102,6 +102,7 @@ class CPRegistrationCardDef(CPAssetDef):
     id = Column(UUID(as_uuid=True), ForeignKey("cp_asset_defs.id"), primary_key=True)
     sport_type = Column(Enum(SportType), nullable=False)
     is_team = Column(Boolean, nullable=False)
+    premium = Column(Boolean, default=False, nullable=False)  # 高级赛道报名卡，配合 sport_type + is_team 唯一确定一张报名卡
 
     __mapper_args__ = {
         "polymorphic_identity": "registration_card",  # 当prop_type为"registration_card"时加载该子类

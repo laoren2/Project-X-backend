@@ -30,6 +30,9 @@ from app.db.models.competition import (
 from app.core.tools import format_time_duration
 from math import radians, sin, cos, sqrt, atan2
 from sqlalchemy.orm import selectinload
+from app.schemas.training.common import RouteType
+from geoalchemy2.shape import from_shape
+from shapely.geometry import Point, LineString
 import logging, json, random, uuid
 
 scheduler_logger = logging.getLogger("scheduler")
@@ -612,10 +615,19 @@ async def query_region_with_coordinate_service(db: AsyncSession, user_id: str | 
         # 审核账号更新测试赛道信息
         track = await running.get_track_by_track_id(db, "track_8b576bc44ff0")
         if track:
-            track.from_lat = lat
-            track.from_lng = lon
-            track.to_lat = lat + 1
-            track.to_lng = lon + 1
+            # 用审核员当前位置就地生成一条 2 点测试赛道
+            end_lat, end_lng = lat + 0.001, lon + 0.001
+            track.route_type = RouteType.pointToPoint
+            track.route_data = {
+                "type": "pointToPoint",
+                "steps": [
+                    {"kind": "checkpoint", "lat": lat, "lng": lon, "radius": 10},
+                    {"kind": "checkpoint", "lat": end_lat, "lng": end_lng, "radius": 10},
+                ]
+            }
+            track.route_geometry = from_shape(LineString([(lon, lat), (end_lng, end_lat)]), srid=4326)
+            track.start_point = from_shape(Point(lon, lat), srid=4326)
+            track.end_point = from_shape(Point(end_lng, end_lat), srid=4326)
             await db.commit()
     region = await get_region_by_coordinate(db, lat, lon)
     result = RegionResponse(

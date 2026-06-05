@@ -1,6 +1,6 @@
 from app.schemas.common import CCAssetRewardResponse, PersonInfoResponse
 from app.schemas.competition.common import PathPoint, CardBonusItem, CardBonusInfo
-from app.schemas.training.common import RouteType, TrainingType, GridCellInfo, GridTileKey, GridEffectType
+from app.schemas.training.common import RouteType, TrainingType, GridCellInfo, GridTileKey, GridEffectType, RouteApplyStatus, TrackLifecycle
 from app.schemas.competition.running import RunningTrackTerrainType
 from datetime import datetime
 from enum import Enum
@@ -115,10 +115,20 @@ class RunningRouteMangeInfo(BaseModel):
     terrain_type: RunningTrackTerrainType
     is_premium: bool
     enable_magiccard: bool
+    participate_count: int                  # 热度（路线训练参与次数），>100 才可申请转赛道
+    apply_status: RouteApplyStatus          # 申请转赛道的状态
     route_data: dict
 
 class RunningRouteManageInfoResponse(BaseModel):
     routes: List[RunningRouteMangeInfo]
+
+# 申请热门路线转为赛道（语言取自 Accept-Language，title/sub_region_name 仅保存该语言一档）
+class RouteTrackApplyRequest(BaseModel):
+    route_id: str
+    title: str
+    sub_region_name: str
+    terrain_type: RunningTrackTerrainType
+    lifecycle: TrackLifecycle
 
 class RouteTrainingFinishInfo(BaseModel):
     route_id: str
