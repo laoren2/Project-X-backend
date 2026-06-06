@@ -25,6 +25,10 @@ async def get_region_by_coordinate(db: AsyncSession, lat: float, lon: float) -> 
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
+async def get_region_by_id(db: AsyncSession, region_id: uuid.UUID) -> Region | None:
+    result = await db.execute(select(Region).where(Region.id == region_id))
+    return result.scalar_one_or_none()
+
 async def get_region_by_region_id(db: AsyncSession, region_id: str) -> Region | None:
     result = await db.execute(select(Region).where(Region.region_id == region_id))
     return result.scalar_one_or_none()

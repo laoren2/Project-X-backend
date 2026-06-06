@@ -125,6 +125,7 @@ class RouteTrackApplyRequest(BaseModel):
     sub_region_name: str
     terrain_type: BikeTrackTerrainType
     lifecycle: TrackLifecycle
+    is_premium: bool        # 是否申请为高级赛道；仅高级路线可置 true，普通路线由服务端强制为 false
 
 class RouteTrainingFinishInfo(BaseModel):
     route_id: str

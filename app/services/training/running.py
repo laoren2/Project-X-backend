@@ -1089,7 +1089,8 @@ async def apply_route_to_track_service(db: AsyncSession, user_id: str, lang: Lan
             sub_region_name=request.sub_region_name,
             terrain_type=request.terrain_type,
             lifecycle=request.lifecycle,
-            is_premium=route.is_premium,
+            # 高级赛道由用户选择，但仅高级路线可申请；普通路线强制为普通赛道
+            is_premium=route.is_premium and request.is_premium,
             participate_count=count,
             status=RouteApplyStatus.pending
         )
