@@ -1,4 +1,4 @@
-from app.crud.competition.common import get_region_by_region_id
+from app.crud.competition.common import get_region_by_region_id, get_region_by_id
 from app.crud.competition.running import (
     get_event_by_event_id, get_event_by_name, get_event_by_season_id_and_region_id,
     get_track_by_name, get_track_by_track_id, get_track_by_event_id, get_tracks_by_event_page_crud,
@@ -429,6 +429,9 @@ async def review_route_application_service(
 
         event = await get_community_event(db, season.id, application.region_id)
         if event is None:
+            region = await get_region_by_id(db, application.region_id)
+            if region is None:
+                raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
             event = RunningEvent(
                 event_id=f"event_{uuid.uuid4()}",
                 name_i18n={"en": "Community Arena", "zh-Hans": "社区竞技场", "zh-Hant": "社區競技場", "ko": "커뮤니티 아레나", "ja": "コミュニティアリーナ"},
@@ -444,7 +447,7 @@ async def review_route_application_service(
                 region_id=application.region_id,
                 season_id=season.id,
                 event_type=EventType.community,
-                image_url=""
+                image_url=f"/resources/competition/official_event/city_tour/cover_{region.country_code.lower()}.png"
             )
             event = await create_event_crud(db, event)
 
