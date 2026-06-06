@@ -724,7 +724,7 @@ async def ensure_bike_effect_grids_generated(
         }
     )
     await db.execute(agg_stmt)
-    print(f"create buff grids for region{region.region_id}")
+    #print(f"create buff grids for region{region.region_id}")
 
 
 async def get_grids_info_by_tiles(

@@ -1065,7 +1065,7 @@ async def query_my_routes_service(
 
 
 # 申请热门路线转为赛道：仅公开、热度 > 阈值、且无进行中申请的路线可申请
-ROUTE_APPLY_MIN_PARTICIPATION = 1
+ROUTE_APPLY_MIN_PARTICIPATION = 100
 
 async def apply_route_to_track_service(db: AsyncSession, user_id: str, lang: Language, request: RouteTrackApplyRequest):
     async with db.begin():
