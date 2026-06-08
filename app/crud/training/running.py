@@ -10,6 +10,7 @@ from app.db.models.training import (
 )
 from app.db.models.asset import UserEquipmentCard
 from app.db.models.user import User
+from app.db.session import redis_client
 from app.schemas.training.common import GridTileKey, GridCellInfo, RouteSortType, GridEffectType, RouteApplyStatus
 from app.schemas.training.running import RunningGridBuffPreview, RunningGridTileResponse, RunningGridTileInfo, RunningGridConditionType
 from sqlalchemy.orm import selectinload
@@ -734,6 +735,63 @@ async def ensure_running_effect_grids_generated(
     await db.execute(agg_stmt)
     #print(f"create buff grids for region{region.region_id}")
 
+
+async def ensure_running_effect_grids_for_viewport(
+    db: AsyncSession,
+    min_grid_x: int,
+    max_grid_x: int,
+    min_grid_y: int,
+    max_grid_y: int,
+    level: int,
+    active_date: date
+):
+    """保证视口（网格范围）覆盖到的所有 region 当天都已生成 buff grids。
+    - 视口网格范围 -> 3857 包络盒 -> 4326，按 ST_Intersects 查相交 region（命中 boundary 的 GiST 索引）
+    - 用 Redis 当天「已生成」集合做短路：稳态下不碰 DB，仅当天首次才走 ensure_*
+    避免只 ensure 传入的单个 region 导致拖动到邻近 region 时出现空白。
+    注意：agg 网格按 2**level 降采样，故 level-L 单格边长 = 500 * 2**level 米，不能直接乘 500。
+    """
+    cell = 500 * (2 ** level)
+    envelope = func.ST_Transform(
+        func.ST_MakeEnvelope(
+            min_grid_x * cell, min_grid_y * cell,
+            (max_grid_x + 1) * cell, (max_grid_y + 1) * cell,
+            3857
+        ),
+        4326
+    )
+    regions = (await db.execute(
+        select(Region).where(func.ST_Intersects(Region.boundary, envelope))
+    )).scalars().all()
+    
+    if not regions:
+        return
+
+    redis_key = f"effect_grids:ensured:running:{active_date.isoformat()}"
+    region_ids = [str(r.id) for r in regions]
+
+    # Redis 批量判断哪些 region 今天还没生成（Redis 异常则全部回退到 DB ensure，仍幂等安全）
+    try:
+        flags = await redis_client.smismember(redis_key, *region_ids)
+    except Exception:
+        flags = [0] * len(region_ids)
+
+    pending = [r for r, f in zip(regions, flags) if not f]
+    if not pending:
+        return
+
+    # 按 id 排序后逐个 ensure：保证并发事务以相同顺序获取 advisory lock，避免死锁
+    pending.sort(key=lambda r: r.id)
+    for r in pending:
+        await ensure_running_effect_grids_generated(db, r, active_date)
+
+    try:
+        await redis_client.sadd(redis_key, *[str(r.id) for r in pending])
+        await redis_client.expire(redis_key, 93600)  # ~26h，跨天自然滚动
+    except Exception:
+        pass
+
+
 async def get_grids_info_by_tiles(
     db: AsyncSession,
     user: User,
@@ -745,9 +803,6 @@ async def get_grids_info_by_tiles(
         return RunningGridTileResponse(tiles=[])
 
     local_date = get_user_local_date(user)
-
-    # lazy ensure buff grids
-    await ensure_running_effect_grids_generated(db, region, local_date)
 
     level = tiles[0].level  # 同一批一定同 level
     tile_size = get_tile_size(level)
@@ -761,6 +816,9 @@ async def get_grids_info_by_tiles(
     max_x = (max_tile_x + 1) * tile_size - 1
     min_y = min_tile_y * tile_size
     max_y = (max_tile_y + 1) * tile_size - 1
+
+    # lazy ensure：保证视口覆盖到的所有 region 当天都已生成 buff grids
+    await ensure_running_effect_grids_for_viewport(db, min_x, max_x, min_y, max_y, level, local_date)
 
     familiarity_stmt = (
         select(

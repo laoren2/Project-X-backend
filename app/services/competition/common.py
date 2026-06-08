@@ -1,6 +1,6 @@
 from app.crud.competition.common import (
     create_region_crud, get_regions_by_country_code,
-    get_region_by_coordinate
+    get_region_by_coordinate, get_region_ids_with_playable_tracks
 )
 from app.crud.asset_manage import reward_ccasset
 import app.crud.competition.bike as bike
@@ -591,23 +591,9 @@ async def generate_running_leaderboard_snapshot(db: AsyncSession, track_id: str)
 
 
 async def query_regions_with_events_service(db: AsyncSession, sport_type: str, country_code: str) -> List[str]:
-    regions = await get_regions_by_country_code(db, country_code)
-    if not regions:
-        raise BizException(code=ErrorCode.REGION_ERROR, message="region.no_events")
-    result = []
-    now = datetime.now(timezone.utc)
-    for region in regions:
-        if sport_type == "bike":
-            for event in region.bike_events:
-                if event.start_date <= now <= event.end_date:
-                    result.append(region.region_id)
-                    break
-        elif sport_type == "running":
-            for event in region.running_events:
-                if event.start_date <= now <= event.end_date:
-                    result.append(region.region_id)
-                    break
-    return result
+    # 现在所有 region 默认都有一个社区 event，按 event 过滤已无意义；
+    # 改为返回「存在可玩 track」的 region（event 下挂有进行中的赛道）。
+    return await get_region_ids_with_playable_tracks(db, country_code, sport_type)
 
 
 async def query_region_with_coordinate_service(db: AsyncSession, user_id: str | None, lat: float, lon: float) -> RegionResponse:
@@ -1015,7 +1001,8 @@ async def send_running_match_rewards(db: AsyncSession, record: RunningRaceRecord
                 "zh-Hans": f"恭喜！你刚刚成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 跑步赛道最好成绩，成为赛道记录的保持者，成绩为：{final_duration}，请收下你的奖励！",
                 "zh-Hant": f"恭喜！你剛剛成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 跑步賽道最佳成績，成為賽道記錄的保持者，成績為：{final_duration}，請收下你的獎勵！",
                 "ko": f"축하합니다! 방금 {pick_i18n_text(record.track.name_i18n, Language.ko)} 육상 트랙에서 개인 최고 기록을 경신하여 트랙 기록 보유자가 되셨습니다. 기록은 {final_duration}입니다. 보상을 받으세요!",
-                "ja": f"おめでとうございます！{pick_i18n_text(record.track.name_i18n, Language.ja)} ランニングコースの最高記録を更新し、新たなコース記録保持者となりました！タイムは {final_duration} です。報酬をお受け取りください！"
+                "ja": f"おめでとうございます！{pick_i18n_text(record.track.name_i18n, Language.ja)} ランニングコースの最高記録を更新し、新たなコース記録保持者となりました！タイムは {final_duration} です。報酬をお受け取りください！",
+                "fr": f"Félicitations ! Vous venez de battre le record du parcours de course {pick_i18n_text(record.track.name_i18n, Language.fr)} et d'en devenir le nouveau détenteur. Votre temps : {final_duration}. Récupérez votre récompense !"
             }
         elif is_user_best:
             content = {
@@ -1023,7 +1010,8 @@ async def send_running_match_rewards(db: AsyncSession, record: RunningRaceRecord
                 "zh-Hans": f"恭喜！你刚刚在 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 跑步赛道成功刷新了自己的最好成绩，成绩为：{final_duration}，请收下你的奖励，再接再厉！",
                 "zh-Hant": f"恭喜！你剛剛在 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 跑步賽道成功刷新了自己的最佳成績，成績為：{final_duration}，請收下你的獎勵，再接再厲！",
                 "ko": f"축하합니다! 방금 {pick_i18n_text(record.track.name_i18n, Language.ko)} 육상 트랙에서 개인 최고 기록을 경신하셨습니다. 기록은 {final_duration}입니다. 축하 메시지를 받으시고 앞으로도 좋은 성적을 유지하시길 바랍니다!",
-                "ja": f"おめでとうございます！{pick_i18n_text(record.track.name_i18n, Language.ja)} ランニングコースで自己ベストを更新しました！タイムは {final_duration} です。報酬を受け取って、さらに上を目指しましょう！"
+                "ja": f"おめでとうございます！{pick_i18n_text(record.track.name_i18n, Language.ja)} ランニングコースで自己ベストを更新しました！タイムは {final_duration} です。報酬を受け取って、さらに上を目指しましょう！",
+                "fr": f"Félicitations ! Vous venez de battre votre record personnel sur le parcours de course {pick_i18n_text(record.track.name_i18n, Language.fr)}. Votre temps : {final_duration}. Récupérez votre récompense et continuez comme ça !"
             }
         else:
             content = {
@@ -1031,13 +1019,14 @@ async def send_running_match_rewards(db: AsyncSession, record: RunningRaceRecord
                 "zh-Hans": f"你刚刚完成了一场 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 赛道的跑步比赛，成绩为：{final_duration}，距离自己的最好成绩只差一点点了，期待你的下一次挑战！",
                 "zh-Hant": f"你剛剛完成了一場 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 賽道的跑步比賽，成績為：{final_duration}，距離自己的最好成績只差一點點了，期待你的下一個挑戰！",
                 "ko": f"방금 {pick_i18n_text(record.track.name_i18n, Language.ko)} 트랙에서 열린 달리기 경주를 {final_duration}의 기록으로 완주하셨습니다. 아쉽게도 개인 최고 기록에는 약간 못 미쳤지만, 다음 도전을 기대하겠습니다!",
-                "ja": f"{pick_i18n_text(record.track.name_i18n, Language.ja)} ランニングコースを完走しました！タイムは {final_duration} です。自己ベストまであと少しです。次回のチャレンジを楽しみにしています！"
+                "ja": f"{pick_i18n_text(record.track.name_i18n, Language.ja)} ランニングコースを完走しました！タイムは {final_duration} です。自己ベストまであと少しです。次回のチャレンジを楽しみにしています！",
+                "fr": f"Vous venez de terminer une course sur le parcours {pick_i18n_text(record.track.name_i18n, Language.fr)}. Votre temps : {final_duration}. Il vous manque un rien pour battre votre record ; on attend votre prochain défi !"
             }
         mail = Mailbox(
             mail_id=f"mail_{uuid.uuid4()}",
             user_id=record.user_id,
             mail_type=MailType.REWARD,
-            title_i18n={"en": "Successfully completed match", "zh-Hans": "成功完成比赛", "zh-Hant": "成功完成比賽", "ko": "대회가 성공적으로 마무리되었습니다", "ja": "レース完了"},
+            title_i18n={"en": "Successfully completed match", "zh-Hans": "成功完成比赛", "zh-Hant": "成功完成比賽", "ko": "대회가 성공적으로 마무리되었습니다", "ja": "レース完了", "fr": "Course terminée"},
             content_i18n=content,
             attachment = attachment,
             is_received = False,
@@ -1065,7 +1054,8 @@ async def send_bike_match_rewards(db: AsyncSession, record: BikeRaceRecord):
                 "zh-Hans": f"恭喜！你刚刚成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 自行车赛道最好成绩，成为赛道记录的保持者，成绩为：{final_duration}，请收下你的奖励！",
                 "zh-Hant": f"恭喜！你剛剛成功刷新了 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 自行車賽道最佳成績，成為賽道記錄的保持者，成績為：{final_duration}，請收下你的獎勵！",
                 "ko": f"축하합니다! 방금 {pick_i18n_text(record.track.name_i18n, Language.ko)} 사이클 트랙에서 최고 기록을 경신하여 트랙 레코드 보유자가 되셨습니다. 기록은 {final_duration}입니다. 보상을 받으세요!",
-                "ja": f"おめでとうございます！{pick_i18n_text(record.track.name_i18n, Language.ja)} バイクコースの最高記録を更新し、新たなコース記録保持者となりました！タイムは {final_duration} です。報酬をお受け取りください！"
+                "ja": f"おめでとうございます！{pick_i18n_text(record.track.name_i18n, Language.ja)} バイクコースの最高記録を更新し、新たなコース記録保持者となりました！タイムは {final_duration} です。報酬をお受け取りください！",
+                "fr": f"Félicitations ! Vous venez de battre le record du parcours de vélo {pick_i18n_text(record.track.name_i18n, Language.fr)} et d'en devenir le nouveau détenteur. Votre temps : {final_duration}. Récupérez votre récompense !"
             }
         elif is_user_best:
             content = {
@@ -1073,7 +1063,8 @@ async def send_bike_match_rewards(db: AsyncSession, record: BikeRaceRecord):
                 "zh-Hans": f"恭喜！你刚刚在 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 自行车赛道成功刷新了自己的最好成绩，成绩为：{final_duration}，请收下你的奖励，再接再厉！",
                 "zh-Hant": f"恭喜！你剛剛在 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 自行車賽道成功刷新了自己的最佳成績，成績為：{final_duration}，請收下你的獎勵，再接再厲！",
                 "ko": f"축하합니다! {pick_i18n_text(record.track.name_i18n, Language.ko)} 사이클 트랙에서 개인 최고 기록을 경신하셨습니다. 기록은 {final_duration}입니다. 축하드립니다! 앞으로도 좋은 성적 기대하겠습니다!",
-                "ja": f"おめでとうございます！{pick_i18n_text(record.track.name_i18n, Language.ja)} バイクコースで自己ベストを更新しました！タイムは {final_duration} です。報酬を受け取って、次の記録更新を目指しましょう！"
+                "ja": f"おめでとうございます！{pick_i18n_text(record.track.name_i18n, Language.ja)} バイクコースで自己ベストを更新しました！タイムは {final_duration} です。報酬を受け取って、次の記録更新を目指しましょう！",
+                "fr": f"Félicitations ! Vous venez de battre votre record personnel sur le parcours de vélo {pick_i18n_text(record.track.name_i18n, Language.fr)}. Votre temps : {final_duration}. Récupérez votre récompense et continuez comme ça !"
             }
         else:
             content = {
@@ -1081,13 +1072,14 @@ async def send_bike_match_rewards(db: AsyncSession, record: BikeRaceRecord):
                 "zh-Hans": f"你刚刚完成了一场 {pick_i18n_text(record.track.name_i18n, Language.zh_hans)} 赛道的自行车比赛，成绩为：{final_duration}，距离自己的最好成绩只差一点点了，期待你的下一次挑战！",
                 "zh-Hant": f"你剛剛完成了一場 {pick_i18n_text(record.track.name_i18n, Language.zh_hant)} 賽道的自行車比賽，成績為：{final_duration}，距離自己的最好成績只差一點點了，期待你的下一個挑戰！",
                 "ko": f"방금 {pick_i18n_text(record.track.name_i18n, Language.ko)} 트랙에서 자전거 경주를 마쳤습니다. 결과는 {final_duration}입니다. 아쉽게도 개인 최고 기록에는 약간 못 미치네요. 다음 도전을 기대하겠습니다!",
-                "ja": f"{pick_i18n_text(record.track.name_i18n, Language.ja)} バイクコースを完走しました！タイムは {final_duration} です。自己ベストまであと少しです。次回のチャレンジを楽しみにしています！"
+                "ja": f"{pick_i18n_text(record.track.name_i18n, Language.ja)} バイクコースを完走しました！タイムは {final_duration} です。自己ベストまであと少しです。次回のチャレンジを楽しみにしています！",
+                "fr": f"Vous venez de terminer une course de vélo sur le parcours {pick_i18n_text(record.track.name_i18n, Language.fr)}. Votre temps : {final_duration}. Il vous manque un rien pour battre votre record ; on attend votre prochain défi !"
             }
         mail = Mailbox(
             mail_id=f"mail_{uuid.uuid4()}",
             user_id=record.user_id,
             mail_type=MailType.REWARD,
-            title_i18n={"en": "Successfully completed match", "zh-Hans": "成功完成比赛", "zh-Hant": "成功完成比賽", "ko": "대회가 성공적으로 마무리되었습니다", "ja": "レース完了"},
+            title_i18n={"en": "Successfully completed match", "zh-Hans": "成功完成比赛", "zh-Hant": "成功完成比賽", "ko": "대회가 성공적으로 마무리되었습니다", "ja": "レース完了", "fr": "Course terminée"},
             content_i18n=content,
             attachment = attachment,
             is_received = False,

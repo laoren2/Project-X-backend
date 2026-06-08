@@ -15,6 +15,7 @@ class Language(str, Enum):
     en = "en"
     ko = "ko"
     ja = "ja"
+    fr = "fr"
 
 DEFAULT_LANGUAGE = Language.en
 

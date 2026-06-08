@@ -437,13 +437,14 @@ async def review_route_application_service(
                 raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
             event = BikeEvent(
                 event_id=f"event_{uuid.uuid4()}",
-                name_i18n={"en": "Community Arena", "zh-Hans": "社区竞技场", "zh-Hant": "社區競技場", "ko": "커뮤니티 아레나", "ja": "コミュニティアリーナ"},
+                name_i18n={"en": "Community Arena", "zh-Hans": "社区竞技场", "zh-Hant": "社區競技場", "ko": "커뮤니티 아레나", "ja": "コミュニティアリーナ", "fr": "Arène communautaire"},
                 description_i18n={
                     "en": "Welcome to the Community Arena! Every track here grew from the community's most-loved training routes, shaped by your passion and sweat. Challenge yourself, chase new records, and meet fellow riders along the way. Above all, have fun out there!",
                     "zh-Hans": "欢迎来到社区竞技场！这里的每一条赛道都源自社区中最受欢迎的训练路线，凝聚着大家的汗水与热爱。在这里挑战自我、刷新纪录、结识同好，愿你尽情驰骋，玩得开心！",
                     "zh-Hant": "歡迎來到社區競技場！這裡的每一條賽道都源自社區中最受歡迎的訓練路線，凝聚著大家的汗水與熱愛。在這裡挑戰自我、刷新紀錄、結識同好，願你盡情馳騁，玩得開心！",
                     "ko": "커뮤니티 아레나에 오신 것을 환영합니다! 이곳의 모든 트랙은 커뮤니티에서 가장 사랑받은 훈련 경로에서 탄생했으며, 여러분의 땀과 열정이 담겨 있습니다. 자신에게 도전하고 기록을 경신하며 동료들을 만나 보세요. 무엇보다 마음껏 즐기시길 바랍니다!",
-                    "ja": "コミュニティアリーナへようこそ！ここにあるすべてのトラックは、コミュニティで最も愛されたトレーニングルートから生まれ、皆さんの汗と情熱が詰まっています。自分に挑戦し、記録を更新し、仲間と出会いましょう。何よりも、思いきり楽しんでください！"
+                    "ja": "コミュニティアリーナへようこそ！ここにあるすべてのトラックは、コミュニティで最も愛されたトレーニングルートから生まれ、皆さんの汗と情熱が詰まっています。自分に挑戦し、記録を更新し、仲間と出会いましょう。何よりも、思いきり楽しんでください！",
+                    "fr": "Bienvenue dans l'Arène communautaire ! Chaque parcours ici est né des itinéraires d'entraînement préférés de la communauté, façonné par votre passion et votre sueur. Défiez-vous, battez des records et rencontrez d'autres cyclistes en chemin. Et surtout, amusez-vous bien !"
                 },
                 start_date=season.start_date,
                 end_date=season.end_date,
@@ -502,14 +503,16 @@ def _send_application_mail(db: AsyncSession, application, approved: bool, track_
             "zh-Hans": "你的路线已通过审核",
             "zh-Hant": "你的路線已通過審核",
             "ko": "경로가 승인되었습니다",
-            "ja": "ルートが承認されました"
+            "ja": "ルートが承認されました",
+            "fr": "Votre itinéraire a été approuvé"
         }
         content_i18n = {
             "en": f"Congratulations! Your route \"{track_title}\" has been approved and is now a race track. Go check it out!",
             "zh-Hans": f"恭喜！你的路线「{track_title}」已通过审核并成为正式赛道，快去看看吧！",
             "zh-Hant": f"恭喜！你的路線「{track_title}」已通過審核並成為正式賽道，快去看看吧！",
             "ko": f"축하합니다! 경로 \"{track_title}\"이(가) 승인되어 정식 트랙이 되었습니다. 확인해 보세요!",
-            "ja": f"おめでとうございます！ルート「{track_title}」が承認され、正式なトラックになりました。ぜひご確認ください！"
+            "ja": f"おめでとうございます！ルート「{track_title}」が承認され、正式なトラックになりました。ぜひご確認ください！",
+            "fr": f"Félicitations ! Votre itinéraire « {track_title} » a été approuvé et est désormais un parcours de course. Allez y jeter un œil !"
         }
     else:
         reason_suffix = {
@@ -517,21 +520,24 @@ def _send_application_mail(db: AsyncSession, application, approved: bool, track_
             "zh-Hans": f" 原因：{review_note}" if review_note else "",
             "zh-Hant": f" 原因：{review_note}" if review_note else "",
             "ko": f" 사유: {review_note}" if review_note else "",
-            "ja": f" 理由：{review_note}" if review_note else ""
+            "ja": f" 理由：{review_note}" if review_note else "",
+            "fr": f" Raison : {review_note}" if review_note else ""
         }
         title_i18n = {
             "en": "Your route application was not approved",
             "zh-Hans": "你的路线申请未通过",
             "zh-Hant": "你的路線申請未通過",
             "ko": "경로 신청이 승인되지 않았습니다",
-            "ja": "ルート申請が承認されませんでした"
+            "ja": "ルート申請が承認されませんでした",
+            "fr": "Votre demande d'itinéraire n'a pas été approuvée"
         }
         content_i18n = {
             "en": f"Sorry, your route \"{track_title}\" application was not approved.{reason_suffix['en']} You can improve it and apply again.",
             "zh-Hans": f"很抱歉，你的路线「{track_title}」申请未通过。{reason_suffix['zh-Hans']} 你可以改进后重新申请。",
             "zh-Hant": f"很抱歉，你的路線「{track_title}」申請未通過。{reason_suffix['zh-Hant']} 你可以改進後重新申請。",
             "ko": f"죄송합니다. 경로 \"{track_title}\" 신청이 승인되지 않았습니다.{reason_suffix['ko']} 개선 후 다시 신청할 수 있습니다.",
-            "ja": f"申し訳ありません。ルート「{track_title}」の申請は承認されませんでした。{reason_suffix['ja']} 改善して再度申請できます。"
+            "ja": f"申し訳ありません。ルート「{track_title}」の申請は承認されませんでした。{reason_suffix['ja']} 改善して再度申請できます。",
+            "fr": f"Désolé, votre demande pour l'itinéraire « {track_title} » n'a pas été approuvée.{reason_suffix['fr']} Vous pouvez l'améliorer et postuler à nouveau."
         }
     db.add(Mailbox(
         mail_id=f"mail_{uuid.uuid4()}",
@@ -1891,13 +1897,14 @@ async def settle_bike_leaderboard_service(db: AsyncSession, track_id: str) -> tu
                         mail_id=f"mail_{uuid.uuid4()}",
                         user_id=user.id,
                         mail_type=MailType.REWARD,
-                        title_i18n={"en": "Cycling race settlement", "zh-Hans": "自行车赛事结算", "zh-Hant": "自行車賽事結算", "ko": "사이클 경주 보상금 정산", "ja": "自転車レースリザルト"},
+                        title_i18n={"en": "Cycling race settlement", "zh-Hans": "自行车赛事结算", "zh-Hant": "自行車賽事結算", "ko": "사이클 경주 보상금 정산", "ja": "自転車レースリザルト", "fr": "Résultats de la course de vélo"},
                         content_i18n={
                             "en": f"Congratulations on achieving rank {rank} in the {pick_i18n_text(track.event.name_i18n, Language.en)} - {pick_i18n_text(track.name_i18n, Language.en)} competition! Please claim your reward as soon as possible:", 
                             "zh-Hans": f"恭喜您在 {pick_i18n_text(track.event.name_i18n, Language.zh_hans)} - {pick_i18n_text(track.name_i18n, Language.zh_hans)} 比赛中获得第 {rank} 名，请尽快领取奖励:", 
                             "zh-Hant": f"恭喜您在 {pick_i18n_text(track.event.name_i18n, Language.zh_hant)} - {pick_i18n_text(track.name_i18n, Language.zh_hant)} 比賽中獲得第 {rank} 名，請盡快領取獎勵:",
                             "ko": f"{pick_i18n_text(track.event.name_i18n, Language.ko)} - {pick_i18n_text(track.name_i18n, Language.ko)} 대회에서 {rank}위를 달성하신 것을 진심으로 축하드립니다! 가능한 한 빨리 상품을 수령해 가세요:",
-                            "ja": f"{pick_i18n_text(track.event.name_i18n, Language.ja)} - {pick_i18n_text(track.name_i18n, Language.ja)} の大会で第 {rank} 位を獲得しました。おめでとうございます！報酬をお早めにお受け取りください:"
+                            "ja": f"{pick_i18n_text(track.event.name_i18n, Language.ja)} - {pick_i18n_text(track.name_i18n, Language.ja)} の大会で第 {rank} 位を獲得しました。おめでとうございます！報酬をお早めにお受け取りください:",
+                            "fr": f"Félicitations pour votre {rank}e place dans la compétition {pick_i18n_text(track.event.name_i18n, Language.fr)} - {pick_i18n_text(track.name_i18n, Language.fr)} ! Récupérez votre récompense dès que possible :"
                         },
                         attachment={"voucher": voucher, "description": "比赛结算奖励"},
                         is_read=False,
