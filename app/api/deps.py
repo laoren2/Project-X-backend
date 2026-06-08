@@ -92,6 +92,8 @@ def get_language(
             lang = Language.ko
         elif primary == "ja":
             lang = Language.ja
+        elif primary == "fr":
+            lang = Language.fr
 
     request.state.lang = lang
     return lang

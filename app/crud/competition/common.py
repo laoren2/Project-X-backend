@@ -3,11 +3,40 @@ from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy import select, func
 from geoalchemy2.functions import ST_Contains
 from geoalchemy2 import WKTElement
-from app.db.models.competition import Region
+from app.db.models.competition import Region, BikeEvent, BikeTrack, RunningEvent, RunningTrack
 from app.db.models.training import UserGridFamiliarityBike
 from sqlalchemy.orm import selectinload
+from datetime import datetime, timezone
 from typing import Optional, List
 import uuid
+
+
+async def get_region_ids_with_playable_tracks(db: AsyncSession, country_code: str, sport_type: str) -> List[str]:
+    """返回该国家下、存在「可玩 track」的 region_id（去重）。
+    可玩 track：track.start_date < now < track.end_date，且挂在进行中的 event 下。
+    用 Region→Event→Track 的连接 + distinct 一次查出，避免懒加载 N+1。"""
+    if sport_type == "bike":
+        Event, Track = BikeEvent, BikeTrack
+    elif sport_type == "running":
+        Event, Track = RunningEvent, RunningTrack
+    else:
+        return []
+    now = datetime.now(timezone.utc)
+    stmt = (
+        select(Region.region_id)
+        .join(Event, Event.region_id == Region.id)
+        .join(Track, Track.event_id == Event.id)
+        .where(
+            Region.country_code == country_code,
+            Event.start_date <= now,
+            Event.end_date >= now,
+            Track.start_date < now,
+            Track.end_date > now,
+        )
+        .distinct()
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
 
 
 
