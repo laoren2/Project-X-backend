@@ -1210,3 +1210,24 @@ async def get_rank_info_by_route_and_user(
     )
     rank = (rank_result.scalar() or 0) + 1
     return rank_info, rank
+
+async def get_bike_free_training_record_by_upload_id(db: AsyncSession, user_id: uuid.UUID, client_upload_id: str) -> BikeFreeTrainingRecord | None:
+    """按 (user_id, client_upload_id) 查找已存在的自由训练记录，用于重传幂等去重"""
+    result = await db.execute(
+        select(BikeFreeTrainingRecord).where(
+            BikeFreeTrainingRecord.user_id == user_id,
+            BikeFreeTrainingRecord.client_upload_id == client_upload_id
+        ).limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_bike_route_training_record_by_upload_id(db: AsyncSession, user_id: uuid.UUID, client_upload_id: str) -> BikeRouteTrainingRecord | None:
+    """按 (user_id, client_upload_id) 查找已存在的路线训练记录，用于重传幂等去重"""
+    result = await db.execute(
+        select(BikeRouteTrainingRecord).where(
+            BikeRouteTrainingRecord.user_id == user_id,
+            BikeRouteTrainingRecord.client_upload_id == client_upload_id
+        ).limit(1)
+    )
+    return result.scalar_one_or_none()

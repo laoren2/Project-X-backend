@@ -206,6 +206,16 @@ class BikeRaceRecord(Base):
     training_state_time = Column(Float, nullable=True)              # 训练状态成绩增益
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
+
+    __table_args__ = (
+        Index(
+            "uq_bike_race_records_user_upload",
+            "user_id",
+            "client_upload_id",
+            unique=True
+        ),
+    )
 
     # ORM 关系
     user = relationship("User", primaryjoin="foreign(BikeRaceRecord.user_id)==User.id")
@@ -263,6 +273,16 @@ class RunningRaceRecord(Base):
     training_state_time = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
+
+    __table_args__ = (
+        Index(
+            "uq_running_race_records_user_upload",
+            "user_id",
+            "client_upload_id",
+            unique=True
+        ),
+    )
 
     # ORM 关系
     user = relationship("User", primaryjoin="foreign(RunningRaceRecord.user_id)==User.id")

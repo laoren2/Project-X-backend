@@ -36,6 +36,7 @@ class FreeTrainingFinishInfo(BaseModel):
     start_time: datetime
     end_time: datetime
     path: List[RunningFreeTrainingPathPoint]
+    client_upload_id: str | None = None                   # 客户端幂等键，重传去重用（旧客户端可不传）
 
 class FreeTrainingFinishResponse(BaseModel):
     record_id: str
@@ -137,6 +138,7 @@ class RouteTrainingFinishInfo(BaseModel):
     end_time: datetime
     path: List[RunningRouteTrainingPathPoint]
     bonus_in_cards: List[CardBonusItem]
+    client_upload_id: str | None = None                   # 客户端幂等键，重传去重用（旧客户端可不传）
 
 class RouteTrainingFinishResponse(BaseModel):
     record_id: str

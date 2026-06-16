@@ -40,7 +40,8 @@ from app.crud.training.bike import (
     get_grids_info_by_tiles, get_routes_by_page_crud, get_routes_by_uesr_id, get_route_by_route_id,
     get_route_training_record_by_record_id, get_rank_info_by_route_and_user,
     count_route_training_records, count_route_training_records_by_routes,
-    create_route_track_application_crud, get_active_application_by_route
+    create_route_track_application_crud, get_active_application_by_route,
+    get_bike_free_training_record_by_upload_id, get_bike_route_training_record_by_upload_id
 )
 from app.crud.competition.bike import get_season_now, get_score_by_season_and_user, add_or_update_career_xp
 from app.crud.user import get_user_by_id
@@ -65,6 +66,16 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
         season = await get_season_now(db)
         if not season:
             raise BizException(code=ErrorCode.SEASON_ERROR, message="season.out_of_season")
+        # 幂等：同一 client_upload_id 已结算过，直接返回已存在记录（防止重传重复发奖）
+        if info.client_upload_id:
+            existing = await get_bike_free_training_record_by_upload_id(db, user.id, info.client_upload_id)
+            if existing is not None:
+                return FreeTrainingFinishResponse(
+                    record_id=existing.record_id,
+                    xp_before=0, xp_delta=0,
+                    training_state_before=0, training_state_delta=0,
+                    new_grids=0, triggered_buff_count=0, cc_rewards=[]
+                )
         state, _ = await compute_training_decay(db, user, True)
 
         # 检查记录合理性(时间过短 < 30s or 距离过短 < 100m 则不进行记录)
@@ -140,7 +151,8 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
             duration_seconds = duration,
             local_date = get_user_local_date(user, info.end_time),
             settlement_rewards = settlements,
-            triggered_buffs = triggered_buffs_data
+            triggered_buffs = triggered_buffs_data,
+            client_upload_id = info.client_upload_id
         )
         db.add(record)
 
@@ -1130,6 +1142,16 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
         season = await get_season_now(db)
         if not season:
             raise BizException(code=ErrorCode.SEASON_ERROR, message="season.out_of_season")
+        # 幂等：同一 client_upload_id 已结算过，直接返回已存在记录（防止重传重复发奖）
+        if finish_info.client_upload_id:
+            existing = await get_bike_route_training_record_by_upload_id(db, user.id, finish_info.client_upload_id)
+            if existing is not None:
+                return RouteTrainingFinishResponse(
+                    record_id=existing.record_id,
+                    xp_before=0, xp_delta=0,
+                    training_state_before=0, training_state_delta=0,
+                    new_grids=0, cc_rewards=[]
+                )
 
         checkpoints = extract_checkpoints_from_route_data(route.route_data)
         total_penalty, path_passes_checkpoints = evaluate_route_training_checkpoint_path([p.base for p in finish_info.path], checkpoints)
@@ -1202,7 +1224,8 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
             duration_seconds=final_time,
             penalty_seconds=total_penalty,
             local_date=get_user_local_date(user, finish_info.end_time),
-            settlement_rewards=settlements
+            settlement_rewards=settlements,
+            client_upload_id=finish_info.client_upload_id
         )
         db.add(record)
         await db.flush()

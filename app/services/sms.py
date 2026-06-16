@@ -66,7 +66,7 @@ async def send_sms_code_service(phone_number: str, lang: Language):
     elif lang == Language.ko:
         msg = f"[Movmov] 인증번호는 {code}입니다. 5분 내에 입력해 주세요. 타인에게 공유하지 마세요."
     elif lang == Language.ja:
-        msg = f"【Movmov】認証コードは {code} です。5分以内に入力して操作を完了してください。心当たりがない場合は、このSMSを無視してください。"
+        msg = f"Movmov : 認証コードは {code} です。5分以内に入力してください。"
     elif lang == Language.fr:
         msg = f"Movmov : votre code de vérification est {code}. Il expirera dans 5 minutes. Ne partagez ce code avec personne."
     else:
