@@ -1213,3 +1213,24 @@ async def get_rank_info_by_route_and_user(
     )
     rank = (rank_result.scalar() or 0) + 1
     return rank_info, rank
+
+async def get_running_free_training_record_by_upload_id(db: AsyncSession, user_id: uuid.UUID, client_upload_id: str) -> RunningFreeTrainingRecord | None:
+    """按 (user_id, client_upload_id) 查找已存在的自由训练记录，用于重传幂等去重"""
+    result = await db.execute(
+        select(RunningFreeTrainingRecord).where(
+            RunningFreeTrainingRecord.user_id == user_id,
+            RunningFreeTrainingRecord.client_upload_id == client_upload_id
+        ).limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_running_route_training_record_by_upload_id(db: AsyncSession, user_id: uuid.UUID, client_upload_id: str) -> RunningRouteTrainingRecord | None:
+    """按 (user_id, client_upload_id) 查找已存在的路线训练记录，用于重传幂等去重"""
+    result = await db.execute(
+        select(RunningRouteTrainingRecord).where(
+            RunningRouteTrainingRecord.user_id == user_id,
+            RunningRouteTrainingRecord.client_upload_id == client_upload_id
+        ).limit(1)
+    )
+    return result.scalar_one_or_none()

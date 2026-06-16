@@ -310,6 +310,7 @@ class BikeFinishInfo(BaseModel):
     bonus_in_cards: List[CardBonusItem]
     team_bonus: TeamMagicCardBonusInfo | None = None      # 每人只允许使用一张组队卡牌
     path: List[BikePathPoint]
+    client_upload_id: str | None = None                   # 客户端幂等键，重传去重用（旧客户端可不传）
 
 class BikeRecordInfo(ORMBase):
     record_id: str

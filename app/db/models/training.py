@@ -256,12 +256,19 @@ class BikeFreeTrainingRecord(Base):
     triggered_buffs = Column(JSONB, nullable=False, server_default="[]")            # 训练触发的 buff grids 快照
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
 
     __table_args__ = (
         Index(
             "idx_bike_free_training_records_user_date",
             "user_id",
             "local_date"
+        ),
+        Index(
+            "uq_bike_free_training_records_user_upload",
+            "user_id",
+            "client_upload_id",
+            unique=True
         ),
     )
 
@@ -296,12 +303,19 @@ class RunningFreeTrainingRecord(Base):
     triggered_buffs = Column(JSONB, nullable=False, server_default="[]")            # 训练触发的 buff grids 快照
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
 
     __table_args__ = (
         Index(
             "idx_running_free_training_records_user_date",
             "user_id",
             "local_date"
+        ),
+        Index(
+            "uq_running_free_training_records_user_upload",
+            "user_id",
+            "client_upload_id",
+            unique=True
         ),
     )
 
@@ -466,6 +480,7 @@ class BikeRouteTrainingRecord(Base):
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)       # 此次训练的结算，可能包含 xp/state_value/familiarity...
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
 
     # ORM 关系
     user = relationship("User", primaryjoin="foreign(BikeRouteTrainingRecord.user_id)==User.id", uselist=False)
@@ -478,6 +493,12 @@ class BikeRouteTrainingRecord(Base):
             "idx_bike_route_training_records_route_user",
             "route_id",
             "user_id"
+        ),
+        Index(
+            "uq_bike_route_training_records_user_upload",
+            "user_id",
+            "client_upload_id",
+            unique=True
         ),
     )
 
@@ -551,6 +572,7 @@ class RunningRouteTrainingRecord(Base):
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)       # 此次训练的结算，可能包含 xp/state_value/familiarity...
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
 
     # ORM 关系
     user = relationship("User", primaryjoin="foreign(RunningRouteTrainingRecord.user_id)==User.id", uselist=False)
@@ -563,6 +585,12 @@ class RunningRouteTrainingRecord(Base):
             "idx_running_route_training_records_route_user",
             "route_id",
             "user_id"
+        ),
+        Index(
+            "uq_running_route_training_records_user_upload",
+            "user_id",
+            "client_upload_id",
+            unique=True
         ),
     )
 

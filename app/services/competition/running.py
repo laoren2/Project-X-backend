@@ -995,6 +995,9 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
             record = await get_record_by_record_id(db, info.record_id)
             if record is None:
                 raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
+            # 幂等：同一 client_upload_id 已结算过，直接返回（防止重传重复发奖/覆盖成绩）
+            if info.client_upload_id and record.client_upload_id == info.client_upload_id:
+                return MatchFinishResponse(match_result=None)
             if record.track is None:
                 raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
             if record.start_time is None or record.start_time > info.end_time:
@@ -1057,7 +1060,8 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
                 "is_finish_bonus_computing": True,       # 当前只有 team mode 的 magiccard 需要延迟收益计算
                 "local_date": get_user_local_date(user, info.end_time),
                 "familiarity_time": familiarity_time,
-                "training_state_time": training_state_time
+                "training_state_time": training_state_time,
+                "client_upload_id": info.client_upload_id
             }
             if record.status == RecordStatus.recording:
                 if not path_passes:
@@ -1143,6 +1147,9 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
 
             if record is None:
                 raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
+            # 幂等：同一 client_upload_id 已结算过，直接返回（防止重传重复发奖/覆盖成绩）
+            if info.client_upload_id and record.client_upload_id == info.client_upload_id:
+                return MatchFinishResponse(match_result=None)
             if record.track is None:
                 raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
             if record.start_time is None or record.start_time > info.end_time:
@@ -1230,7 +1237,8 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
                 "is_finish_bonus_computing": is_finish_computed,
                 "local_date": get_user_local_date(user, info.end_time),
                 "familiarity_time": familiarity_time,
-                "training_state_time": training_state_time
+                "training_state_time": training_state_time,
+                "client_upload_id": info.client_upload_id
             }
             await update_record_crud(db, record, update_data)
 
