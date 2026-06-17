@@ -1,7 +1,18 @@
-from typing import Optional, List, Any
+from typing import List, Any
 from app.schemas.base import ORMBase
 from enum import Enum
 from pydantic import BaseModel
+
+
+# 运动中实时预测名次 + 自我对比的开赛基线
+class SplitProfileInfo(BaseModel):
+    L: float                    # 路线总长（米）
+    N: int                      # 里程桩数量
+    splits: List[float]         # 各里程桩处的有效用时（N+1 个，splits[0]=0，splits[N]=有效完赛时间）
+
+class PaceBaselineResponse(BaseModel):
+    finish_times: List[float]   # 该路线/赛道按用时升序的完赛成绩（预测名次用）
+    pb_profile: SplitProfileInfo | None = None   # 调用者个人最佳的 split profile（无则 null）
 
 
 class CCAssetType(str, Enum):

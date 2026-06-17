@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from app.api.deps import get_current_user, get_language, Language
 from app.schemas.base import BaseResponse
-from app.schemas.common import CPAssetCoverInfo
+from app.schemas.common import CPAssetCoverInfo, PaceBaselineResponse
 from app.schemas.asset import CPAssetResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
@@ -24,7 +24,7 @@ from app.services.training.bike import (
     create_training_route_service, update_training_route_service, query_routes_service, query_my_routes_service, delete_route_service,
     finish_route_training_service, query_route_training_record_detail_service, get_route_card_info_service,
     query_route_ranklist_service, query_route_ranklist_me_service, query_grid_info_service,
-    apply_route_to_track_service
+    apply_route_to_track_service, get_route_pace_baseline_service
 )
 
 router = APIRouter(dependencies=[Depends(get_language)])
@@ -263,4 +263,13 @@ async def query_route_training_record_detail(
     db: AsyncSession = Depends(get_db)
 ):
     result = await query_route_training_record_detail_service(db, lang, record_id)
+    return BaseResponse.success(token=auth.new_token, data=result)
+
+@router.get("/route_pace_baseline", response_model=BaseResponse[PaceBaselineResponse], summary="查询路线配速基线（实时预测名次 + 自我对比）")
+async def route_pace_baseline(
+    route_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await get_route_pace_baseline_service(db, route_id, auth.payload["user_id"])
     return BaseResponse.success(token=auth.new_token, data=result)

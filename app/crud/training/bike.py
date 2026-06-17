@@ -1231,3 +1231,26 @@ async def get_bike_route_training_record_by_upload_id(db: AsyncSession, user_id:
         ).limit(1)
     )
     return result.scalar_one_or_none()
+
+
+async def get_route_finish_times(db: AsyncSession, route_internal_id: uuid.UUID) -> list[float]:
+    """该路线排行榜按用时升序的完赛成绩数组（预测名次用）。"""
+    result = await db.execute(
+        select(BikeRouteRanklist.duration_seconds)
+        .where(BikeRouteRanklist.route_id == route_internal_id)
+        .order_by(BikeRouteRanklist.duration_seconds.asc())
+    )
+    return [float(r) for r in result.scalars().all()]
+
+
+async def get_route_pb_profile(db: AsyncSession, route_internal_id: uuid.UUID, user_id: uuid.UUID) -> dict | None:
+    """调用者在该路线个人最佳的 split profile（无则 None）。"""
+    result = await db.execute(
+        select(BikeRouteRanklist.split_profile)
+        .where(
+            BikeRouteRanklist.route_id == route_internal_id,
+            BikeRouteRanklist.user_id == user_id
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none()

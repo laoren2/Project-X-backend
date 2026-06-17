@@ -18,7 +18,8 @@ from app.crud.competition.running import (
     get_incompleted_records_by_user_id, get_completed_records_by_user_id, get_career_statistic_data,
     add_or_update_career_statistic_data, get_daily_task, get_today_task_record_by_user,
     add_or_update_daily_task_record, get_unverified_records, get_bonus_record_with_team_magic_card_for_update,
-    get_team_id_by_record_id, get_season_by_date, get_bonus_record_with_team_magic_card_by_team_user
+    get_team_id_by_record_id, get_season_by_date, get_bonus_record_with_team_magic_card_by_team_user,
+    get_user_best_race_profile
 )
 from app.crud.training.running import (
     get_familiarity_by_track_and_user, get_training_state_by_user,
@@ -34,7 +35,7 @@ from app.core.errors import ErrorCode
 from app.core.tools import get_user_local_date, encode_cursor, decode_cursor
 from app.core.storage import build_resource_url
 from app.schemas.base import BizException, Language, pick_i18n_text
-from app.schemas.common import PersonInfoResponse, EquipCardBaseInfo, SportType, CCAssetType, CCAssetRewardResponse
+from app.schemas.common import PersonInfoResponse, EquipCardBaseInfo, SportType, CCAssetType, CCAssetRewardResponse, PaceBaselineResponse, SplitProfileInfo
 from app.schemas.mailbox import MailType
 from app.schemas.user import Gender
 from app.schemas.asset import CPAssetResponse, DailyTaskRewardResponse, AssetOperation
@@ -66,14 +67,14 @@ from app.db.models.competition import (
 from app.db.models.mailbox import Mailbox
 from app.db.models.user import User
 from app.services.mappers import equip_card_to_base_info
-from app.services.training.common import validate_route_data, build_geometry, extract_path_points, extract_checkpoints_from_route_data, evaluate_route_training_checkpoint_path
+from app.services.training.common import validate_route_data, build_geometry, extract_path_points, extract_checkpoints_from_route_data, evaluate_route_training_checkpoint_path, build_split_profile
 from app.services.common import get_elevation
 from app.schemas.training.common import RouteSortType
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
 from app.services.competition.common import (
     _distribute_voucher_and_scores, compute_distance, update_running_leaderboard_for_record,
-    send_running_match_rewards, compute_running_match_rewards, settle_running_match_xp
+    send_running_match_rewards, compute_running_match_rewards, settle_running_match_xp, get_track_leaderboard_times
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import redis_client
@@ -1115,6 +1116,11 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
                         xp_before=xp_before,
                         xp_delta=xp_delta
                     )
+                    # 刷新个人最佳时存档 split profile（供实时预测名次 / 自我对比）
+                    if reward_result[0]:
+                        record.split_profile = build_split_profile(
+                            [p.base for p in info.path], record.route_data, final_time, "running"
+                        )
                 # 更新排行榜
                 if record.duration_seconds is not None:
                     await update_running_leaderboard_for_record(record)
@@ -1287,6 +1293,11 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
                             xp_before=xp_before,
                             xp_delta=xp_delta
                         )
+                        # 刷新个人最佳时存档 split profile（供实时预测名次 / 自我对比）
+                        if reward_result[0]:
+                            record.split_profile = build_split_profile(
+                                [p.base for p in info.path], record.route_data, final_time, "running"
+                            )
                     await update_running_leaderboard_for_record(record)
                     distance = compute_distance([p.base for p in info.path])
                     await add_or_update_career_statistic_data(db, track.event.season.id, user.id, distance, final_time)
@@ -2621,3 +2632,19 @@ async def query_tracks_user_info_service(db: AsyncSession, user_id: str, track_i
             rank_info=rank_info
         ))
     return infos
+
+async def get_track_pace_baseline_service(db: AsyncSession, record_id: str, user_id: str) -> PaceBaselineResponse:
+    """开赛基线：该赛道（按 gender 桶）排行榜成绩 + 调用者 PB race 记录的 split profile。入参为当前比赛 record_id。"""
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    record = await get_record_by_record_id(db, record_id)
+    if record is None or record.track is None:
+        raise BizException(code=ErrorCode.TRACK_ERROR, message="track.not_found")
+    gender = (user.gender or Gender.male).value
+    finish_times = await get_track_leaderboard_times("running", record.track.track_id, gender)
+    pb = await get_user_best_race_profile(db, record.track_id, user.id)
+    return PaceBaselineResponse(
+        finish_times=finish_times,
+        pb_profile=SplitProfileInfo(**pb) if pb else None
+    )

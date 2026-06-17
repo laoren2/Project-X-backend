@@ -5,15 +5,15 @@ from app.core.storage import build_resource_url
 from app.services.common import get_elevation
 from app.services.competition.common import compute_distance
 from app.services.training.common import (
-    validate_route_data, build_geometry, extract_checkpoints_from_route_data, 
-    evaluate_route_training_checkpoint_path, extract_path_points
+    validate_route_data, build_geometry, extract_checkpoints_from_route_data,
+    evaluate_route_training_checkpoint_path, extract_path_points, build_split_profile
 )
 from app.services.mappers import equip_card_to_base_info
 from app.crud.competition.running import get_season_now, get_score_by_season_and_user, add_or_update_career_xp
 from app.db.models.user import User
 from app.schemas.base import BizException, Language, pick_i18n_text
 from app.schemas.user import Gender
-from app.schemas.common import CCAssetRewardResponse, CCAssetType, PersonInfoResponse, SportType, CPAssetCoverInfo
+from app.schemas.common import CCAssetRewardResponse, CCAssetType, PersonInfoResponse, SportType, CPAssetCoverInfo, PaceBaselineResponse, SplitProfileInfo
 from app.schemas.asset import AssetOperation, CPAssetResponse
 from app.schemas.training.running import (
     FreeTrainingFinishInfo, FreeTrainingFinishResponse, RunningGridDetailInfo, RunningGridInfoResponse, TrainingStatesHistoryResponse,
@@ -39,7 +39,8 @@ from app.crud.training.running import (
     get_rank_info_by_route_and_user,
     count_route_training_records, count_route_training_records_by_routes,
     create_route_track_application_crud, get_active_application_by_route,
-    get_running_free_training_record_by_upload_id, get_running_route_training_record_by_upload_id
+    get_running_free_training_record_by_upload_id, get_running_route_training_record_by_upload_id,
+    get_route_finish_times, get_route_pb_profile
 )
 from app.crud.asset_manage import reward_ccasset, get_equip_card_by_card_id, consume_cpasset, get_route_card_def
 from app.db.models.training import (
@@ -1271,13 +1272,16 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
             should_update_rank = True
 
         if should_update_rank:
+            # 刷新个人最佳：存档 split profile（供实时预测名次 / 自我对比）
+            split_profile = build_split_profile([p.base for p in finish_info.path], route.route_data, final_score, "running")
             if existing_rank is None:
                 db.add(RunningRouteRanklist(
                     route_id=route.id,
                     user_id=user.id,
                     gender=user.gender if user.gender else Gender.male,
                     record_id=record.id,
-                    duration_seconds=final_score
+                    duration_seconds=final_score,
+                    split_profile=split_profile
                 ))
             else:
                 await db.execute(
@@ -1286,14 +1290,16 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
                         UPDATE running_route_ranklists
                         SET
                             record_id = :record_id,
-                            duration_seconds = :duration_seconds
+                            duration_seconds = :duration_seconds,
+                            split_profile = CAST(:split_profile AS JSONB)
                         WHERE id = :id
                         """
                     ),
                     {
                         "id": existing_rank.id,
                         "record_id": record.id,
-                        "duration_seconds": final_score
+                        "duration_seconds": final_score,
+                        "split_profile": json.dumps(split_profile)
                     }
                 )
 
@@ -1496,3 +1502,18 @@ async def query_route_ranklist_me_service(db: AsyncSession, user_id: str, route_
         duration_seconds=rankInfo.duration_seconds,
         user=PersonInfoResponse(user_id="", avatar_image_url="", nickname="")
     ) if rankInfo and rank else None
+
+async def get_route_pace_baseline_service(db: AsyncSession, route_id: str, user_id: str) -> PaceBaselineResponse:
+    """开赛基线：该路线按用时升序的完赛成绩（预测名次） + 调用者 PB 的 split profile（自我对比）。"""
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    route = await get_route_by_route_id(db, route_id)
+    if route is None:
+        raise BizException(code=ErrorCode.ROUTE_NOT_FOUND, message="route.not_found")
+    finish_times = await get_route_finish_times(db, route.id)
+    pb = await get_route_pb_profile(db, route.id, user.id)
+    return PaceBaselineResponse(
+        finish_times=finish_times,
+        pb_profile=SplitProfileInfo(**pb) if pb else None
+    )

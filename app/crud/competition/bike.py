@@ -1066,3 +1066,19 @@ async def get_bonus_record_with_team_magic_card_by_team_user(db: AsyncSession, t
         )
     )
     return result.scalar_one_or_none()
+
+
+async def get_user_best_race_profile(db: AsyncSession, track_internal_id: uuid.UUID, user_id: uuid.UUID) -> dict | None:
+    """调用者在该赛道最佳已完赛记录的 split profile（无则 None）。"""
+    result = await db.execute(
+        select(BikeRaceRecord.split_profile)
+        .where(
+            BikeRaceRecord.track_id == track_internal_id,
+            BikeRaceRecord.user_id == user_id,
+            BikeRaceRecord.status == RecordStatus.completed,
+            BikeRaceRecord.split_profile.isnot(None)
+        )
+        .order_by(BikeRaceRecord.duration_seconds.asc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
