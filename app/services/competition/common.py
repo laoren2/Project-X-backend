@@ -1086,3 +1086,10 @@ async def send_bike_match_rewards(db: AsyncSession, record: BikeRaceRecord):
             expires_at = datetime.now(timezone.utc) + timedelta(days=30)
         )
         db.add(mail)
+
+
+async def get_track_leaderboard_times(sport: str, track_id: str, gender: str) -> list[float]:
+    """读取赛道排行榜（按 gender 桶）的完赛用时数组，升序（最快在前）。供实时预测名次用。"""
+    key = f"leaderboard:{sport}:{track_id}:{gender}"
+    data = await redis_client.zrange(key, 0, -1, withscores=True)
+    return [float(score) for _, score in data]

@@ -6,6 +6,7 @@ from app.schemas.training.common import (
 from app.schemas.competition.common import PathPoint
 from app.core.errors import ErrorCode
 from shapely.geometry import LineString
+import math
 
 
 def validate_route_data(route_type: str, route_data: dict):
@@ -199,3 +200,145 @@ def evaluate_route_training_checkpoint_path(
 
     passes = visited[0] and visited[n - 1]
     return total_penalty, passes
+
+
+# ============================================================================
+# Split profile：把最佳成绩轨迹处理成「沿路里程 → 有效用时」的定长曲线，
+# 供运动中实时预测名次 / 自我对比使用。详见 plan。
+# ============================================================================
+
+def _route_vertices(route_data: dict | None) -> list[tuple[float, float]]:
+    """从 route_data.steps 取出有序的 (lat, lon) 折线顶点（checkpoints + segment 点），去重相邻重复点。"""
+    out: list[tuple[float, float]] = []
+    steps = route_data.get("steps") if route_data else None
+    if not isinstance(steps, list):
+        return out
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        kind = step.get("kind")
+        try:
+            if kind == "checkpoint":
+                out.append((float(step["lat"]), float(step["lng"])))
+            elif kind == "segment":
+                for pt in step.get("points", []):
+                    out.append((float(pt[0]), float(pt[1])))   # points: [lat, lng]
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+    deduped: list[tuple[float, float]] = []
+    for v in out:
+        if not deduped or deduped[-1] != v:
+            deduped.append(v)
+    return deduped
+
+
+def _cumulative_arc_lengths(vertices: list[tuple[float, float]]) -> list[float]:
+    """每个顶点处的累计弧长（米），S[-1] = 路线总长 L。"""
+    s = [0.0]
+    for i in range(1, len(vertices)):
+        s.append(s[-1] + haversine(vertices[i - 1][0], vertices[i - 1][1], vertices[i][0], vertices[i][1]))
+    return s
+
+
+def _to_local_xy(lat: float, lon: float, lat0: float, lon0: float) -> tuple[float, float]:
+    """以 (lat0, lon0) 为原点的等距矩形近似平面坐标（米）。"""
+    m_per_deg_lat = 111320.0
+    m_per_deg_lon = 111320.0 * math.cos(math.radians(lat0))
+    return ((lon - lon0) * m_per_deg_lon, (lat - lat0) * m_per_deg_lat)
+
+
+def _project_arc(lat: float, lon: float,
+                 vertices: list[tuple[float, float]], cum_s: list[float],
+                 d_prev: float, back: float = 30.0, ahead: float = 500.0) -> float:
+    """把点投到折线上垂距最近的段，返回沿路弧长（米）。带单调前进窗口，处理来回绕 / 环线。"""
+    lo, hi = d_prev - back, d_prev + ahead
+    best_perp = float("inf")
+    best_arc = d_prev
+    for k in range(len(vertices) - 1):
+        sa, sb = cum_s[k], cum_s[k + 1]
+        if sb < lo or sa > hi:          # 段不在前进窗口内，跳过（解决来回绕歧义）
+            continue
+        ax, ay = _to_local_xy(vertices[k][0], vertices[k][1], lat, lon)
+        bx, by = _to_local_xy(vertices[k + 1][0], vertices[k + 1][1], lat, lon)
+        dx, dy = bx - ax, by - ay
+        seg2 = dx * dx + dy * dy
+        t = 0.0 if seg2 <= 1e-9 else max(0.0, min(1.0, (-ax * dx - ay * dy) / seg2))
+        px, py = ax + t * dx, ay + t * dy
+        perp = math.hypot(px, py)        # 点在原点，垂距 = |proj|
+        if perp < best_perp:
+            best_perp = perp
+            best_arc = sa + t * (sb - sa)
+    return max(best_arc, d_prev)         # 单调不回退
+
+
+def dynamic_profile_n(length_m: float, sport: str) -> int:
+    """里程桩数量 N，按运动类型 + 路线距离动态。"""
+    km = length_m / 1000.0
+    if sport == "bike":
+        if km < 1:
+            return 5
+        if km > 20:
+            return 100
+        return round(5 + (km - 1) / 19.0 * 95)
+    # running 及其他
+    if km < 1:
+        return 10
+    if km > 10:
+        return 100
+    return round(10 + (km - 1) / 9.0 * 90)
+
+
+def _resample(samples: list[tuple[float, float]], length: float, n: int) -> list[float]:
+    """在 d_i = i*L/N 上对 (d, t) 分段线性重采样，得 N+1 个有效用时。"""
+    splits: list[float] = []
+    j = 0
+    for i in range(n + 1):
+        di = length * i / n
+        while j + 1 < len(samples) and samples[j + 1][0] < di:
+            j += 1
+        if j + 1 >= len(samples):
+            splits.append(samples[-1][1])
+            continue
+        d0, t0 = samples[j]
+        d1, t1 = samples[j + 1]
+        if d1 <= d0:
+            splits.append(t0)
+        else:
+            r = max(0.0, min(1.0, (di - d0) / (d1 - d0)))
+            splits.append(t0 + r * (t1 - t0))
+    return splits
+
+
+def build_split_profile(base_points: list[PathPoint], route_data: dict | None,
+                        effective_total: float, sport: str) -> dict | None:
+    """
+    把最佳成绩的完整轨迹处理成 {L, N, splits} 的 split profile。
+    - base_points: 轨迹基础点（含 lat/lon/timestamp），取自 [p.base for p in info.path]
+    - effective_total: 该记录的有效完赛时间（= 排行榜用的 duration_seconds）
+    - sport: "bike" / "running"，决定动态 N
+    每个点的经过时刻按「有效时间」线性折算（k = 有效/原始），使端点 splits[N] == effective_total。
+    """
+    if not base_points or len(base_points) < 2:
+        return None
+    vertices = _route_vertices(route_data)
+    if len(vertices) < 2:
+        return None
+    cum_s = _cumulative_arc_lengths(vertices)
+    length = cum_s[-1]
+    if length <= 0:
+        return None
+    start_ts = base_points[0].timestamp
+    raw_total = base_points[-1].timestamp - start_ts
+    if raw_total <= 0:
+        return None
+    k = effective_total / raw_total
+
+    samples: list[tuple[float, float]] = []
+    d_prev = 0.0
+    for p in base_points:
+        d_prev = _project_arc(p.lat, p.lon, vertices, cum_s, d_prev)
+        samples.append((d_prev, (p.timestamp - start_ts) * k))
+
+    n = dynamic_profile_n(length, sport)
+    splits = _resample(samples, length, n)
+    return {"L": length, "N": n, "splits": splits}

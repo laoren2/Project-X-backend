@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, File, UploadFile, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.schemas.base import BaseResponse
+from app.schemas.common import PaceBaselineResponse
 from app.schemas.competition.common import TeamRelationship, MatchFinishResponse, DailyTaskResponse
 from app.schemas.competition.bike import (
     BikeEventListResponse, BikeTrackListResponse,
@@ -36,7 +37,8 @@ from app.services.competition.bike import (
     query_leaderboard_history_in_page, get_score_leaderboard_service, get_career_data_service,
     get_completed_records_all, query_daily_task_status_service, claimed_daily_task_reward_service,
     start_competition_with_team_bonus_card_service, query_event_detail_service, query_record_familiarity_service,
-    query_track_familiarity_service, query_tracks_user_info_service
+    query_track_familiarity_service, query_tracks_user_info_service,
+    get_track_pace_baseline_service
 )
 from app.api.deps import get_current_user, get_language, Language
 from typing import Optional
@@ -600,3 +602,13 @@ async def query_track_familiarity(
 ):
     value = await query_track_familiarity_service(db, auth.payload["user_id"], track_id)
     return BaseResponse.success(token=auth.new_token, data=value)
+
+
+@router.get("/track_pace_baseline", response_model=BaseResponse[PaceBaselineResponse], summary="查询赛道配速基线（实时预测名次 + 自我对比）")
+async def track_pace_baseline(
+    record_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await get_track_pace_baseline_service(db, record_id, auth.payload["user_id"])
+    return BaseResponse.success(token=auth.new_token, data=result)

@@ -514,6 +514,7 @@ class BikeRouteRanklist(Base):
     # 最佳成绩来源record
     record_id = Column(UUID(as_uuid=True), nullable=False)
     duration_seconds = Column(Float, nullable=False)
+    split_profile = Column(JSONB, nullable=True)        # 最佳成绩的 split profile（实时自我对比 / 预测名次基线）
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -606,6 +607,7 @@ class RunningRouteRanklist(Base):
     # 最佳成绩来源record
     record_id = Column(UUID(as_uuid=True), nullable=False)
     duration_seconds = Column(Float, nullable=False)
+    split_profile = Column(JSONB, nullable=True)        # 最佳成绩的 split profile（实时自我对比 / 预测名次基线）
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

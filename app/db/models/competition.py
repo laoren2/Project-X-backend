@@ -207,6 +207,7 @@ class BikeRaceRecord(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
+    split_profile = Column(JSONB, nullable=True)            # 个人最佳记录的 split profile（实时自我对比 / 预测名次基线）
 
     __table_args__ = (
         Index(
@@ -274,6 +275,7 @@ class RunningRaceRecord(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
+    split_profile = Column(JSONB, nullable=True)            # 个人最佳记录的 split profile（实时自我对比 / 预测名次基线）
 
     __table_args__ = (
         Index(
