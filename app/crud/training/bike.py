@@ -728,6 +728,44 @@ async def ensure_bike_effect_grids_generated(
     #print(f"create buff grids for region{region.region_id}")
 
 
+# 运动中雷达：取 region 内当天「最近 N 个未触发的 buff 网格」（按网格空间平方距离排序）
+async def get_nearby_effect_grids(
+    db: AsyncSession,
+    user: User,
+    region: Region,
+    active_date: date,
+    grid_x: int,
+    grid_y: int,
+    count: int
+) -> List[BikeEffectGrid]:
+    dist = (
+        (BikeEffectGrid.grid_x - grid_x) * (BikeEffectGrid.grid_x - grid_x)
+        + (BikeEffectGrid.grid_y - grid_y) * (BikeEffectGrid.grid_y - grid_y)
+    )
+    stmt = (
+        select(BikeEffectGrid)
+        .outerjoin(
+            BikeEffectGridHistory,
+            (
+                (BikeEffectGridHistory.user_id == user.id)
+                & (BikeEffectGridHistory.grid_x == BikeEffectGrid.grid_x)
+                & (BikeEffectGridHistory.grid_y == BikeEffectGrid.grid_y)
+                & (BikeEffectGridHistory.active_date == BikeEffectGrid.active_date)
+            )
+        )
+        .where(
+            BikeEffectGrid.region_id == region.id,
+            BikeEffectGrid.active_date == active_date,
+            BikeEffectGrid.effect_type == GridEffectType.buff,
+            BikeEffectGridHistory.id.is_(None),
+        )
+        .order_by(dist.asc())
+        .limit(count)
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
 async def ensure_bike_effect_grids_for_viewport(
     db: AsyncSession,
     min_grid_x: int,

@@ -191,3 +191,19 @@ class RunningGridInfoResponse(BaseModel):
 
 class RunningGridTileResponse(BaseModel):
     tiles: List[RunningGridTileInfo]
+
+# 运动中雷达指引：附近的奖励网格（含中心经纬度，供手表本地算方位/距离）
+class RunningNearbyGridInfo(BaseModel):
+    grid_x: int
+    grid_y: int
+    center_lat: float
+    center_lon: float
+    description: str
+    effect_type: GridEffectType
+    condition_type: RunningGridConditionType
+    condition_params: dict
+    reward_type: str
+    reward_count: int
+
+class RunningNearbyGridsResponse(BaseModel):
+    grids: List[RunningNearbyGridInfo]

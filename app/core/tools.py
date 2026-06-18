@@ -140,6 +140,17 @@ def latlon_to_grid(lat: int, lng: int) -> tuple[int, int]:
     grid_y = int(math.floor(y / 500))
     return grid_x, grid_y
 
+def mercator_to_latlon(x: float, y: float) -> tuple[float, float]:
+    lon = math.degrees(x / EARTH_RADIUS)
+    lat = math.degrees(2 * math.atan(math.exp(y / EARTH_RADIUS)) - math.pi / 2)
+    return lat, lon
+
+def grid_center_to_latlon(grid_x: int, grid_y: int) -> tuple[float, float]:
+    # 网格中心的墨卡托坐标 → 经纬度（latlon_to_grid 的逆，取格子中心）
+    cx = grid_x * 500 + 250
+    cy = grid_y * 500 + 250
+    return mercator_to_latlon(cx, cy)
+
 def compute_effect_grid_count(grid_count: int) -> int:
     """根据 region 的网格总数动态决定当日生成的 buff 奖励网格数量。
     分档（按 grid_count）：

@@ -1,4 +1,4 @@
-from app.core.tools import get_user_local_date, latlon_to_grid, encode_cursor, decode_cursor
+from app.core.tools import get_user_local_date, latlon_to_grid, grid_center_to_latlon, encode_cursor, decode_cursor
 from app.core.storage import build_resource_url
 from app.core.errors import ErrorCode
 from app.schemas.common import CCAssetRewardResponse, CCAssetType, PersonInfoResponse, SportType, CPAssetCoverInfo, PaceBaselineResponse, SplitProfileInfo
@@ -17,7 +17,8 @@ from app.schemas.training.bike import (
     BikeRouteInfoResponse, BikeRouteInfo, BikeRouteManageInfoResponse, BikeRouteMangeInfo,
     RouteTrainingFinishInfo, RouteTrainingFinishResponse, RouteTrainingRecordDetailResponse,
     BikeRouteTrainingPathPoint, BikeRouteRanklistResponse, BikeRouteRankInfo, BikeGridTileResponse,
-    BikeGridInfoResponse, BikeGridDetailInfo, RouteTrackApplyRequest
+    BikeGridInfoResponse, BikeGridDetailInfo, RouteTrackApplyRequest,
+    BikeNearbyGridInfo, BikeNearbyGridsResponse
 )
 from app.schemas.training.common import RouteApplyStatus
 from app.services.common import get_elevation
@@ -42,7 +43,8 @@ from app.crud.training.bike import (
     count_route_training_records, count_route_training_records_by_routes,
     create_route_track_application_crud, get_active_application_by_route,
     get_bike_free_training_record_by_upload_id, get_bike_route_training_record_by_upload_id,
-    get_route_finish_times, get_route_pb_profile
+    get_route_finish_times, get_route_pb_profile,
+    ensure_bike_effect_grids_generated, get_nearby_effect_grids
 )
 from app.crud.competition.bike import get_season_now, get_score_by_season_and_user, add_or_update_career_xp
 from app.crud.user import get_user_by_id
@@ -735,6 +737,50 @@ async def query_grid_info_service(
             )
         )
     return BikeGridInfoResponse(grids=grid_infos)
+
+
+# 运动中雷达指引：查询用户附近最近 N 个奖励(buff)网格；以用户所在 region 为中心懒生成当天网格
+async def query_nearby_grids_service(
+    db: AsyncSession,
+    lang: Language,
+    user_id: str,
+    lat: float,
+    lon: float,
+    count: int
+) -> BikeNearbyGridsResponse:
+    count = max(1, min(count, 10))
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+        # 由坐标空间查询所属 region（服务端权威，不依赖客户端 region_id）；不在任何 region 内则返回空
+        region = await get_region_by_coordinate(db, lat, lon)
+        if region is None:
+            return BikeNearbyGridsResponse(grids=[])
+
+        local_date = get_user_local_date(user)
+        # 懒生成：保证当天该 region 的 buff grids 已生成（幂等，复用 tiles 同一套）
+        await ensure_bike_effect_grids_generated(db, region, local_date)
+
+        grid_x, grid_y = latlon_to_grid(lat, lon)
+        grids = await get_nearby_effect_grids(db, user, region, local_date, grid_x, grid_y, count)
+
+        infos = []
+        for grid in grids:
+            center_lat, center_lon = grid_center_to_latlon(grid.grid_x, grid.grid_y)
+            infos.append(BikeNearbyGridInfo(
+                grid_x=grid.grid_x,
+                grid_y=grid.grid_y,
+                center_lat=center_lat,
+                center_lon=center_lon,
+                description=pick_i18n_text(grid.description_i18n, lang),
+                effect_type=grid.effect_type,
+                condition_type=grid.condition_type,
+                condition_params=grid.condition_params,
+                reward_type=grid.reward_type,
+                reward_count=grid.reward_count,
+            ))
+        return BikeNearbyGridsResponse(grids=infos)
 
 # 查询某网格我的访问次数和名次
 async def query_me_familiarity_by_grid(

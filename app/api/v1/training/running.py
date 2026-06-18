@@ -11,7 +11,7 @@ from app.schemas.training.running import (
     TrainingRecordsResponse, FreeTrainingRecordDetailResponse, CreateRouteRequest, UpdateRouteRequest,
     RunningRouteInfoResponse, RunningRouteManageInfoResponse, RouteTrainingFinishInfo, RouteTrainingFinishResponse,
     RouteTrainingRecordDetailResponse, RunningRouteRanklistResponse, RunningGridTileResponse, RunningRouteRankInfo,
-    RouteTrackApplyRequest
+    RouteTrackApplyRequest, RunningNearbyGridsResponse
 )
 from app.schemas.training.common import (
     RegionExploreResponse, GridTileRequest,
@@ -24,7 +24,7 @@ from app.services.training.running import (
     create_training_route_service, update_training_route_service, query_routes_service, query_my_routes_service, delete_route_service,
     finish_route_training_service, query_route_training_record_detail_service, get_route_card_info_service,
     query_route_ranklist_service, query_grid_info_service, query_route_ranklist_me_service,
-    apply_route_to_track_service, get_route_pace_baseline_service
+    apply_route_to_track_service, get_route_pace_baseline_service, query_nearby_grids_service
 )
 
 router = APIRouter(dependencies=[Depends(get_language)])
@@ -145,6 +145,19 @@ async def query_grid_info(
     db: AsyncSession = Depends(get_db)
 ):
     result = await query_grid_info_service(db, lang, auth.payload["user_id"], grid_x, grid_y, level)
+    return BaseResponse.success(token=auth.new_token, data=result)
+
+# 查询附近的奖励网格（运动中雷达指引）
+@router.get("/query_nearby_grids",response_model=BaseResponse[RunningNearbyGridsResponse],summary="查询附近的奖励网格")
+async def query_nearby_grids(
+    lat: float = Query(...),
+    lon: float = Query(...),
+    count: int = Query(3),
+    lang: Language = Depends(get_language),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_nearby_grids_service(db, lang, auth.payload["user_id"], lat, lon, count)
     return BaseResponse.success(token=auth.new_token, data=result)
 
 # 创建训练路线

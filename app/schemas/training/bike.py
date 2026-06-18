@@ -187,3 +187,19 @@ class BikeGridInfoResponse(BaseModel):
 
 class BikeGridTileResponse(BaseModel):
     tiles: List[BikeGridTileInfo]
+
+# 运动中雷达指引：附近的奖励网格（含中心经纬度，供手表本地算方位/距离）
+class BikeNearbyGridInfo(BaseModel):
+    grid_x: int
+    grid_y: int
+    center_lat: float
+    center_lon: float
+    description: str
+    effect_type: GridEffectType
+    condition_type: BikeGridConditionType
+    condition_params: dict
+    reward_type: str
+    reward_count: int
+
+class BikeNearbyGridsResponse(BaseModel):
+    grids: List[BikeNearbyGridInfo]
