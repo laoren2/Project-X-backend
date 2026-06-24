@@ -15,7 +15,7 @@ from app.schemas.training.bike import (
 )
 from app.schemas.training.common import (
     RegionExploreResponse, GridTileRequest, GridFamiliarityMeResponse,
-    GridFamiliarityRankListResponse, RouteSortType
+    GridFamiliarityRankListResponse, RouteSortType, GridOccupancyResponse
 )
 from app.services.training.bike import (
     finish_free_training_service, query_training_states_history_service, query_training_records_service,
@@ -24,7 +24,8 @@ from app.services.training.bike import (
     create_training_route_service, update_training_route_service, query_routes_service, query_my_routes_service, delete_route_service,
     finish_route_training_service, query_route_training_record_detail_service, get_route_card_info_service,
     query_route_ranklist_service, query_route_ranklist_me_service, query_grid_info_service,
-    apply_route_to_track_service, get_route_pace_baseline_service, query_nearby_grids_service
+    apply_route_to_track_service, get_route_pace_baseline_service, query_nearby_grids_service,
+    query_grids_within_distance_service, query_occupied_grids_count
 )
 
 router = APIRouter(dependencies=[Depends(get_language)])
@@ -158,6 +159,28 @@ async def query_nearby_grids(
     db: AsyncSession = Depends(get_db)
 ):
     result = await query_nearby_grids_service(db, lang, auth.payload["user_id"], lat, lon, count)
+    return BaseResponse.success(token=auth.new_token, data=result)
+
+# 查询附近指定距离内可领取的奖励网格（自由训练页附近网格列表）
+@router.get("/query_grids_within_distance",response_model=BaseResponse[BikeNearbyGridsResponse],summary="查询附近指定距离内的奖励网格")
+async def query_grids_within_distance(
+    lat: float = Query(...),
+    lon: float = Query(...),
+    distance: float = Query(...),
+    lang: Language = Depends(get_language),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_grids_within_distance_service(db, lang, auth.payload["user_id"], lat, lon, distance)
+    return BaseResponse.success(token=auth.new_token, data=result)
+
+# 查询我已占领的网格数量
+@router.get("/query_occupied_grids_count",response_model=BaseResponse[GridOccupancyResponse],summary="查询我已占领的网格数量")
+async def query_occupied_grids_count_api(
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_occupied_grids_count(db, auth.payload["user_id"])
     return BaseResponse.success(token=auth.new_token, data=result)
 
 # 创建训练路线

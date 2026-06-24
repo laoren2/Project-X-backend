@@ -170,6 +170,8 @@ class UserGridFamiliarityBike(Base):
 
     __table_args__ = (
         UniqueConstraint("season_id", "user_id", "grid_x", "grid_y", name="uq_user_grid_familiarity_bike_season_user_grid"),
+        # 已占领网格数查询：NOT EXISTS 按 (season_id, grid_x, grid_y) 定位后用 count/updated_at 判定是否被超越
+        Index("ix_user_grid_familiarity_bike_grid_rank", "season_id", "grid_x", "grid_y", "familiarity_count", "updated_at"),
     )
 
 
@@ -213,6 +215,8 @@ class UserGridFamiliarityRunning(Base):
 
     __table_args__ = (
         UniqueConstraint("season_id", "user_id", "grid_x", "grid_y", name="uq_user_grid_familiarity_running_season_user_grid"),
+        # 已占领网格数查询：NOT EXISTS 按 (season_id, grid_x, grid_y) 定位后用 count/updated_at 判定是否被超越
+        Index("ix_user_grid_familiarity_running_grid_rank", "season_id", "grid_x", "grid_y", "familiarity_count", "updated_at"),
     )
 
 
