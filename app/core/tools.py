@@ -151,6 +151,47 @@ def grid_center_to_latlon(grid_x: int, grid_y: int) -> tuple[float, float]:
     cy = grid_y * 500 + 250
     return mercator_to_latlon(cx, cy)
 
+def simplify_track_coords(coords: list[tuple[float, float]], max_points: int) -> list[tuple[float, float]]:
+    """均匀降采样轨迹坐标到至多 max_points 个点（保留首尾，去重相邻索引）。
+    用于历史卡片的缩略轨迹：不返回完整轨迹，控制 payload 与渲染开销。"""
+    n = len(coords)
+    if max_points <= 0 or n <= max_points:
+        return coords
+    if max_points == 1:
+        return [coords[0]]
+    step = (n - 1) / (max_points - 1)
+    result: list[tuple[float, float]] = []
+    last_idx = -1
+    for i in range(max_points):
+        idx = int(round(i * step))
+        if idx >= n:
+            idx = n - 1
+        if idx != last_idx:
+            result.append(coords[idx])
+            last_idx = idx
+    return result
+
+def extract_simplified_track(path, max_points: int = 40) -> list[tuple[float, float]]:
+    """从存储的训练轨迹 JSON（[{base:{lat,lon,...}}, ...]）提取 (lat, lon) 并降采样。
+    对脏数据/缺字段做容错，返回简化后的坐标列表。"""
+    coords: list[tuple[float, float]] = []
+    if path:
+        for p in path:
+            if not isinstance(p, dict):
+                continue
+            base = p.get("base")
+            if not isinstance(base, dict):
+                continue
+            lat = base.get("lat")
+            lon = base.get("lon")
+            if lat is None or lon is None:
+                continue
+            try:
+                coords.append((float(lat), float(lon)))
+            except (TypeError, ValueError):
+                continue
+    return simplify_track_coords(coords, max_points)
+
 def compute_effect_grid_count(grid_count: int) -> int:
     """根据 region 的网格总数动态决定当日生成的 buff 奖励网格数量。
     分档（按 grid_count）：

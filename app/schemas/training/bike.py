@@ -3,7 +3,7 @@ from app.schemas.base import ORMBase
 from app.schemas.common import CCAssetRewardResponse, PersonInfoResponse
 from app.schemas.competition.bike import BikeTrackTerrainType
 from app.schemas.competition.common import PathPoint, CardBonusItem, CardBonusInfo
-from app.schemas.training.common import RouteType, TrainingType, GridCellInfo, GridTileKey, GridEffectType, RouteApplyStatus, TrackLifecycle
+from app.schemas.training.common import RouteType, TrainingType, GridCellInfo, GridTileKey, GridEffectType, RouteApplyStatus, TrackLifecycle, TrackPoint
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Any
@@ -47,6 +47,7 @@ class FreeTrainingFinishResponse(BaseModel):
 class TrainingStatesHistoryInfo(BaseModel):
     date: str
     delta_state: int
+    record_count: int      # 当天训练记录数（旧客户端忽略该字段，保持兼容）
 
 class TrainingStatesHistoryResponse(BaseModel):
     history: List[TrainingStatesHistoryInfo]
@@ -56,6 +57,7 @@ class TrainingRecordInfo(BaseModel):
     delta_state: int
     end_time: str
     training_type: TrainingType
+    track: List[TrackPoint]      # 已降采样的缩略轨迹（旧客户端忽略该字段，保持兼容）
 
 class TrainingRecordsResponse(BaseModel):
     records: List[TrainingRecordInfo]

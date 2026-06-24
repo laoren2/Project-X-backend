@@ -1,11 +1,12 @@
-from app.core.tools import get_user_local_date, latlon_to_grid, grid_center_to_latlon, encode_cursor, decode_cursor
+from app.core.tools import get_user_local_date, latlon_to_grid, grid_center_to_latlon, encode_cursor, decode_cursor, extract_simplified_track
 from app.core.storage import build_resource_url
 from app.core.errors import ErrorCode
 from app.schemas.common import CCAssetRewardResponse, CCAssetType, PersonInfoResponse, SportType, CPAssetCoverInfo, PaceBaselineResponse, SplitProfileInfo
 from app.schemas.asset import AssetOperation, CPAssetResponse
 from app.schemas.training.common import (
     RegionExploreResponse, GridTileKey, GridFamiliarityRankListResponse,
-    GridFamiliarityMeResponse, GridFamiliarityRankInfo, RouteSortType, TrainingType
+    GridFamiliarityMeResponse, GridFamiliarityRankInfo, RouteSortType, TrainingType,
+    GridOccupancyResponse, TrackPoint
 )
 from app.schemas.competition.common import CardBonusInfo, PathPoint
 from app.schemas.base import BizException, Language, pick_i18n_text
@@ -36,6 +37,7 @@ from app.db.models.training import (
 )
 from app.crud.training.bike import (
     get_training_states_by_user_and_month, get_free_training_records_by_user_and_day, get_route_training_records_by_user_and_day,
+    get_training_record_counts_by_user_and_month,
     add_or_update_daily_training_states, get_training_state_by_user, update_user_familiarity_by_grids,
     get_region_explored_grid_count, get_free_training_record_by_record_id, get_training_state_daily_by_user_date,
     get_grids_info_by_tiles, get_routes_by_page_crud, get_routes_by_uesr_id, get_route_by_route_id,
@@ -44,7 +46,7 @@ from app.crud.training.bike import (
     create_route_track_application_crud, get_active_application_by_route,
     get_bike_free_training_record_by_upload_id, get_bike_route_training_record_by_upload_id,
     get_route_finish_times, get_route_pb_profile,
-    ensure_bike_effect_grids_generated, get_nearby_effect_grids
+    ensure_bike_effect_grids_generated, get_nearby_effect_grids, get_effect_grids_within_distance
 )
 from app.crud.competition.bike import get_season_now, get_score_by_season_and_user, add_or_update_career_xp
 from app.crud.user import get_user_by_id
@@ -426,11 +428,17 @@ async def query_training_states_history_service(db: AsyncSession, month: str, us
     if user is None:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     history = await get_training_states_by_user_and_month(db, user.id, month)
+    count_map = await get_training_record_counts_by_user_and_month(db, user.id, month)
+    delta_map = {item.local_date: item.delta for item in history}
+    # delta 来自每日状态表、record_count 来自记录数统计；取两者日期并集，避免漏掉
+    # 「有记录但当日 delta 为 0」的日期角标
+    all_dates = sorted(set(delta_map) | set(count_map))
     result = []
-    for item in history:
+    for d in all_dates:
         result.append(TrainingStatesHistoryInfo(
-            date=item.local_date.strftime("%Y-%m-%d"),
-            delta_state=item.delta
+            date=d.strftime("%Y-%m-%d"),
+            delta_state=delta_map.get(d, 0),
+            record_count=count_map.get(d, 0)
         ))
     return TrainingStatesHistoryResponse(history=result)
 
@@ -453,11 +461,14 @@ async def query_training_records_service(db: AsyncSession, day: str, user_id: st
     result = []
     for record, training_type in records:
         settlement_rewards = record.settlement_rewards or {}
+        raw_path = record.path.path if record.path else None
+        track = [TrackPoint(lat=lat, lon=lon) for lat, lon in extract_simplified_track(raw_path)]
         result.append(TrainingRecordInfo(
             record_id=record.record_id,
             delta_state=settlement_rewards.get("training_state", 0),
             end_time=record.end_time.isoformat(),
-            training_type=training_type
+            training_type=training_type,
+            track=track
         ))
 
     return TrainingRecordsResponse(records=result)
@@ -781,6 +792,94 @@ async def query_nearby_grids_service(
                 reward_count=grid.reward_count,
             ))
         return BikeNearbyGridsResponse(grids=infos)
+
+# 查询用户附近指定距离（米）内、当天还能领取的 buff 网格（自由训练页附近网格列表）
+async def query_grids_within_distance_service(
+    db: AsyncSession,
+    lang: Language,
+    user_id: str,
+    lat: float,
+    lon: float,
+    distance: float
+) -> BikeNearbyGridsResponse:
+    # 距离限幅，避免过大半径拖垮查询；半径换算为网格数（基础格 500m，向上取整）
+    distance = max(0.0, min(distance, 20000.0))
+    radius_grids = (int(distance) + 499) // 500
+    max_count = 50
+    async with db.begin():
+        user = await get_user_by_id(db, user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+        # 由坐标空间查询所属 region（服务端权威，不依赖客户端 region_id）；不在任何 region 内则返回空
+        region = await get_region_by_coordinate(db, lat, lon)
+        if region is None:
+            return BikeNearbyGridsResponse(grids=[])
+
+        local_date = get_user_local_date(user)
+        # 懒生成：保证当天该 region 的 buff grids 已生成（幂等，复用 tiles 同一套）
+        await ensure_bike_effect_grids_generated(db, region, local_date)
+
+        grid_x, grid_y = latlon_to_grid(lat, lon)
+        grids = await get_effect_grids_within_distance(db, user, region, local_date, grid_x, grid_y, radius_grids, max_count)
+
+        infos = []
+        for grid in grids:
+            center_lat, center_lon = grid_center_to_latlon(grid.grid_x, grid.grid_y)
+            infos.append(BikeNearbyGridInfo(
+                grid_x=grid.grid_x,
+                grid_y=grid.grid_y,
+                center_lat=center_lat,
+                center_lon=center_lon,
+                description=pick_i18n_text(grid.description_i18n, lang),
+                effect_type=grid.effect_type,
+                condition_type=grid.condition_type,
+                condition_params=grid.condition_params,
+                reward_type=grid.reward_type,
+                reward_count=grid.reward_count,
+            ))
+        return BikeNearbyGridsResponse(grids=infos)
+
+# 查询用户当前赛季「已占领」的网格数（基础格中 familiarity_count 排名第一的网格数）
+async def query_occupied_grids_count(
+    db: AsyncSession,
+    user_id: str
+) -> GridOccupancyResponse:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    season = await get_season_now(db)
+    if season is None:
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
+
+    # 单条 SQL：统计当前用户在本赛季基础熟悉度表中、没有任何其他用户超越的网格数。
+    # 超越判定与 query_me_familiarity_by_grid 排名口径一致：次数更高，或次数相同但更新更早。
+    # 驱动侧走 (season_id, user_id) 索引取该用户网格；NOT EXISTS 走
+    # (season_id, grid_x, grid_y, familiarity_count, updated_at) 复合索引做单次探测。
+    sql = text(
+        """
+        SELECT COUNT(*) AS occupied_count
+        FROM user_grid_familiarity_bike me
+        WHERE me.season_id = :season_id
+          AND me.user_id = :user_id
+          AND NOT EXISTS (
+            SELECT 1
+            FROM user_grid_familiarity_bike o
+            WHERE o.season_id = me.season_id
+              AND o.grid_x = me.grid_x
+              AND o.grid_y = me.grid_y
+              AND (
+                    o.familiarity_count > me.familiarity_count
+                    OR (o.familiarity_count = me.familiarity_count AND o.updated_at < me.updated_at)
+                  )
+          )
+        """
+    )
+    result = await db.execute(sql, {
+        "season_id": season.id,
+        "user_id": user.id,
+    })
+    occupied_count = result.scalar_one()
+    return GridOccupancyResponse(occupied_count=occupied_count)
 
 # 查询某网格我的访问次数和名次
 async def query_me_familiarity_by_grid(

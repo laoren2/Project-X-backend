@@ -65,6 +65,11 @@ class GridCellInfo(BaseModel):
     grid_y: int
     count: int
 
+# 历史卡片缩略轨迹的单个坐标点（服务端已降采样，仅含经纬度）
+class TrackPoint(BaseModel):
+    lat: float
+    lon: float
+
 class GridFamiliarityMeResponse(BaseModel):
     count: int
     rank: int
@@ -76,3 +81,7 @@ class GridFamiliarityRankInfo(BaseModel):
 
 class GridFamiliarityRankListResponse(BaseModel):
     data: List[GridFamiliarityRankInfo]
+
+# 用户已占领网格数（基础格中 familiarity_count 排名第一的网格数）
+class GridOccupancyResponse(BaseModel):
+    occupied_count: int

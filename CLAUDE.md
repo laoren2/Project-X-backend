@@ -40,6 +40,7 @@ API (app/api)  →  Service (app/services)  →  CRUD/Repository (app/crud)  →
 - **主键约定**：表用 UUID 主键 + 业务字符串 ID（如 `user_id` / `event_id` / `region_id`，唯一索引）。
 - **关系声明**：模型间用显式 `primaryjoin="...foreign(...)..."`，**非数据库外键约束**。
 - **全异步**：DB（asyncpg）、Redis（redis.asyncio）、HTTP（httpx）均为 async。阻塞调用（如 SMTP）须放线程池，勿阻塞 event loop（见 `_send_smtp` 的用法）。
+- **发布顺序与 API 兼容**：始终**先部署服务端、再发布客户端**。因此为兼容旧客户端而在响应里**新增字段**时，无需为此设默认值——旧客户端会自动忽略未知字段，新客户端发布时服务端必已就绪。Pydantic 字段默认值/`Optional` 只在业务真正需要时设置，**不要为"客户端兼容"而加**。
 
 ## Redis usage
 

@@ -218,6 +218,28 @@ async def get_training_states_by_user_and_month(db: AsyncSession, user_id: uuid.
     return result.scalars().all()
 
 
+# 统计用户某月每天的训练记录数（free + route），用于日历日期角标
+async def get_training_record_counts_by_user_and_month(db: AsyncSession, user_id: uuid.UUID, month: str) -> dict[date, int]:
+    year, mon = map(int, month.split("-"))
+    start_date = date(year, mon, 1)
+    end_date = date(year, mon, calendar.monthrange(year, mon)[1])
+
+    counts: dict[date, int] = defaultdict(int)
+    for model in (RunningFreeTrainingRecord, RunningRouteTrainingRecord):
+        rows = await db.execute(
+            select(model.local_date, func.count())
+            .where(
+                model.user_id == user_id,
+                model.local_date >= start_date,
+                model.local_date <= end_date,
+            )
+            .group_by(model.local_date)
+        )
+        for d, c in rows.all():
+            counts[d] += c
+    return dict(counts)
+
+
 # 查询用户某天的自由训练记录
 async def get_free_training_records_by_user_and_day(db: AsyncSession, user_id: uuid.UUID, day: str) -> List[RunningFreeTrainingRecord]:
     target_date = date.fromisoformat(day)
@@ -769,6 +791,51 @@ async def get_nearby_effect_grids(
         )
         .order_by(dist.asc())
         .limit(count)
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+# 查询用户附近指定半径（网格数）内、当天还能领取的 buff 网格（自由训练页附近网格列表）
+async def get_effect_grids_within_distance(
+    db: AsyncSession,
+    user: User,
+    region: Region,
+    active_date: date,
+    grid_x: int,
+    grid_y: int,
+    radius_grids: int,
+    max_count: int
+) -> List[RunningEffectGrid]:
+    dist = (
+        (RunningEffectGrid.grid_x - grid_x) * (RunningEffectGrid.grid_x - grid_x)
+        + (RunningEffectGrid.grid_y - grid_y) * (RunningEffectGrid.grid_y - grid_y)
+    )
+    stmt = (
+        select(RunningEffectGrid)
+        .outerjoin(
+            RunningEffectGridHistory,
+            (
+                (RunningEffectGridHistory.user_id == user.id)
+                & (RunningEffectGridHistory.grid_x == RunningEffectGrid.grid_x)
+                & (RunningEffectGridHistory.grid_y == RunningEffectGrid.grid_y)
+                & (RunningEffectGridHistory.active_date == RunningEffectGrid.active_date)
+            )
+        )
+        .where(
+            RunningEffectGrid.region_id == region.id,
+            RunningEffectGrid.active_date == active_date,
+            RunningEffectGrid.effect_type == GridEffectType.buff,
+            RunningEffectGridHistory.id.is_(None),
+            # bbox 先收敛（走 grid_x/grid_y 范围），再用平方距离做圆形过滤
+            RunningEffectGrid.grid_x >= grid_x - radius_grids,
+            RunningEffectGrid.grid_x <= grid_x + radius_grids,
+            RunningEffectGrid.grid_y >= grid_y - radius_grids,
+            RunningEffectGrid.grid_y <= grid_y + radius_grids,
+            dist <= radius_grids * radius_grids,
+        )
+        .order_by(dist.asc())
+        .limit(max_count)
     )
     result = await db.execute(stmt)
     return result.scalars().all()
