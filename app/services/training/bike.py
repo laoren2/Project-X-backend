@@ -6,7 +6,7 @@ from app.schemas.asset import AssetOperation, CPAssetResponse
 from app.schemas.training.common import (
     RegionExploreResponse, GridTileKey, GridFamiliarityRankListResponse,
     GridFamiliarityMeResponse, GridFamiliarityRankInfo, RouteSortType, TrainingType,
-    GridOccupancyResponse, TrackPoint
+    GridOccupancyResponse, TrackPoint, WeeklyTrainingSummaryResponse, WeeklyTrainingDayInfo
 )
 from app.schemas.competition.common import CardBonusInfo, PathPoint
 from app.schemas.base import BizException, Language, pick_i18n_text
@@ -37,7 +37,7 @@ from app.db.models.training import (
 )
 from app.crud.training.bike import (
     get_training_states_by_user_and_month, get_free_training_records_by_user_and_day, get_route_training_records_by_user_and_day,
-    get_training_record_counts_by_user_and_month,
+    get_training_record_counts_by_user_and_month, get_weekly_training_aggregates, get_daily_states_by_user_and_range,
     add_or_update_daily_training_states, get_training_state_by_user, update_user_familiarity_by_grids,
     get_region_explored_grid_count, get_free_training_record_by_record_id, get_training_state_daily_by_user_date,
     get_grids_info_by_tiles, get_routes_by_page_crud, get_routes_by_uesr_id, get_route_by_route_id,
@@ -154,6 +154,7 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
             start_time = info.start_time,
             end_time = info.end_time,
             duration_seconds = duration,
+            distance = distance,
             local_date = get_user_local_date(user, info.end_time),
             settlement_rewards = settlements,
             triggered_buffs = triggered_buffs_data,
@@ -472,6 +473,32 @@ async def query_training_records_service(db: AsyncSession, day: str, user_id: st
         ))
 
     return TrainingRecordsResponse(records=result)
+
+# 训练模块：最近 7 天训练汇总（momentum 当前值 + 每日 时长/delta/距离）
+async def query_weekly_training_summary_service(db: AsyncSession, viewer_id: str, target_user_id: str | None) -> WeeklyTrainingSummaryResponse:
+    effective_user_id = target_user_id or viewer_id
+    is_self = (effective_user_id == viewer_id)
+    async with db.begin():
+        user = await get_user_by_id(db, effective_user_id)
+        if user is None:
+            raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+        today = get_user_local_date(user)
+        start_date = today - timedelta(days=6)
+        agg = await get_weekly_training_aggregates(db, user.id, start_date, today)
+        deltas = await get_daily_states_by_user_and_range(db, user.id, start_date, today)
+        # 仅本人查看时应用衰减（与 query_training_states_service 口径一致）
+        _, current_value = await compute_training_decay(db, user, is_self)
+        days = []
+        for i in range(7):
+            d = start_date + timedelta(days=i)
+            total_time, total_distance = agg.get(d, (0.0, 0.0))
+            days.append(WeeklyTrainingDayInfo(
+                date=d.strftime("%Y-%m-%d"),
+                total_time=total_time,
+                delta_state=deltas.get(d, 0),
+                total_distance=total_distance,
+            ))
+        return WeeklyTrainingSummaryResponse(current_state=current_value, days=days)
 
 # 计算/应用训练状态衰减
 async def compute_training_decay(
@@ -1360,6 +1387,8 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
         final_time = original_time
         bonus_time = 0
 
+        route_distance = compute_distance([p.base for p in finish_info.path])
+
         record = BikeRouteTrainingRecord(
             record_id=f"route_training_record_{uuid.uuid4()}",
             user_id=user.id,
@@ -1368,6 +1397,7 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
             start_time=finish_info.start_time,
             end_time=finish_info.end_time,
             duration_seconds=final_time,
+            distance=route_distance,
             penalty_seconds=total_penalty,
             local_date=get_user_local_date(user, finish_info.end_time),
             settlement_rewards=settlements,

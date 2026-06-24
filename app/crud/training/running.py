@@ -240,6 +240,42 @@ async def get_training_record_counts_by_user_and_month(db: AsyncSession, user_id
     return dict(counts)
 
 
+# 训练模块周汇总：按 local_date 聚合 free+route 的总时长(秒)与总距离(km)
+async def get_weekly_training_aggregates(db: AsyncSession, user_id: uuid.UUID, start_date: date, end_date: date) -> dict[date, tuple[float, float]]:
+    agg: dict[date, list[float]] = defaultdict(lambda: [0.0, 0.0])
+    for model in (RunningFreeTrainingRecord, RunningRouteTrainingRecord):
+        rows = await db.execute(
+            select(
+                model.local_date,
+                func.coalesce(func.sum(model.duration_seconds), 0.0),
+                func.coalesce(func.sum(model.distance), 0.0),
+            )
+            .where(
+                model.user_id == user_id,
+                model.local_date >= start_date,
+                model.local_date <= end_date,
+            )
+            .group_by(model.local_date)
+        )
+        for d, total_time, total_distance in rows.all():
+            agg[d][0] += float(total_time or 0.0)
+            agg[d][1] += float(total_distance or 0.0)
+    return {d: (v[0], v[1]) for d, v in agg.items()}
+
+
+# 训练模块周汇总：按 local_date 取每日 momentum delta
+async def get_daily_states_by_user_and_range(db: AsyncSession, user_id: uuid.UUID, start_date: date, end_date: date) -> dict[date, int]:
+    rows = await db.execute(
+        select(UserTrainingStateDailyRunning.local_date, UserTrainingStateDailyRunning.delta)
+        .where(
+            UserTrainingStateDailyRunning.user_id == user_id,
+            UserTrainingStateDailyRunning.local_date >= start_date,
+            UserTrainingStateDailyRunning.local_date <= end_date,
+        )
+    )
+    return {d: delta for d, delta in rows.all()}
+
+
 # 查询用户某天的自由训练记录
 async def get_free_training_records_by_user_and_day(db: AsyncSession, user_id: uuid.UUID, day: str) -> List[RunningFreeTrainingRecord]:
     target_date = date.fromisoformat(day)

@@ -15,7 +15,7 @@ from app.schemas.training.bike import (
 )
 from app.schemas.training.common import (
     RegionExploreResponse, GridTileRequest, GridFamiliarityMeResponse,
-    GridFamiliarityRankListResponse, RouteSortType, GridOccupancyResponse
+    GridFamiliarityRankListResponse, RouteSortType, GridOccupancyResponse, WeeklyTrainingSummaryResponse
 )
 from app.services.training.bike import (
     finish_free_training_service, query_training_states_history_service, query_training_records_service,
@@ -25,7 +25,7 @@ from app.services.training.bike import (
     finish_route_training_service, query_route_training_record_detail_service, get_route_card_info_service,
     query_route_ranklist_service, query_route_ranklist_me_service, query_grid_info_service,
     apply_route_to_track_service, get_route_pace_baseline_service, query_nearby_grids_service,
-    query_grids_within_distance_service, query_occupied_grids_count
+    query_grids_within_distance_service, query_occupied_grids_count, query_weekly_training_summary_service
 )
 
 router = APIRouter(dependencies=[Depends(get_language)])
@@ -50,15 +50,26 @@ async def query_training_states_history(
     history = await query_training_states_history_service(db, month, auth.payload["user_id"])
     return BaseResponse.success(token=auth.new_token, data=history)
 
-# 查询训练记录
+# 查询训练记录（user_id 缺省为本人；传入可查他人）
 @router.get("/training_records/day",response_model=BaseResponse[TrainingRecordsResponse],summary="查询训练记录")
 async def query_training_records(
     day: str = Query(...),
+    user_id: str | None = Query(None),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    records = await query_training_records_service(db, day, auth.payload["user_id"])
+    records = await query_training_records_service(db, day, user_id or auth.payload["user_id"])
     return BaseResponse.success(token=auth.new_token, data=records)
+
+# 查询最近 7 天训练汇总（user_id 缺省为本人；传入可查他人）
+@router.get("/weekly_training_summary",response_model=BaseResponse[WeeklyTrainingSummaryResponse],summary="查询最近7天训练汇总")
+async def weekly_training_summary(
+    user_id: str | None = Query(None),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_weekly_training_summary_service(db, auth.payload["user_id"], user_id)
+    return BaseResponse.success(token=auth.new_token, data=result)
 
 # 查询我的当前训练状态
 @router.get("/training_states/me",response_model=BaseResponse[int],summary="查询我的当前训练状态")

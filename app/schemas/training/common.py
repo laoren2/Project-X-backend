@@ -85,3 +85,14 @@ class GridFamiliarityRankListResponse(BaseModel):
 # 用户已占领网格数（基础格中 familiarity_count 排名第一的网格数）
 class GridOccupancyResponse(BaseModel):
     occupied_count: int
+
+# 训练模块：最近 7 天每日训练汇总
+class WeeklyTrainingDayInfo(BaseModel):
+    date: str               # "YYYY-MM-DD"
+    total_time: float       # 当日训练总时长（秒）
+    delta_state: int        # 当日 momentum 变化量
+    total_distance: float   # 当日训练总距离（km）
+
+class WeeklyTrainingSummaryResponse(BaseModel):
+    current_state: int                      # 当前 momentum 值
+    days: List[WeeklyTrainingDayInfo]       # 7 天，旧→新

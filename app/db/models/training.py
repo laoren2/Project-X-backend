@@ -255,6 +255,7 @@ class BikeFreeTrainingRecord(Base):
     start_time = Column(DateTime(timezone=True), nullable=False)
     end_time = Column(DateTime(timezone=True), nullable=False)
     duration_seconds = Column(Float, nullable=False)
+    distance = Column(Float, nullable=False, server_default="0")      # 本次训练距离(km)
     local_date = Column(Date, nullable=False)
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)      # 此次训练的结算，可能包含 xp/state_value/familiarity...
     triggered_buffs = Column(JSONB, nullable=False, server_default="[]")            # 训练触发的 buff grids 快照
@@ -302,6 +303,7 @@ class RunningFreeTrainingRecord(Base):
     start_time = Column(DateTime(timezone=True), nullable=False)
     end_time = Column(DateTime(timezone=True), nullable=False)
     duration_seconds = Column(Float, nullable=False)
+    distance = Column(Float, nullable=False, server_default="0")      # 本次训练距离(km)
     local_date = Column(Date, nullable=False)
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)
     triggered_buffs = Column(JSONB, nullable=False, server_default="[]")            # 训练触发的 buff grids 快照
@@ -479,6 +481,7 @@ class BikeRouteTrainingRecord(Base):
     start_time = Column(DateTime(timezone=True), nullable=False)
     end_time = Column(DateTime(timezone=True), nullable=False)
     duration_seconds = Column(Float, nullable=False)
+    distance = Column(Float, nullable=False, server_default="0")      # 本次训练距离(km)
     penalty_seconds = Column(Float, default=0, nullable=False)
     local_date = Column(Date, index=True, nullable=False)
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)       # 此次训练的结算，可能包含 xp/state_value/familiarity...
@@ -572,6 +575,7 @@ class RunningRouteTrainingRecord(Base):
     start_time = Column(DateTime(timezone=True), nullable=False)
     end_time = Column(DateTime(timezone=True), nullable=False)
     duration_seconds = Column(Float, nullable=False)
+    distance = Column(Float, nullable=False, server_default="0")      # 本次训练距离(km)
     penalty_seconds = Column(Float, default=0, nullable=False)
     local_date = Column(Date, index=True, nullable=False)
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)       # 此次训练的结算，可能包含 xp/state_value/familiarity...
