@@ -14,16 +14,17 @@ from datetime import datetime, timezone
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/user/login")
+# 可选鉴权：无 token 时返回 None 而非抛 401（用于「未登录可看、登录则带身份」的接口）
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/user/login", auto_error=False)
 
-async def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: AsyncSession = Depends(get_db)
-):
+
+async def _resolve_auth_context(token: str, db: AsyncSession) -> AuthContext:
+    """校验 token、处理封禁/自动解封与续期，返回 AuthContext。token 无效则抛异常。"""
     result = verify_token(token)
     if result is None:
         # Token 无效或解码失败，处理异常情况
         raise BizException(code=ErrorCode.TOKEN_INVALID, message="identity.verify_failed.token")
-    
+
     user_id = result["payload"]["user_id"]
     result_db = await db.execute(
         select(User)
@@ -49,11 +50,28 @@ async def get_current_user(
             else:
                 remaining_str = "未知"
             raise BizException(code=ErrorCode.USER_BANNED, message="user.banned", params={"remaining": remaining_str})
-    
+
     if db.in_transaction():
         await db.commit()
 
     return AuthContext(payload=result["payload"], new_token=result.get("new_token"))
+
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db)
+):
+    return await _resolve_auth_context(token, db)
+
+
+async def get_current_user_optional(
+    token: str | None = Depends(oauth2_scheme_optional),
+    db: AsyncSession = Depends(get_db)
+) -> AuthContext | None:
+    """可选鉴权：未携带 token 时视为匿名（返回 None）；携带则按标准流程校验（无效仍抛错）。"""
+    if not token:
+        return None
+    return await _resolve_auth_context(token, db)
 
 
 async def get_current_admin(

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query
-from app.api.deps import get_current_user, get_language, Language
+from app.api.deps import get_current_user, get_current_user_optional, get_language, Language
 from app.schemas.base import BaseResponse
 from app.schemas.common import CPAssetCoverInfo, PaceBaselineResponse
 from app.schemas.asset import CPAssetResponse
@@ -50,26 +50,28 @@ async def query_training_states_history(
     history = await query_training_states_history_service(db, month, auth.payload["user_id"])
     return BaseResponse.success(token=auth.new_token, data=history)
 
-# 查询训练记录（user_id 缺省为本人；传入可查他人）
+# 查询训练记录（可选鉴权：viewer 来自 token；target=user_id，缺省为本人）
 @router.get("/training_records/day",response_model=BaseResponse[TrainingRecordsResponse],summary="查询训练记录")
 async def query_training_records(
     day: str = Query(...),
     user_id: str | None = Query(None),
-    auth: AuthContext = Depends(get_current_user),
+    auth: AuthContext | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db)
 ):
-    records = await query_training_records_service(db, day, user_id or auth.payload["user_id"])
-    return BaseResponse.success(token=auth.new_token, data=records)
+    viewer_id = auth.payload["user_id"] if auth else None
+    records = await query_training_records_service(db, day, user_id or viewer_id)
+    return BaseResponse.success(token=auth.new_token if auth else None, data=records)
 
-# 查询最近 7 天训练汇总（user_id 缺省为本人；传入可查他人）
+# 查询最近 7 天训练汇总（可选鉴权：viewer 来自 token；target=user_id，缺省为本人）
 @router.get("/weekly_training_summary",response_model=BaseResponse[WeeklyTrainingSummaryResponse],summary="查询最近7天训练汇总")
 async def weekly_training_summary(
     user_id: str | None = Query(None),
-    auth: AuthContext = Depends(get_current_user),
+    auth: AuthContext | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await query_weekly_training_summary_service(db, auth.payload["user_id"], user_id)
-    return BaseResponse.success(token=auth.new_token, data=result)
+    viewer_id = auth.payload["user_id"] if auth else None
+    result = await query_weekly_training_summary_service(db, viewer_id, user_id)
+    return BaseResponse.success(token=auth.new_token if auth else None, data=result)
 
 # 查询我的当前训练状态
 @router.get("/training_states/me",response_model=BaseResponse[int],summary="查询我的当前训练状态")
@@ -101,15 +103,16 @@ async def query_region_exploration(
     result = await query_region_exploration_service(db, auth.payload["user_id"], region_id)
     return BaseResponse.success(token=auth.new_token, data=result)
 
-# 查询 free training 记录详情
+# 查询 free training 记录详情（可选鉴权：viewer 来自 token；归属由 record 决定，响应带 owner_user_id）
 @router.get("/query_free_training_record_detail",response_model=BaseResponse[FreeTrainingRecordDetailResponse],summary="查询 free training 记录详情")
 async def query_free_training_record_detail(
     record_id: str = Query(...),
-    auth: AuthContext = Depends(get_current_user),
+    auth: AuthContext | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await query_free_training_record_detail_service(db, auth.payload["user_id"], record_id)
-    return BaseResponse.success(token=auth.new_token, data=result)
+    viewer_id = auth.payload["user_id"] if auth else None
+    result = await query_free_training_record_detail_service(db, viewer_id, record_id)
+    return BaseResponse.success(token=auth.new_token if auth else None, data=result)
 
 # 查询熟悉度网格 tiles
 @router.post("/query_grid_tiles",response_model=BaseResponse[BikeGridTileResponse],summary="查询熟悉度网格 tiles")
@@ -301,16 +304,17 @@ async def finish_route_training(
     result = await finish_route_training_service(db, finish_info, auth.payload["user_id"])
     return BaseResponse.success(token=auth.new_token, data=result)
 
-# 查询路线训练记录详情
+# 查询路线训练记录详情（可选鉴权：viewer 来自 token；归属由 record 决定，响应带 owner_user_id）
 @router.get("/query_route_training_record_detail",response_model=BaseResponse[RouteTrainingRecordDetailResponse],summary="查询路线训练记录详情")
 async def query_route_training_record_detail(
     record_id: str = Query(...),
     lang: Language = Depends(get_language),
-    auth: AuthContext = Depends(get_current_user),
+    auth: AuthContext | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await query_route_training_record_detail_service(db, lang, record_id)
-    return BaseResponse.success(token=auth.new_token, data=result)
+    viewer_id = auth.payload["user_id"] if auth else None
+    result = await query_route_training_record_detail_service(db, lang, record_id, viewer_id)
+    return BaseResponse.success(token=auth.new_token if auth else None, data=result)
 
 @router.get("/route_pace_baseline", response_model=BaseResponse[PaceBaselineResponse], summary="查询路线配速基线（实时预测名次 + 自我对比）")
 async def route_pace_baseline(
