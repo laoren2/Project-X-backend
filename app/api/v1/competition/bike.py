@@ -40,7 +40,7 @@ from app.services.competition.bike import (
     query_track_familiarity_service, query_tracks_user_info_service,
     get_track_pace_baseline_service
 )
-from app.api.deps import get_current_user, get_language, Language
+from app.api.deps import get_current_user, get_current_user_optional, get_language, Language
 from typing import Optional
 
 
@@ -479,15 +479,17 @@ async def cancel_applied_join_team(
     return BaseResponse.success(token=auth.new_token, message="取消成功")
 
 
+# 查询比赛记录详情（可选鉴权：viewer 来自 token；归属由 record 决定，响应带 owner_user_id）
 @router.get("/query_record_detail",response_model=BaseResponse[BikeRecordDetailInfo],summary="查询比赛记录详情")
 async def query_record_detail(
     record_id: str = Query(...),
-    user_id: str = Query(None),
     lang: Language = Depends(get_language),
+    auth: AuthContext | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db)
 ):
-    detail = await get_record_detail_service(db, lang, record_id, user_id)
-    return BaseResponse.success(data=detail)
+    viewer_id = auth.payload["user_id"] if auth else None
+    detail = await get_record_detail_service(db, lang, record_id, viewer_id)
+    return BaseResponse.success(token=auth.new_token if auth else None, data=detail)
 
 @router.get("/query_user_current_best_records",response_model=BaseResponse[BikeSummaryRecordResponse],summary="查询任意用户当前赛季最佳记录")
 async def query_user_current_best_records(

@@ -2312,7 +2312,8 @@ async def cancel_applied_join_team_service(db: AsyncSession, user_id: str, team_
         await db.delete(member)
 
 
-async def get_record_detail_service(db: AsyncSession, lang: Language, record_id: str, user_id: str | None) -> BikeRecordDetailInfo:
+async def get_record_detail_service(db: AsyncSession, lang: Language, record_id: str, viewer_id: str | None) -> BikeRecordDetailInfo:
+    # viewer_id 为查询者（来自 token，可空）；预留用于未来按归属做隐私裁剪
     record = await get_record_by_record_id(db, record_id)
     if record is None:
         raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
@@ -2365,6 +2366,7 @@ async def get_record_detail_service(db: AsyncSession, lang: Language, record_id:
         final_time = float(record.duration_seconds)
     
     return BikeRecordDetailInfo(
+        owner_user_id=record.user.user_id,
         status=record.status,
         original_time=original_time,
         final_time=final_time,

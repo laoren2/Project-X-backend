@@ -82,7 +82,7 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
                     training_state_before=0, training_state_delta=0,
                     new_grids=0, triggered_buff_count=0, cc_rewards=[]
                 )
-        state, _ = await compute_training_decay(db, user, True)
+        state, _, _ = await compute_training_decay(db, user, True)
 
         # 检查记录合理性(时间过短 < 30s or 距离过短 < 100m 则不进行记录)
         duration = (info.end_time - info.start_time).total_seconds()
@@ -444,7 +444,10 @@ async def query_training_states_history_service(db: AsyncSession, month: str, us
         ))
     return TrainingStatesHistoryResponse(history=result)
 
-async def query_training_records_service(db: AsyncSession, day: str, user_id: str) -> TrainingRecordsResponse:
+async def query_training_records_service(db: AsyncSession, day: str, user_id: str | None) -> TrainingRecordsResponse:
+    # user_id 为查询目标（target，缺省为 viewer 本人）；匿名且未指定 target 时无法确定查询对象
+    if user_id is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
@@ -476,8 +479,12 @@ async def query_training_records_service(db: AsyncSession, day: str, user_id: st
     return TrainingRecordsResponse(records=result)
 
 # 训练模块：最近 7 天训练汇总（momentum 当前值 + 每日 时长/delta/距离）
-async def query_weekly_training_summary_service(db: AsyncSession, viewer_id: str, target_user_id: str | None) -> WeeklyTrainingSummaryResponse:
+async def query_weekly_training_summary_service(db: AsyncSession, viewer_id: str | None, target_user_id: str | None) -> WeeklyTrainingSummaryResponse:
+    # viewer_id 来自 token（可空）；target_user_id 为查询目标（缺省为 viewer 本人）
     effective_user_id = target_user_id or viewer_id
+    if effective_user_id is None:
+        # 匿名且未指定 target 时无法确定查询对象
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     is_self = (effective_user_id == viewer_id)
     async with db.begin():
         user = await get_user_by_id(db, effective_user_id)
@@ -486,9 +493,13 @@ async def query_weekly_training_summary_service(db: AsyncSession, viewer_id: str
         today = get_user_local_date(user)
         start_date = today - timedelta(days=6)
         agg = await get_weekly_training_aggregates(db, user.id, start_date, today)
+        # 注意：deltas 须在 compute_training_decay 之前读取——自查时衰减会落库，先读可避免合并时重复计入
         deltas = await get_daily_states_by_user_and_range(db, user.id, start_date, today)
         # 仅本人查看时应用衰减（与 query_training_states_service 口径一致）
-        _, current_value = await compute_training_decay(db, user, is_self)
+        _, current_value, decay_deltas = await compute_training_decay(db, user, is_self)
+        # 合并衰减产生的每日 delta：自查时已落库（但 deltas 在落库前读取）、查他人时不落库，统一在响应里补齐，保证每日 delta 与 current_state 口径一致
+        for d, delta in decay_deltas.items():
+            deltas[d] = deltas.get(d, 0) + delta
         days = []
         for i in range(7):
             d = start_date + timedelta(days=i)
@@ -506,18 +517,18 @@ async def compute_training_decay(
     db: AsyncSession,
     user: User,
     is_apply: bool
-) -> tuple[UserTrainingStateRunning | None, int]:
+) -> tuple[UserTrainingStateRunning | None, int, dict[date, int]]:
     today = get_user_local_date(user)
     state = await get_training_state_by_user(db, user.id)
     if not state or not state.last_training_at:
-        return state, 0
+        return state, 0, {}
 
     last_training_date = get_user_local_date(user, state.last_training_at)
     inactive_days = (today - last_training_date).days
 
     # 未达到衰减条件
     if inactive_days <= 7:
-        return state, state.current_value
+        return state, state.current_value, {}
 
     # 第一次衰减起点
     decay_start = last_training_date + timedelta(days=6)
@@ -529,10 +540,11 @@ async def compute_training_decay(
     decay_days = (today - last_decay_date).days - 1
 
     if decay_days <= 0:
-        return state, state.current_value
+        return state, state.current_value, {}
 
     # 当前状态
     value = state.current_value
+    decay_deltas: dict[date, int] = {}      # 每日衰减 delta（无论是否落库都返回，供汇总图表补齐）
     for i in range(1, decay_days + 1):
         decay_date = last_decay_date + timedelta(days=i)
         new_value = max(0, value - 5)
@@ -540,13 +552,14 @@ async def compute_training_decay(
         if delta == 0:
             break
         value = new_value
+        decay_deltas[decay_date] = delta
         if is_apply:
             await add_or_update_daily_training_states(db, user.id, decay_date, delta, new_value)
     # 更新总状态
     if is_apply:
         state.current_value = value
         state.last_decay_date = last_decay_date + timedelta(days=decay_days)
-    return state, value
+    return state, value, decay_deltas
 
 # 查询运动状态
 async def query_training_states_service(db: AsyncSession, user_id_from: str | None, user_id_to: str) -> int:
@@ -555,7 +568,7 @@ async def query_training_states_service(db: AsyncSession, user_id_from: str | No
         if user is None:
             raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
         is_self = user_id_from == user_id_to
-        _, state_value = await compute_training_decay(db, user, is_self)
+        _, state_value, _ = await compute_training_decay(db, user, is_self)
         return state_value
     
 # 查询 region 探索度
@@ -660,9 +673,10 @@ async def update_user_familiarity(
 
 async def query_free_training_record_detail_service(
     db: AsyncSession,
-    user_id: str,
+    viewer_id: str | None,
     record_id: str
 ) -> FreeTrainingRecordDetailResponse:
+    # viewer_id 为查询者（来自 token，可空）；预留用于未来按归属做隐私裁剪
     record = await get_free_training_record_by_record_id(db, record_id)
     if record is None:
         raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
@@ -678,6 +692,7 @@ async def query_free_training_record_detail_service(
 
     duration = (record.end_time - record.start_time).total_seconds()
     return FreeTrainingRecordDetailResponse(
+        owner_user_id=record.user.user_id,
         duration=duration,
         path=path_points,
         settlements=record.settlement_rewards,
@@ -1325,7 +1340,7 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
         if not path_passes_checkpoints:
             raise BizException(code=ErrorCode.RECORD_ERROR, message="record.invalid.route_path")
 
-        state, _ = await compute_training_decay(db, user, True)
+        state, _, _ = await compute_training_decay(db, user, True)
         new_grids = await update_user_familiarity(db, season.id, user.id, [p.base for p in finish_info.path])
         free_training_path = [RunningFreeTrainingPathPoint(
             base=p.base,
@@ -1518,7 +1533,8 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
 
 
 
-async def query_route_training_record_detail_service(db: AsyncSession, lang: Language, record_id: str) -> RouteTrainingRecordDetailResponse:
+async def query_route_training_record_detail_service(db: AsyncSession, lang: Language, record_id: str, viewer_id: str | None) -> RouteTrainingRecordDetailResponse:
+    # viewer_id 为查询者（来自 token，可空）；预留用于未来按归属做隐私裁剪
     record = await get_route_training_record_by_record_id(db, record_id)
     if record is None:
         raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
@@ -1551,6 +1567,7 @@ async def query_route_training_record_detail_service(db: AsyncSession, lang: Lan
                 )
     
     return RouteTrainingRecordDetailResponse(
+        owner_user_id=record.user.user_id,
         original_time=duration,
         final_time=final_time,
         penalty_time=record.penalty_seconds,

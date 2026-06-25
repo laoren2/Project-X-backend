@@ -480,6 +480,7 @@ class RunningTeamAppliedRequest(ORMBase):
     introduction: Optional[str] = None
 
 class RunningRecordDetailInfo(BaseModel):
+    owner_user_id: str          # 记录归属者业务 ID（客户端据此判断是否本人/可否分享）
     status: RecordStatus
     original_time: float
     final_time: float

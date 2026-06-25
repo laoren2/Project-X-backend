@@ -67,6 +67,7 @@ class TrainingRecordsResponse(BaseModel):
     records: List[TrainingRecordInfo]
 
 class FreeTrainingRecordDetailResponse(BaseModel):
+    owner_user_id: str          # 记录归属者业务 ID（客户端据此判断是否本人/可否分享）
     duration: float
     path: List[RunningFreeTrainingPathPoint]
     settlements: dict[str, Any]      # 训练的结算信息
@@ -152,6 +153,7 @@ class RouteTrainingFinishResponse(BaseModel):
     cc_rewards: List[CCAssetRewardResponse]
 
 class RouteTrainingRecordDetailResponse(BaseModel):
+    owner_user_id: str          # 记录归属者业务 ID（客户端据此判断是否本人/可否分享）
     original_time: float
     final_time: float
     penalty_time: float
