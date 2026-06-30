@@ -65,10 +65,11 @@ class GridCellInfo(BaseModel):
     grid_y: int
     count: int
 
-# 历史卡片缩略轨迹的单个坐标点（服务端已降采样，仅含经纬度）
+# 历史卡片缩略轨迹的单个坐标点（服务端已降采样，仅含经纬度 + 活动段序号）
 class TrackPoint(BaseModel):
     lat: float
     lon: float
+    segment: int = 0    # 活动段序号：free training 暂停恢复时 +1，客户端据此分段绘制（缺口不连线）；race/route 恒为 0
 
 class GridFamiliarityMeResponse(BaseModel):
     count: int

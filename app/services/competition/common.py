@@ -13,7 +13,7 @@ from app.db.models.user import User
 from app.db.models.mailbox import Mailbox
 from app.schemas.base import BizException, Language, pick_i18n_text
 from app.schemas.user import Gender
-from app.schemas.competition.common import RegionCreate, RecordStatus, TeamStatus, LocationPoint, RegionResponse, MatchFinishInfo
+from app.schemas.competition.common import RegionCreate, RecordStatus, TeamStatus, LocationPoint, PathPoint, RegionResponse, MatchFinishInfo
 from app.schemas.asset import CCAssetType, AssetOperation
 from app.schemas.common import CCAssetRewardResponse, CCAssetBaseInfo
 from app.schemas.mailbox import MailType
@@ -648,6 +648,46 @@ def compute_distance(path: List[LocationPoint]) -> float:
         total_km += R_km * c
         prev = curr
     return float(total_km)
+
+def compute_active_distance(path: List[PathPoint]) -> float:
+    """
+    段感知有效距离（km）：跨 segment 边界（暂停缺口）的相邻两点不连线，其余按 Haversine 累加。
+    用于自由训练——避免把暂停期间的位移（坐车/地铁/漂移）计入训练距离。
+    race/route 的点 segment 恒为 0，行为与 compute_distance 完全一致。
+    """
+    if not path or len(path) < 2:
+        return 0.0
+    R_km = 6371.0
+    total_km = 0.0
+    prev = path[0]
+    for curr in path[1:]:
+        if curr.segment == prev.segment:
+            lat1 = radians(prev.lat)
+            lon1 = radians(prev.lon)
+            lat2 = radians(curr.lat)
+            lon2 = radians(curr.lon)
+            dlat = lat2 - lat1
+            dlon = lon2 - lon1
+            a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+            c = 2 * atan2(sqrt(a), sqrt(1 - a))
+            total_km += R_km * c
+        prev = curr
+    return float(total_km)
+
+def compute_active_duration(path: List[PathPoint]) -> float:
+    """
+    段感知有效时长（秒）：累加同 segment 内相邻点的时间差，跨 segment 边界（暂停）不计。
+    自由训练以此作为训练时长的唯一真源（与 buff 累计时长同源），无需客户端额外上报。
+    """
+    if not path or len(path) < 2:
+        return 0.0
+    total = 0.0
+    prev = path[0]
+    for curr in path[1:]:
+        if curr.segment == prev.segment:
+            total += curr.timestamp - prev.timestamp
+        prev = curr
+    return float(total)
 
 # 插入新记录更新 running 排行榜 ( record 的 user 和 track 需提前 selectinload )
 async def update_running_leaderboard_for_record(record: RunningRaceRecord):

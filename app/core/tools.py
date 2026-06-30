@@ -151,8 +151,9 @@ def grid_center_to_latlon(grid_x: int, grid_y: int) -> tuple[float, float]:
     cy = grid_y * 500 + 250
     return mercator_to_latlon(cx, cy)
 
-def simplify_track_coords(coords: list[tuple[float, float]], max_points: int) -> list[tuple[float, float]]:
+def simplify_track_coords(coords: list[tuple[float, float, int]], max_points: int) -> list[tuple[float, float, int]]:
     """均匀降采样轨迹坐标到至多 max_points 个点（保留首尾，去重相邻索引）。
+    每个点为 (lat, lon, segment)，segment 随点保留供客户端分段绘制。
     用于历史卡片的缩略轨迹：不返回完整轨迹，控制 payload 与渲染开销。"""
     n = len(coords)
     if max_points <= 0 or n <= max_points:
@@ -160,7 +161,7 @@ def simplify_track_coords(coords: list[tuple[float, float]], max_points: int) ->
     if max_points == 1:
         return [coords[0]]
     step = (n - 1) / (max_points - 1)
-    result: list[tuple[float, float]] = []
+    result: list[tuple[float, float, int]] = []
     last_idx = -1
     for i in range(max_points):
         idx = int(round(i * step))
@@ -171,10 +172,11 @@ def simplify_track_coords(coords: list[tuple[float, float]], max_points: int) ->
             last_idx = idx
     return result
 
-def extract_simplified_track(path, max_points: int = 40) -> list[tuple[float, float]]:
-    """从存储的训练轨迹 JSON（[{base:{lat,lon,...}}, ...]）提取 (lat, lon) 并降采样。
+def extract_simplified_track(path, max_points: int = 40) -> list[tuple[float, float, int]]:
+    """从存储的训练轨迹 JSON（[{base:{lat,lon,segment,...}}, ...]）提取 (lat, lon, segment) 并降采样。
+    segment 随点保留，供客户端按活动段分段绘制（暂停缺口不连线）。
     对脏数据/缺字段做容错，返回简化后的坐标列表。"""
-    coords: list[tuple[float, float]] = []
+    coords: list[tuple[float, float, int]] = []
     if path:
         for p in path:
             if not isinstance(p, dict):
@@ -187,7 +189,8 @@ def extract_simplified_track(path, max_points: int = 40) -> list[tuple[float, fl
             if lat is None or lon is None:
                 continue
             try:
-                coords.append((float(lat), float(lon)))
+                segment = int(base.get("segment", 0) or 0)
+                coords.append((float(lat), float(lon), segment))
             except (TypeError, ValueError):
                 continue
     return simplify_track_coords(coords, max_points)
