@@ -94,6 +94,7 @@ uvicorn app.main:app --reload --port 8000
 
 - 配置通过根目录 `.env`（模板见 `.env.example`）。设置项定义在 [app/core/config.py](app/core/config.py)（`Settings`）。
 - **机密文件勿动 / 勿读**：`.env`、`certs/`（证书密钥），已在 `.gitignore` / `.dockerignore` 中排除。
+- **git**：只在当前工作区进行编辑操作，不要自动commit和push分支。
 
 ## Deployment (CI/CD)
 

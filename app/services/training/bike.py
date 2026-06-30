@@ -23,7 +23,7 @@ from app.schemas.training.bike import (
 )
 from app.schemas.training.common import RouteApplyStatus
 from app.services.common import get_elevation
-from app.services.competition.common import compute_distance
+from app.services.competition.common import compute_distance, compute_active_distance, compute_active_duration
 from app.services.training.common import (
     validate_route_data, build_geometry, extract_checkpoints_from_route_data,
     evaluate_route_training_checkpoint_path, extract_path_points, build_split_profile
@@ -84,23 +84,26 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
         state, _, _ = await compute_training_decay(db, user, True)
 
         # 检查记录合理性(时间过短 < 30s or 距离过短 < 100m 则不进行记录)
-        duration = (info.end_time - info.start_time).total_seconds()
-        distance = compute_distance([p.base for p in info.path])
+        # 有效时长/距离：跨暂停（segment 边界）的缺口不计入
+        base_points = [p.base for p in info.path]
+        duration = compute_active_duration(base_points)
+        distance = compute_active_distance(base_points)
         if duration < 30 or distance < 0.1:
             raise BizException(code=ErrorCode.RECORD_ERROR, message="record.invalid.too_short")
-        
+
         # 更新地图熟悉度
-        new_grids = await update_user_familiarity(db, season.id, user.id, [p.base for p in info.path])
+        new_grids = await update_user_familiarity(db, season.id, user.id, base_points)
 
         # 计算并更新 xp 和 训练状态 奖励，可以根据整体的训练距离、海拔累计落差、是否有心率数据等信息进行计算，xp控制在 0-50，training_state控制在 0-10
         xp_before, xp_delta, training_state_before, training_state_delta, base_rewards = await apply_training_rewards(
-            db, 
-            season.id, 
-            user, 
-            info.start_time,
+            db,
+            season.id,
+            user,
             info.end_time,
+            duration,
+            distance,
             info.path,
-            state, 
+            state,
             new_grids
         )
 
@@ -239,11 +242,11 @@ async def apply_buff_grids(
             # 只统计到当前 buff grid 为止的 path 数据
             current_path = info.path[: path_index + 1]
 
-            # 当前累计距离（km）
-            current_distance = compute_distance([p.base for p in current_path])
+            # 当前累计距离（km，段感知：暂停缺口不连线）
+            current_distance = compute_active_distance([p.base for p in current_path])
 
-            # 当前累计平均速度（km/h）
-            current_duration = current_path[-1].base.timestamp - current_path[0].base.timestamp
+            # 当前累计平均速度（km/h）——有效时长排除暂停
+            current_duration = compute_active_duration([p.base for p in current_path])
 
             current_avg_speed = 0.0
             if current_duration > 0:
@@ -322,8 +325,9 @@ async def apply_training_rewards(
     db: AsyncSession,
     season_id: uuid.UUID,
     user: User,
-    start_time: datetime,
     end_time: datetime,
+    duration: float,        # 有效时长（秒，已排除暂停）
+    distance: float,        # 有效距离（km，已排除暂停缺口）
     path: List[BikeFreeTrainingPathPoint],
     state: UserTrainingStateBike | None,
     new_grids: int
@@ -335,12 +339,15 @@ async def apply_training_rewards(
     has_bpm = False
     has_power = False
     has_pedal = False
-    duration = (end_time - start_time).total_seconds()
     altitude_sum = 0.0
+    prev_segment = path[0].base.segment
     last_altitude = path[0].base.altitude
     for point in path:
-        altitude_sum += abs(point.base.altitude - last_altitude)
+        # 跨 segment 边界（暂停缺口）不累加海拔跳变
+        if point.base.segment == prev_segment:
+            altitude_sum += abs(point.base.altitude - last_altitude)
         last_altitude = point.base.altitude
+        prev_segment = point.base.segment
         if point.base.heart_rate:
             has_bpm = True
         if point.power:
@@ -356,9 +363,8 @@ async def apply_training_rewards(
     tier = current_xp // 100
     rank_factor = max(0.3, 1 - tier * 0.03)
 
-    # 3 距离奖励
+    # 3 距离奖励（distance 为入参的有效距离）
     distance_factor = 1.0
-    distance = compute_distance([p.base for p in path])
     if distance > 5:
         distance_factor += min(1.0, (distance - 5) / 45)
 
@@ -466,7 +472,7 @@ async def query_training_records_service(db: AsyncSession, day: str, user_id: st
     for record, training_type in records:
         settlement_rewards = record.settlement_rewards or {}
         raw_path = record.path.path if record.path else None
-        track = [TrackPoint(lat=lat, lon=lon) for lat, lon in extract_simplified_track(raw_path)]
+        track = [TrackPoint(lat=lat, lon=lon, segment=segment) for lat, lon, segment in extract_simplified_track(raw_path)]
         result.append(TrainingRecordInfo(
             record_id=record.record_id,
             delta_state=settlement_rewards.get("training_state", 0),
@@ -696,7 +702,8 @@ async def query_free_training_record_detail_service(
         except Exception:
             logger.exception("Handle path data failed in querying bike free training record detail info")
 
-    duration = (record.end_time - record.start_time).total_seconds()
+    # 训练时长用结算时存下的有效时长（已排除暂停），与列表/结算保持一致
+    duration = record.duration_seconds
     return FreeTrainingRecordDetailResponse(
         owner_user_id=record.user.user_id,
         duration=duration,
@@ -1354,14 +1361,18 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
             power=p.power,
             pedal_cadence=p.pedal_cadence
         ) for p in finish_info.path]
+        # 路线训练无暂停（segment 恒为 0），沿用墙钟时长与整段距离
+        route_duration = (finish_info.end_time - finish_info.start_time).total_seconds()
+        route_distance = compute_distance([p.base for p in finish_info.path])
         xp_before, xp_delta, training_state_before, training_state_delta, training_rewards = await apply_training_rewards(
-            db, 
-            season.id, 
-            user, 
-            finish_info.start_time, 
-            finish_info.end_time, 
-            free_training_path, 
-            state, 
+            db,
+            season.id,
+            user,
+            finish_info.end_time,
+            route_duration,
+            route_distance,
+            free_training_path,
+            state,
             new_grids
         )
 
@@ -1398,11 +1409,9 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
         for ccasset in cc_rewards:
             settlements[f"{ccasset.ccasset_type.value}"] = ccasset.reward_amount
 
-        original_time = (finish_info.end_time - finish_info.start_time).total_seconds()
+        original_time = route_duration
         final_time = original_time
         bonus_time = 0
-
-        route_distance = compute_distance([p.base for p in finish_info.path])
 
         record = BikeRouteTrainingRecord(
             record_id=f"route_training_record_{uuid.uuid4()}",

@@ -63,6 +63,7 @@ class PathPoint(BaseModel):
     altitude: float
     heart_rate: float | None = None
     timestamp: float
+    segment: int = 0        # 活动段序号：每次从暂停恢复 +1，同段内连续记录；默认 0 兼容旧客户端/旧记录（race/route 恒为 0）
 
 class MemberScoreInfo(BaseModel):
     user_info: PersonInfoResponse
