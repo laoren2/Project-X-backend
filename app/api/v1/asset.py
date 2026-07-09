@@ -20,7 +20,7 @@ from app.schemas.asset import (
     EquipCardUpgradeResponse, EquipCardUpgradePriceInfo, EquipCardSkillUpgradeResponse,
     CC_CC_BuyRequest
 )
-from app.schemas.common import EquipCardBaseInfo, CCAssetBaseInfo
+from app.schemas.common import EquipCardBaseInfo, CCAssetBaseInfo, SportType
 from app.schemas.base import BaseResponse
 from app.schemas.user import AuthContext
 import uuid
@@ -32,10 +32,11 @@ router = APIRouter(dependencies=[Depends(get_language)])
 
 @router.get("/query_cpassets_on_shelves",response_model=BaseResponse[CPAssetsShopResponse], summary="查询商店已上架的通用道具资产信息")
 async def query_cpassets_on_shelves(
+    sport_type: Optional[SportType] = Query(None),
     lang: Language = Depends(get_language),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await get_cpassets_on_shelves(db, lang)
+    result = await get_cpassets_on_shelves(db, lang, sport_type)
     return BaseResponse.success(data=result)
 
 # 查询用户所有ccasset 金币 & 点券 & 金券资产
@@ -50,11 +51,12 @@ async def query_user_ccassets(
 # 查询用户所有cpasset
 @router.get("/query_user_cpassets",response_model=BaseResponse[CPAssetsResponse], summary="查询用户所有通用道具资产")
 async def query_user_cpassets(
+    sport_type: Optional[SportType] = Query(None),
     lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    assets = await get_user_cpassets(db, auth.payload["user_id"], lang)
+    assets = await get_user_cpassets(db, auth.payload["user_id"], lang, sport_type)
     return BaseResponse.success(token=auth.new_token, data=assets)
 
 # 查询用户指定cpasset
@@ -100,10 +102,11 @@ async def query_equip_card_shop_detail(
 
 @router.get("/query_equip_cards_on_shelves",response_model=BaseResponse[EquipCardShopResponse], summary="查询商店已上架的所有卡牌信息")
 async def query_equip_cards_on_shelves(
+    sport_type: Optional[SportType] = Query(None),
     lang: Language = Depends(get_language),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await get_equip_cards_on_shelves(db, lang)
+    result = await get_equip_cards_on_shelves(db, lang, sport_type)
     return BaseResponse.success(data=result)
 
 # 查询用户卡牌详细信息
@@ -120,11 +123,12 @@ async def query_user_equip_card_detail(
 # 查询用户所有卡牌
 @router.get("/query_user_equip_cards",response_model=BaseResponse[EquipCardsResponse], summary="查询用户所有卡牌资产")
 async def query_user_equip_cards(
+    sport_type: Optional[SportType] = Query(None),
     lang: Language = Depends(get_language),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    assets = await get_user_equip_cards(db, lang, auth.payload["user_id"])
+    assets = await get_user_equip_cards(db, lang, auth.payload["user_id"], sport_type)
     return BaseResponse.success(token=auth.new_token, data=assets)
 
 # 购买卡牌

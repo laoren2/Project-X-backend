@@ -50,6 +50,7 @@ class CPAssetShopInfo(ORMBase):
     name: str
     description: str
     image_url: str
+    sport_type: SportType
     ccasset_type: CCAssetType
     price: int
 
