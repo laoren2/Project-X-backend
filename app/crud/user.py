@@ -166,7 +166,7 @@ async def generate_unique_user_id(db: AsyncSession) -> str:
 
 async def generate_unique_user_nickname(db: AsyncSession) -> str:
     while True:
-        nickname = f"新用户_{random.randint(10000, 99999)}"
+        nickname = f"mover_{random.randint(10000, 99999)}"
         existing_user = await get_exist_user_by_name(db, nickname)
         if not existing_user:
             return nickname

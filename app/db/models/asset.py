@@ -87,6 +87,7 @@ class CPAssetDef(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_id = Column(String, unique=True, index=True, nullable=False)
     prop_type = Column(Enum(CPAssetType), nullable=False)  # "registration_card", "team_card", ...
+    sport_type = Column(Enum(SportType), nullable=False)   # 所属运动（所有 CPAsset 均归属某运动，用于商店/仓库按运动过滤）
     name_i18n = Column(JSONB, nullable=False)
     description_i18n = Column(JSONB, nullable=False)
     image_url = Column(String, nullable=False)
@@ -100,7 +101,6 @@ class CPAssetDef(Base):
 class CPRegistrationCardDef(CPAssetDef):
     __tablename__ = "cp_registration_card_defs"
     id = Column(UUID(as_uuid=True), ForeignKey("cp_asset_defs.id"), primary_key=True)
-    sport_type = Column(Enum(SportType), nullable=False)
     is_team = Column(Boolean, nullable=False)
     premium = Column(Boolean, default=False, nullable=False)  # 高级赛道报名卡，配合 sport_type + is_team 唯一确定一张报名卡
 
@@ -112,7 +112,6 @@ class CPRegistrationCardDef(CPAssetDef):
 class CPTeamCardDef(CPAssetDef):
     __tablename__ = "cp_team_card_defs"
     id = Column(UUID(as_uuid=True), ForeignKey("cp_asset_defs.id"), primary_key=True)
-    sport_type = Column(Enum(SportType), nullable=False)
 
     __mapper_args__ = {
         "polymorphic_identity": "team_card",  # 当prop_type为"registration_card"时加载该子类
@@ -122,7 +121,6 @@ class CPTeamCardDef(CPAssetDef):
 class CPRouteCardDef(CPAssetDef):
     __tablename__ = "cp_route_card_defs"
     id = Column(UUID(as_uuid=True), ForeignKey("cp_asset_defs.id"), primary_key=True)
-    sport_type = Column(Enum(SportType), nullable=False)
 
     __mapper_args__ = {
         "polymorphic_identity": "route_card",  # 当prop_type为"route_card"时加载该子类

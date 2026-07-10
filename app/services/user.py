@@ -11,7 +11,7 @@ from app.core.tools import get_today_hk_date, get_user_local_date, hash_card_id
 import app.crud.competition.bike as bike_crud
 import app.crud.competition.running as running_crud
 from app.core.security import create_access_token
-from app.schemas.common import SportType, CCAssetBaseInfo
+from app.schemas.common import SportType, CCAssetBaseInfo, CCAssetType
 from app.schemas.user import UserUpdateForm, UserBaseInfo, UserStatus, Gender, RealNameMethod
 from app.schemas.base import BizException
 from app.schemas.asset import SignInStatusResponse, AssetOperation, SignInItemInfo, SignInRewardResponse
@@ -66,10 +66,17 @@ async def distribute_newcomer_gift(db: AsyncSession, user_id: uuid.UUID):
             "fr": "Bienvenue sur Movmov ! Prêt à démarrer votre carrière sportive ? Nous vous avons préparé un cadeau de bienvenue, amusez-vous bien !"
         },
         attachment = attachment,
-        is_received = False,
+        is_received = True,      # 新版直接发放，无需用户从邮件领取；邮件记录仅作留存
+        claimed_at = datetime.now(timezone.utc),
         expires_at = datetime.now(timezone.utc) + timedelta(days=30)
     )
     db.add(mail)
+    # 直接发放奖励（暂仅 CCAsset），与 receive_mail_rewards_service 的领取逻辑一致
+    description = str(attachment.get("description", "新人礼包"))
+    for asset_type in CCAssetType:
+        amount = attachment.get(asset_type.value, 0)
+        if amount and amount > 0:
+            await reward_ccasset(db, asset_type, amount, user_id, description, AssetOperation.REWARD)
 
 # 更新赛季时可调用
 async def generate_season_score(db: AsyncSession, user_id: uuid.UUID):
@@ -116,6 +123,8 @@ async def login_or_register(db: AsyncSession, phone_number: str, timezone: str):
                 user_info.enable_auto_location = user.settings.enable_auto_location
                 user_info.is_display_identity = user.settings.is_display_identity
                 user_info.default_sport = user.settings.default_sport
+                user_info.global_default_sport = user.settings.global_default_sport
+                user_info.auto_pause = user.settings.auto_pause
             user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
         token = create_access_token({"user_id": user.user_id})
         return token, user_info, isRegister, user.role
@@ -154,6 +163,8 @@ async def login_or_register_apple(db: AsyncSession, apple_id: str, email: str, t
                 user_info.enable_auto_location = user.settings.enable_auto_location
                 user_info.is_display_identity = user.settings.is_display_identity
                 user_info.default_sport = user.settings.default_sport
+                user_info.global_default_sport = user.settings.global_default_sport
+                user_info.auto_pause = user.settings.auto_pause
             user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
         token = create_access_token({"user_id": user.user_id})
         return token, user_info, is_register, user.role
@@ -192,6 +203,8 @@ async def login_or_register_email(db: AsyncSession, email_address: str, timezone
                 user_info.enable_auto_location = user.settings.enable_auto_location
                 user_info.is_display_identity = user.settings.is_display_identity
                 user_info.default_sport = user.settings.default_sport
+                user_info.global_default_sport = user.settings.global_default_sport
+                user_info.auto_pause = user.settings.auto_pause
             user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
         token = create_access_token({"user_id": user.user_id})
         return token, user_info, isRegister, user.role
@@ -216,6 +229,8 @@ async def get_user_info(user_id: str, db: AsyncSession):
     user_info.enable_auto_location = user.settings.enable_auto_location
     user_info.is_display_identity = user.settings.is_display_identity
     user_info.default_sport = user.settings.default_sport
+    user_info.global_default_sport = user.settings.global_default_sport
+    user_info.auto_pause = user.settings.auto_pause
     user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
     return user_info
 
@@ -235,6 +250,8 @@ async def get_me_info(db: AsyncSession, user_id: str, timeZone: str | None) -> t
         user_info.enable_auto_location = user.settings.enable_auto_location
         user_info.is_display_identity = user.settings.is_display_identity
         user_info.default_sport = user.settings.default_sport
+        user_info.global_default_sport = user.settings.global_default_sport
+        user_info.auto_pause = user.settings.auto_pause
 
         subscription_status = user.subscription_info.is_active if user.subscription_info else False
         if not user.subscription_info or not user.subscription_info.is_active or not user.subscription_info.apple_original_transaction_id:
@@ -305,6 +322,8 @@ async def update_user_info(user_id: str, form: UserUpdateForm, avatar_url: str |
         user_info.enable_auto_location = user.settings.enable_auto_location
         user_info.is_display_identity = user.settings.is_display_identity
         user_info.default_sport = user.settings.default_sport
+        user_info.global_default_sport = user.settings.global_default_sport
+        user_info.auto_pause = user.settings.auto_pause
         return user_info
 
 async def delete_user_info(user_id: str, db: AsyncSession):
@@ -326,6 +345,26 @@ async def update_user_default_sport_service(sport: SportType, user_id: str, db: 
     user.settings.default_sport = sport
     await db.commit()
     return user.settings.default_sport
+
+async def update_global_default_sport_service(sport: SportType, user_id: str, db: AsyncSession) -> SportType:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    if not user.settings:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户设置错误")
+    user.settings.global_default_sport = sport
+    await db.commit()
+    return user.settings.global_default_sport
+
+async def update_auto_pause_service(enable: bool, user_id: str, db: AsyncSession) -> bool:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    if not user.settings:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="用户设置错误")
+    user.settings.auto_pause = enable
+    await db.commit()
+    return user.settings.auto_pause
 
 async def update_user_location_service(region: str, user_id: str, db: AsyncSession):
     user = await get_user_by_id(db, user_id)

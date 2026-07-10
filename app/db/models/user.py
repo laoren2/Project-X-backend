@@ -78,7 +78,9 @@ class UserSetting(Base):
     is_display_location = Column(Boolean, default=False, nullable=False)
     enable_auto_location = Column(Boolean, default=False, nullable=False)
     is_display_identity = Column(Boolean, default=False, nullable=False)
-    default_sport = Column(Enum(SportType), default=SportType.bike, nullable=False)     # 用户主页默认展示运动
+    default_sport = Column(Enum(SportType), default=SportType.bike, nullable=False)     # 外部主页默认展示运动（他人查看时）
+    global_default_sport = Column(Enum(SportType), default=SportType.bike, nullable=False)  # 全局默认运动：每次启动 app 时商店/运动中心/仓库/local profile 的初始展示运动（各场景仍可单独切换）
+    auto_pause = Column(Boolean, default=True, nullable=False)     # free training 自动暂停开关（running+bike 共用）
 
     user = relationship("User", primaryjoin="foreign(UserSetting.user_id) == User.id", uselist=False, back_populates="settings")
 

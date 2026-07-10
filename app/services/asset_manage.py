@@ -181,13 +181,14 @@ async def get_user_cpasset(db: AsyncSession, user_id: str, asset_id: str, lang: 
         name=pick_i18n_text(cpasset_def.name_i18n, lang),
         description=pick_i18n_text(cpasset_def.description_i18n, lang),
         image_url=build_resource_url(cpasset_def.image_url),
+        sport_type=cpasset_def.sport_type,
         amount=cpasset.balance
     )
     return result
 
 
-# 查询用户所有cp资产
-async def get_user_cpassets(db: AsyncSession, user_id: str, lang: Language) -> CPAssetsResponse:
+# 查询用户所有cp资产（sport_type 非空时按运动过滤）
+async def get_user_cpassets(db: AsyncSession, user_id: str, lang: Language, sport_type: Optional[SportType] = None) -> CPAssetsResponse:
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
@@ -196,30 +197,36 @@ async def get_user_cpassets(db: AsyncSession, user_id: str, lang: Language) -> C
     for asset in cpassets:
         prop_def = asset.prop_def
         if prop_def is not None and asset.balance > 0:
+            if sport_type is not None and prop_def.sport_type != sport_type:
+                continue
             assets.append(
                 CPAssetBaseInfo(
                     asset_id=prop_def.asset_id,
                     name=pick_i18n_text(prop_def.name_i18n, lang),
                     description=pick_i18n_text(prop_def.description_i18n, lang),
                     image_url=build_resource_url(prop_def.image_url),
+                    sport_type=prop_def.sport_type,
                     amount=asset.balance
                 )
             )
     return CPAssetsResponse(assets=assets)
 
-# 查询商店的通用道具资产信息
-async def get_cpassets_on_shelves(db: AsyncSession, lang: Language) -> CPAssetsShopResponse:
+# 查询商店的通用道具资产信息（sport_type 非空时按运动过滤）
+async def get_cpassets_on_shelves(db: AsyncSession, lang: Language, sport_type: Optional[SportType] = None) -> CPAssetsShopResponse:
     cpassets = await get_cpassets_on_shelves_crud(db)
     assets = []
     for asset in cpassets:
         prop_def = asset.prop_def
         if prop_def is not None:
+            if sport_type is not None and prop_def.sport_type != sport_type:
+                continue
             assets.append(
                 CPAssetShopInfo(
                     asset_id=prop_def.asset_id,
                     name=pick_i18n_text(prop_def.name_i18n, lang),
                     description=pick_i18n_text(prop_def.description_i18n, lang),
                     image_url=build_resource_url(prop_def.image_url),
+                    sport_type=prop_def.sport_type,
                     ccasset_type=asset.ccasset_type,
                     price=asset.price
                 )
@@ -508,12 +515,14 @@ async def get_equip_card_shop_detail_service(db: AsyncSession, lang: Language, d
         )
 
 # 查询商店的所有卡牌信息
-async def get_equip_cards_on_shelves(db: AsyncSession, lang: Language) -> EquipCardShopResponse:
+async def get_equip_cards_on_shelves(db: AsyncSession, lang: Language, sport_type: Optional[SportType] = None) -> EquipCardShopResponse:
     card_prices = await get_equip_card_price_all_on_shelves(db)
     cards = []
     for price in card_prices:
         card_def = price.card_def
         if card_def is not None:
+            if sport_type is not None and card_def.sport_type != sport_type:
+                continue
             cards.append(
                 EquipCardShopInfo(
                     def_id=card_def.def_id,
@@ -544,7 +553,7 @@ async def get_user_equip_card_detail_service(db: AsyncSession, lang: Language, c
     return card_info
 
 # 查询用户持有卡牌
-async def get_user_equip_cards(db: AsyncSession, lang: Language, user_id: str) -> EquipCardsResponse:
+async def get_user_equip_cards(db: AsyncSession, lang: Language, user_id: str, sport_type: Optional[SportType] = None) -> EquipCardsResponse:
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
@@ -553,6 +562,8 @@ async def get_user_equip_cards(db: AsyncSession, lang: Language, user_id: str) -
     for card in user_cards:
         card_info = equip_card_to_base_info(card, lang)
         if card_info is not None:
+            if sport_type is not None and card_info.sport_type != sport_type:
+                continue
             cards.append(card_info)
     return EquipCardsResponse(cards=cards)
 

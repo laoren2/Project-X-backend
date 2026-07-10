@@ -69,6 +69,8 @@ class UserBaseInfo(ORMBase):
     enable_auto_location: bool = False
     is_display_identity: bool = False
     default_sport: SportType = SportType.bike
+    global_default_sport: SportType = SportType.bike
+    auto_pause: bool = True
     status: UserStatus
     is_vip: bool = False
 

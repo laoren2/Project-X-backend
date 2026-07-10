@@ -58,6 +58,7 @@ class CPAssetBaseInfo(ORMBase):
     name: str
     description: str
     image_url: str
+    sport_type: SportType
     amount: int
 
 class CPAssetCoverInfo(BaseModel):

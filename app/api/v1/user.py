@@ -6,6 +6,7 @@ from app.services.sms import send_sms_code_service, verify_sms_code
 from app.services.user import (
     login_or_register, get_me_info, get_user_info, update_user_info, delete_user_info, 
     get_user_role, update_user_default_sport_service, unbind_phone_service,
+    update_global_default_sport_service, update_auto_pause_service,
     update_user_location_service, verify_apple_identity_token,
     login_or_register_apple, realname_service, bind_phone_service,
     bind_apple_id_service, unbind_apple_id_service, sign_in_status_service,
@@ -170,6 +171,24 @@ async def update_user_default_sport(
     db: AsyncSession = Depends(get_db)
 ):
     result = await update_user_default_sport_service(sport, auth.payload["user_id"], db)
+    return BaseResponse.success(token=auth.new_token, message="更新成功", data=result)
+
+@router.post("/update_global_default_sport", response_model=BaseResponse[SportType], summary="更新全局默认运动（启动时商店/运动中心/仓库/local profile 的初始展示运动）")
+async def update_global_default_sport(
+    sport: SportType = Query(...),
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await update_global_default_sport_service(sport, auth.payload["user_id"], db)
+    return BaseResponse.success(token=auth.new_token, message="更新成功", data=result)
+
+@router.post("/update_auto_pause", response_model=BaseResponse[bool], summary="更新 free training 自动暂停开关")
+async def update_auto_pause(
+    enable: bool = Query(...),
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await update_auto_pause_service(enable, auth.payload["user_id"], db)
     return BaseResponse.success(token=auth.new_token, message="更新成功", data=result)
 
 @router.post("/update_location", response_model=BaseResponse[None], summary="更新用户位置")
