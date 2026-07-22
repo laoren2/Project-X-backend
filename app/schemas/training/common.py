@@ -35,6 +35,10 @@ class GridEffectType(str, Enum):
     buff = "buff"
     debuff = "debuff"
 
+class WeatherSnapshotResponse(BaseModel):
+    condition: str
+    temperature_c: float
+
 class Checkpoint(BaseModel):
     kind: Literal["checkpoint"]
     lat: float

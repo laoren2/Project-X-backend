@@ -29,6 +29,8 @@ from app.services.training.common import (
     evaluate_route_training_checkpoint_path, extract_path_points, build_split_profile
 )
 from app.services.mappers import equip_card_to_base_info
+from app.services.weather import fetch_weather_snapshot, weather_snapshot_dict, weather_snapshot_from_record
+from app.core.config import settings
 from app.db.models.user import User
 from app.db.models.training import (
     CardBonusInBikeRouteTrainingRecord, UserTrainingStateDailyBike, BikeFreeTrainingPath, BikeFreeTrainingRecord, UserTrainingStateBike,
@@ -61,6 +63,13 @@ from shapely.geometry import Point
 import json, uuid, logging, random
 
 logger = logging.getLogger(__name__)
+
+
+async def _fetch_finish_weather(path):
+    if not path:
+        return None
+    point = path[-1].base
+    return await fetch_weather_snapshot(point.lat, point.lon)
 
 
 async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinishInfo, user_id: str) -> FreeTrainingFinishResponse:
@@ -109,6 +118,7 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
 
         # buff grids 结算
         triggered_count, buff_rewards, triggered_buffs_data = await apply_buff_grids(db, user, info)
+        finish_weather = await _fetch_finish_weather(info.path)
 
         # 合并相同资产类型奖励，统一结算
         reward_map: dict[CCAssetType, int] = {}
@@ -161,6 +171,8 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
             local_date = get_user_local_date(user, info.end_time),
             settlement_rewards = settlements,
             triggered_buffs = triggered_buffs_data,
+            weather_condition=finish_weather.condition if finish_weather else None,
+            weather_temperature_c=finish_weather.temperature_c if finish_weather else None,
             client_upload_id = info.client_upload_id
         )
         db.add(record)
@@ -232,6 +244,7 @@ async def apply_buff_grids(
         }
 
         triggered_histories = []
+        weather_calls = 0
 
         # 按 path 顺序依次处理经过的 buff grid
         for gx, gy, path_index in passed_grids:
@@ -264,6 +277,19 @@ async def apply_buff_grids(
                 min_speed = effect.condition_params.get("avg", 0)
                 trigger_value = round(current_avg_speed, 2)
                 should_trigger = current_avg_speed >= min_speed
+            elif effect.condition_type.value == "weather":
+                # At settlement, query current weather for the first point that entered this grid.
+                # Bound third-party usage so malformed paths cannot inflate API cost.
+                weather = None
+                if weather_calls < settings.OPENWEATHER_MAX_GRID_CALLS_PER_WORKOUT:
+                    weather_calls += 1
+                    entry = info.path[path_index].base
+                    weather = await fetch_weather_snapshot(entry.lat, entry.lon)
+                trigger_value = weather.condition if weather else None
+                should_trigger = (
+                    weather is not None
+                    and weather.condition == effect.condition_params.get("match")
+                )
             # 无条件触发
             elif effect.condition_type.value == "none":
                 trigger_value = 1
@@ -282,6 +308,8 @@ async def apply_buff_grids(
                 "reward_count": effect.reward_count,
                 "trigger_value": trigger_value
             })
+            if effect.condition_type.value == "weather":
+                triggered_buffs_data[-1]["weather"] = weather_snapshot_dict(weather)
 
             reward_type = effect.reward_type
             reward_count = effect.reward_count
@@ -707,9 +735,11 @@ async def query_free_training_record_detail_service(
     return FreeTrainingRecordDetailResponse(
         owner_user_id=record.user.user_id,
         duration=duration,
+        end_time=record.end_time,
         path=path_points,
         settlements=record.settlement_rewards,
-        triggered_buffs=record.triggered_buffs or []
+        triggered_buffs=record.triggered_buffs or [],
+        weather=weather_snapshot_from_record(record)
     )
 
 # tiles 分块查询
@@ -851,9 +881,9 @@ async def query_grids_within_distance_service(
     lon: float,
     distance: float
 ) -> BikeNearbyGridsResponse:
-    # 距离限幅，避免过大半径拖垮查询；半径换算为网格数（基础格 500m，向上取整）
+    # 距离限幅，避免过大范围查询。最终由 CRUD 按地表距离（米）筛选，
+    # 不能将 Web Mercator 网格坐标直接当作地表距离使用。
     distance = max(0.0, min(distance, 20000.0))
-    radius_grids = (int(distance) + 499) // 500
     max_count = 50
     async with db.begin():
         user = await get_user_by_id(db, user_id)
@@ -868,8 +898,9 @@ async def query_grids_within_distance_service(
         # 懒生成：保证当天该 region 的 buff grids 已生成（幂等，复用 tiles 同一套）
         await ensure_bike_effect_grids_generated(db, region, local_date)
 
-        grid_x, grid_y = latlon_to_grid(lat, lon)
-        grids = await get_effect_grids_within_distance(db, user, region, local_date, grid_x, grid_y, radius_grids, max_count)
+        grids = await get_effect_grids_within_distance(
+            db, user, region, local_date, lat, lon, distance, max_count
+        )
 
         infos = []
         for grid in grids:
@@ -1412,6 +1443,7 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
         original_time = route_duration
         final_time = original_time
         bonus_time = 0
+        finish_weather = await _fetch_finish_weather(finish_info.path)
 
         record = BikeRouteTrainingRecord(
             record_id=f"route_training_record_{uuid.uuid4()}",
@@ -1425,6 +1457,8 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
             penalty_seconds=total_penalty,
             local_date=get_user_local_date(user, finish_info.end_time),
             settlement_rewards=settlements,
+            weather_condition=finish_weather.condition if finish_weather else None,
+            weather_temperature_c=finish_weather.temperature_c if finish_weather else None,
             client_upload_id=finish_info.client_upload_id
         )
         db.add(record)
@@ -1584,9 +1618,11 @@ async def query_route_training_record_detail_service(db: AsyncSession, lang: Lan
         original_time=duration,
         final_time=final_time,
         penalty_time=record.penalty_seconds,
+        end_time=record.end_time,
         path=path_points,
         card_bonus=card_bonus_list,
-        settlements=record.settlement_rewards
+        settlements=record.settlement_rewards,
+        weather=weather_snapshot_from_record(record)
     )
 
 async def query_route_ranklist_service(

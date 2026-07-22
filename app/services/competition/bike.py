@@ -38,6 +38,7 @@ from app.schemas.user import Gender
 from app.schemas.base import BizException, Language, pick_i18n_text
 from app.schemas.common import PersonInfoResponse, EquipCardBaseInfo, SportType, PaceBaselineResponse, SplitProfileInfo
 from app.services.mappers import equip_card_to_base_info
+from app.services.weather import fetch_weather_snapshot, weather_snapshot_from_record
 from app.services.training.common import validate_route_data, build_geometry, extract_path_points, extract_checkpoints_from_route_data, evaluate_route_training_checkpoint_path, build_split_profile
 from app.services.common import get_elevation
 from app.schemas.training.common import RouteSortType, RouteApplyStatus, TrackLifecycle
@@ -990,7 +991,15 @@ async def start_team_competition_service(db: AsyncSession, user_id: str, info: B
         await update_record_crud(db, record, update_data)
 
 
+async def _fetch_finish_weather(path):
+    if not path:
+        return None
+    point = path[-1].base
+    return await fetch_weather_snapshot(point.lat, point.lon)
+
+
 async def finish_single_competition_service(db: AsyncSession, info: BikeFinishInfo, user_id: str) -> MatchFinishResponse:
+    finish_weather = await _fetch_finish_weather(info.path)
     try:
         async with db.begin():
             user = await get_user_by_id(db, user_id)
@@ -1060,6 +1069,8 @@ async def finish_single_competition_service(db: AsyncSession, info: BikeFinishIn
                 "local_date": get_user_local_date(user, info.end_time),
                 "familiarity_time": familiarity_time,
                 "training_state_time": training_state_time,
+                "weather_condition": finish_weather.condition if finish_weather else None,
+                "weather_temperature_c": finish_weather.temperature_c if finish_weather else None,
                 "client_upload_id": info.client_upload_id
             }
             if record.status == RecordStatus.recording:
@@ -1124,6 +1135,7 @@ async def finish_single_competition_service(db: AsyncSession, info: BikeFinishIn
 
 
 async def finish_team_competition_service(db: AsyncSession, info: BikeFinishInfo, user_id: str) -> MatchFinishResponse:
+    finish_weather = await _fetch_finish_weather(info.path)
     try:
         async with db.begin():
             user = await get_user_by_id(db, user_id)
@@ -1237,6 +1249,8 @@ async def finish_team_competition_service(db: AsyncSession, info: BikeFinishInfo
                 "local_date": get_user_local_date(user, info.end_time),
                 "familiarity_time": familiarity_time,
                 "training_state_time": training_state_time,
+                "weather_condition": finish_weather.condition if finish_weather else None,
+                "weather_temperature_c": finish_weather.temperature_c if finish_weather else None,
                 "client_upload_id": info.client_upload_id
             }
             await update_record_crud(db, record, update_data)
@@ -2371,13 +2385,15 @@ async def get_record_detail_service(db: AsyncSession, lang: Language, record_id:
         original_time=original_time,
         final_time=final_time,
         penalty_time=record.penalty_seconds if record.penalty_seconds else 0,
+        end_time=record.end_time,
         is_finish_computed=record.is_finish_bonus_computing if record.is_finish_bonus_computing else False,
         path=path_points,
         card_bonus=card_bonus_list,
         team_member_scores=team_member_scores_list,
         settlements=record.settlement_rewards,
         familiarity_time=record.familiarity_time if record.familiarity_time else 0,
-        training_state_time=record.training_state_time if record.training_state_time else 0
+        training_state_time=record.training_state_time if record.training_state_time else 0,
+        weather=weather_snapshot_from_record(record)
     )
 
 async def get_current_best_records_service(db: AsyncSession, lang: Language, user_id: str) -> BikeSummaryRecordResponse:

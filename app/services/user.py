@@ -1,8 +1,8 @@
 from app.crud.user import (
     create_user, get_user_by_id, get_banned_history_by_user_id,
-    create_user_with_apple, get_realname_info_by_user_id, get_test_account,
+    create_user_with_apple, create_user_with_google, get_realname_info_by_user_id, get_test_account,
     get_realname_info_by_country_method_card, get_settings_by_user_id, get_exist_user_by_phone,
-    get_exist_user_by_apple_id, get_exist_user_by_id, get_sign_in_rewards, 
+    get_exist_user_by_apple_id, get_exist_user_by_google_sub, get_exist_user_by_identity_email, lock_identity_email, get_exist_user_by_id, get_sign_in_rewards,
     get_user_normal_sign_in_today, get_user_sign_in_history, get_exist_user_by_email,
     get_user_vip_sign_in_today, get_sign_in_reward_by_day, create_user_with_email
 )
@@ -30,6 +30,8 @@ from alibabacloud_tea_openapi import models as open_api_models
 from alibabacloud_tea_util.client import Client as UtilClient
 from app.services.app_store_api_tool import query_user_subscroption_status
 from jwt import PyJWKClient
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_requests
 from datetime import datetime, timedelta, timezone, date, UTC
 from app.db.session import redis_client
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -134,6 +136,14 @@ async def login_or_register_apple(db: AsyncSession, apple_id: str, email: str, t
         user = await get_exist_user_by_apple_id(db, apple_id)
         is_register = False
         if not user:
+            # Apple/Google/邮箱的 subject 才是身份主键；同邮箱必须由已登录用户手动绑定，不能静默合并。
+            if email:
+                await lock_identity_email(db, email)
+            if email and await get_exist_user_by_identity_email(db, email):
+                raise BizException(
+                    code=ErrorCode.IDENTITY_LINK_REQUIRED,
+                    message="identity.account_exists.link_required"
+                )
             user = await create_user_with_apple(db, apple_id, email, timezone)
             user_info = UserBaseInfo.model_validate(user)
             is_register = True
@@ -174,6 +184,13 @@ async def login_or_register_email(db: AsyncSession, email_address: str, timezone
         isRegister = False
         user = await get_exist_user_by_email(db, email_address)
         if not user:
+            # 已通过 Apple/Google 创建的账号，不能仅凭相同邮箱再创建一个平行账号。
+            await lock_identity_email(db, email_address)
+            if await get_exist_user_by_identity_email(db, email_address):
+                raise BizException(
+                    code=ErrorCode.IDENTITY_LINK_REQUIRED,
+                    message="identity.account_exists.link_required"
+                )
             user = await create_user_with_email(db, email_address, timezone)
             user_info = UserBaseInfo.model_validate(user)
             isRegister = True
@@ -208,6 +225,48 @@ async def login_or_register_email(db: AsyncSession, email_address: str, timezone
             user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
         token = create_access_token({"user_id": user.user_id})
         return token, user_info, isRegister, user.role
+
+async def login_or_register_google(db: AsyncSession, google_sub: str, email: str, timezone: str):
+    async with db.begin():
+        user = await get_exist_user_by_google_sub(db, google_sub)
+        is_register = False
+        if not user:
+            # Google 的 sub 是稳定身份键；email 仅用于展示和检测可能的已有账号。
+            if email:
+                await lock_identity_email(db, email)
+            if email and await get_exist_user_by_identity_email(db, email):
+                raise BizException(
+                    code=ErrorCode.IDENTITY_LINK_REQUIRED,
+                    message="identity.account_exists.link_required"
+                )
+            user = await create_user_with_google(db, google_sub, email, timezone)
+            user_info = UserBaseInfo.model_validate(user)
+            is_register = True
+            await distribute_newcomer_gift(db, user.id)
+        else:
+            user.timezone = timezone
+            if user.status == UserStatus.banned:
+                ban_history = await get_banned_history_by_user_id(db, user.id)
+                now = datetime.now(UTC)
+                if ban_history and ban_history.unban_time <= now:
+                    user.status = UserStatus.normal
+                else:
+                    remaining_str = str(ban_history.unban_time - now).split(".")[0] if ban_history else "unknown"
+                    raise BizException(code=ErrorCode.USER_BANNED, message="user.banned", params={"remaining": remaining_str})
+            user_info = UserBaseInfo.model_validate(user)
+            user_info.birthday = user.birth_date.strftime("%Y-%m-%d") if user.birth_date else None
+            if user.settings:
+                user_info.is_display_gender = user.settings.is_display_gender
+                user_info.is_display_age = user.settings.is_display_age
+                user_info.is_display_location = user.settings.is_display_location
+                user_info.enable_auto_location = user.settings.enable_auto_location
+                user_info.is_display_identity = user.settings.is_display_identity
+                user_info.default_sport = user.settings.default_sport
+                user_info.global_default_sport = user.settings.global_default_sport
+                user_info.auto_pause = user.settings.auto_pause
+            user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
+        token = create_access_token({"user_id": user.user_id})
+        return token, user_info, is_register, user.role
 
 async def get_user_role(user_id: str, db: AsyncSession):
     user = await get_user_by_id(db, user_id)
@@ -1014,6 +1073,22 @@ async def verify_apple_identity_token(identity_token: str):
         logger.exception("Apple Token verified failed when verified apple account")
         return None
 
+async def verify_google_identity_token(identity_token: str):
+    """在线程中验证 Google 签名与标准声明，避免同步 JWKS 请求阻塞事件循环。"""
+    if not settings.GOOGLE_OAUTH_SERVER_CLIENT_ID:
+        logger.error("Google sign-in is not configured: GOOGLE_OAUTH_SERVER_CLIENT_ID is empty")
+        return None
+    try:
+        return await asyncio.to_thread(
+            google_id_token.verify_oauth2_token,
+            identity_token,
+            google_requests.Request(),
+            settings.GOOGLE_OAUTH_SERVER_CLIENT_ID,
+        )
+    except Exception:
+        logger.exception("Google ID Token verification failed")
+        return None
+
 async def bind_phone_service(phone_number: str, user_id: str, db: AsyncSession):
     user = await get_exist_user_by_id(db, user_id)
     if not user:
@@ -1032,7 +1107,7 @@ async def unbind_phone_service(user_id: str, db: AsyncSession):
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     if not user.phone_number:
         raise BizException(code=ErrorCode.PHONE_NUMBER_ERROR, message="identity.no_phone.phone_unbind")
-    if not user.apple_id and not user.email:
+    if not user.apple_id and not user.google_sub and not user.email:
         raise BizException(code=ErrorCode.PHONE_NUMBER_ERROR, message="identity.cannot_recover.phone_unbind")
     user.phone_number = None
     await db.commit()
@@ -1051,9 +1126,13 @@ async def bind_apple_id_service(token: str, user_id: str, db: AsyncSession) -> s
     email = payload.get("email")
     if not apple_sub or not email:
         raise BizException(code=ErrorCode.APPLE_ID_ERROR, message="identity.verify_failed.apple_bind")
+    await lock_identity_email(db, email)
     exist_apple_id = await get_exist_user_by_apple_id(db, apple_sub)
     if exist_apple_id:
         raise BizException(code=ErrorCode.APPLE_ID_ERROR, message="identity.already_certified.apple_bind")
+    existing_email_user = await get_exist_user_by_identity_email(db, email)
+    if existing_email_user and existing_email_user.id != user.id:
+        raise BizException(code=ErrorCode.IDENTITY_LINK_REQUIRED, message="identity.account_exists.link_required")
     user.apple_id = apple_sub
     user.apple_email = email
     await db.commit()
@@ -1065,10 +1144,46 @@ async def unbind_apple_id_service(user_id: str, db: AsyncSession):
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     if not user.apple_id:
         raise BizException(code=ErrorCode.APPLE_ID_ERROR, message="identity.no_appleID.apple_unbind")
-    if not user.phone_number and not user.email:
+    if not user.phone_number and not user.google_sub and not user.email:
         raise BizException(code=ErrorCode.APPLE_ID_ERROR, message="identity.cannot_recover.apple_unbind")
     user.apple_id = None
     user.apple_email = None
+    await db.commit()
+
+async def bind_google_service(token: str, user_id: str, db: AsyncSession) -> str:
+    user = await get_exist_user_by_id(db, user_id)
+    if not user:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    if user.google_sub:
+        raise BizException(code=ErrorCode.GOOGLE_ID_ERROR, message="identity.with_google.google_bind")
+
+    payload = await verify_google_identity_token(token)
+    google_sub = payload.get("sub") if payload else None
+    email = payload.get("email") if payload else None
+    if not google_sub or not email:
+        raise BizException(code=ErrorCode.GOOGLE_ID_ERROR, message="identity.verify_failed.google_bind")
+    await lock_identity_email(db, email)
+    existing_google_user = await get_exist_user_by_google_sub(db, google_sub)
+    if existing_google_user:
+        raise BizException(code=ErrorCode.GOOGLE_ID_ERROR, message="identity.already_certified.google_bind")
+    existing_email_user = await get_exist_user_by_identity_email(db, email)
+    if existing_email_user and existing_email_user.id != user.id:
+        raise BizException(code=ErrorCode.IDENTITY_LINK_REQUIRED, message="identity.account_exists.link_required")
+    user.google_sub = google_sub
+    user.google_email = email
+    await db.commit()
+    return email
+
+async def unbind_google_service(user_id: str, db: AsyncSession):
+    user = await get_exist_user_by_id(db, user_id)
+    if not user:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    if not user.google_sub:
+        raise BizException(code=ErrorCode.GOOGLE_ID_ERROR, message="identity.no_google.google_unbind")
+    if not user.phone_number and not user.apple_id and not user.email:
+        raise BizException(code=ErrorCode.GOOGLE_ID_ERROR, message="identity.cannot_recover.google_unbind")
+    user.google_sub = None
+    user.google_email = None
     await db.commit()
 
 
@@ -1078,9 +1193,10 @@ async def bind_email_service(email: str, user_id: str, db: AsyncSession) -> str:
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     if user.email:
         raise BizException(code=ErrorCode.EMAIL_ERROR, message="identity.with_email.email_bind")
-    exist_email = await get_exist_user_by_email(db, email)
-    if exist_email:
-        raise BizException(code=ErrorCode.EMAIL_ERROR, message="identity.already_certified.email_bind")
+    await lock_identity_email(db, email)
+    existing_email_user = await get_exist_user_by_identity_email(db, email)
+    if existing_email_user and existing_email_user.id != user.id:
+        raise BizException(code=ErrorCode.IDENTITY_LINK_REQUIRED, message="identity.account_exists.link_required")
     user.email = email
     await db.commit()
 
@@ -1090,7 +1206,7 @@ async def unbind_email_service(user_id: str, db: AsyncSession):
         raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
     if not user.email:
         raise BizException(code=ErrorCode.EMAIL_ERROR, message="identity.no_email.email_unbind")
-    if not user.apple_id and not user.phone_number:
+    if not user.apple_id and not user.google_sub and not user.phone_number:
         raise BizException(code=ErrorCode.EMAIL_ERROR, message="identity.cannot_recover.email_unbind")
     user.email = None
     await db.commit()

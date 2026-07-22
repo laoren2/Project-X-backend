@@ -7,11 +7,12 @@ from app.services.user import (
     login_or_register, get_me_info, get_user_info, update_user_info, delete_user_info, 
     get_user_role, update_user_default_sport_service, unbind_phone_service,
     update_global_default_sport_service, update_auto_pause_service,
-    update_user_location_service, verify_apple_identity_token,
-    login_or_register_apple, realname_service, bind_phone_service,
+    update_user_location_service, verify_apple_identity_token, verify_google_identity_token,
+    login_or_register_apple, login_or_register_google, realname_service, bind_phone_service,
     bind_apple_id_service, unbind_apple_id_service, sign_in_status_service,
     sign_in_today_service, sign_in_today_vip_service, send_email_code_service,
     verify_email_code, login_or_register_email, bind_email_service, unbind_email_service,
+    bind_google_service, unbind_google_service,
     verify_test_account
 )
 from app.crud.user import get_users_by_name
@@ -234,6 +235,24 @@ async def login_with_apple(
         data=schemas_user.LoginResponse(user=user, relation=relation, role=role, isRegister=is_register)
     )
 
+@router.post("/login/google", response_model=BaseResponse[schemas_user.LoginResponse], summary="Google 登录/注册")
+async def login_with_google(
+    request: schemas_user.GoogleIDTokenRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    payload = await verify_google_identity_token(request.id_token)
+    google_sub = payload.get("sub") if payload else None
+    email = payload.get("email") if payload else None
+    if not google_sub or not email:
+        raise BizException(code=ErrorCode.GOOGLE_ID_ERROR, message="identity.verify_failed.google")
+    new_token, user, is_register, role = await login_or_register_google(db, google_sub, email, request.timezone)
+    relation = await get_relation_count(db, user.user_id)
+    return BaseResponse.success(
+        token=new_token,
+        message="登录成功",
+        data=schemas_user.LoginResponse(user=user, relation=relation, role=role, isRegister=is_register)
+    )
+
 @router.post("/account/bind_phone", response_model=BaseResponse[None], summary="绑定手机号")
 async def bind_phone(
     request: schemas_user.SMSCodeVerify,
@@ -268,6 +287,23 @@ async def unbind_apple_id(
     db: AsyncSession = Depends(get_db)
 ):
     await unbind_apple_id_service(auth.payload["user_id"], db)
+    return BaseResponse.success(token=auth.new_token, message="解除绑定成功")
+
+@router.post("/account/bind_google", response_model=BaseResponse[str], summary="绑定 Google 账号")
+async def bind_google(
+    request: schemas_user.GoogleIDTokenRequest,
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    email = await bind_google_service(request.id_token, auth.payload["user_id"], db)
+    return BaseResponse.success(token=auth.new_token, message="绑定成功", data=email)
+
+@router.post("/account/unbind_google", response_model=BaseResponse[None], summary="解除绑定 Google 账号")
+async def unbind_google(
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    await unbind_google_service(auth.payload["user_id"], db)
     return BaseResponse.success(token=auth.new_token, message="解除绑定成功")
 
 @router.post("/account/bind_email", response_model=BaseResponse[None], summary="绑定邮箱")

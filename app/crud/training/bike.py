@@ -575,6 +575,13 @@ async def ensure_bike_effect_grids_generated(
             {"avg": 25},
             {"avg": 30},
         ],
+        BikeGridConditionType.weather: [
+            {"match": "clear"},
+            {"match": "cloudy"},
+            {"match": "rain"},
+            {"match": "snow"},
+            {"match": "fog"},
+        ],
         BikeGridConditionType.none: [
             {}
         ]
@@ -630,6 +637,7 @@ async def ensure_bike_effect_grids_generated(
         condition_type = random.choice([
             BikeGridConditionType.distance,
             BikeGridConditionType.speed,
+            BikeGridConditionType.weather,
             BikeGridConditionType.none
         ])
 
@@ -662,6 +670,23 @@ async def ensure_bike_effect_grids_generated(
                 "zh-Hant": f"經過時，平均配速超過{avg_speed}km/h時可獲得{{{{reward}}}}獎勵",
                 "ko": f"통과 시 평균 페이스가 {avg_speed}km/h를 초과하면 {{{{reward}}}} 보상을 획득할 수 있습니다",
                 "ja": f"通過時に平均ペースが{avg_speed}km/hを超えると{{{{reward}}}}報酬を獲得できます"
+            }
+        elif condition_type == BikeGridConditionType.weather:
+            condition_labels = {
+                "clear": {"en": "clear", "zh-Hans": "晴天", "zh-Hant": "晴天", "fr": "ciel dégagé", "ja": "晴れ", "ko": "맑음"},
+                "cloudy": {"en": "cloudy", "zh-Hans": "多云", "zh-Hant": "多雲", "fr": "nuageux", "ja": "曇り", "ko": "흐림"},
+                "rain": {"en": "rainy", "zh-Hans": "下雨", "zh-Hant": "下雨", "fr": "pluvieux", "ja": "雨", "ko": "비"},
+                "snow": {"en": "snowy", "zh-Hans": "下雪", "zh-Hant": "下雪", "fr": "neigeux", "ja": "雪", "ko": "눈"},
+                "fog": {"en": "foggy", "zh-Hans": "有雾", "zh-Hant": "有霧", "fr": "brumeux", "ja": "霧", "ko": "안개"},
+            }
+            labels = condition_labels[condition_params["match"]]
+            description_i18n = {
+                "en": f"Receive {{{{reward}}}} reward when passing through in {labels['en']} weather",
+                "zh-Hans": f"经过时天气为{labels['zh-Hans']}可获得{{{{reward}}}}奖励",
+                "zh-Hant": f"經過時天氣為{labels['zh-Hant']}可獲得{{{{reward}}}}獎勵",
+                "fr": f"Recevez {{{{reward}}}} en passant par temps {labels['fr']}",
+                "ja": f"通過時に天気が{labels['ja']}なら{{{{reward}}}}報酬を獲得できます",
+                "ko": f"통과 시 날씨가 {labels['ko']}이면 {{{{reward}}}} 보상을 획득할 수 있습니다",
             }
         elif condition_type == BikeGridConditionType.none:
             description_i18n = {
@@ -826,21 +851,29 @@ async def get_nearby_effect_grids(
     return result.scalars().all()
 
 
-# 查询用户附近指定半径（网格数）内、当天还能领取的 buff 网格（自由训练页附近网格列表）
+# 查询用户附近指定地表距离（米）内、当天还能领取的 buff 网格（自由训练页附近网格列表）
 async def get_effect_grids_within_distance(
     db: AsyncSession,
     user: User,
     region: Region,
     active_date: date,
-    grid_x: int,
-    grid_y: int,
-    radius_grids: int,
+    lat: float,
+    lon: float,
+    distance: float,
     max_count: int
 ) -> List[BikeEffectGrid]:
-    dist = (
-        (BikeEffectGrid.grid_x - grid_x) * (BikeEffectGrid.grid_x - grid_x)
-        + (BikeEffectGrid.grid_y - grid_y) * (BikeEffectGrid.grid_y - grid_y)
+    # 奖励格以 EPSG:3857 网格索引存储，但 3857 的单位会随纬度失真；
+    # 这里将格中心转为 geography 后计算真实地表距离，和客户端 Haversine 展示口径一致。
+    grid_center = ST_SetSRID(
+        ST_MakePoint(
+            BikeEffectGrid.grid_x * 500 + 250,
+            BikeEffectGrid.grid_y * 500 + 250,
+        ),
+        3857,
     )
+    grid_center_geography = ST_Transform(grid_center, 4326).cast(Geography)
+    user_point_geography = ST_SetSRID(ST_MakePoint(lon, lat), 4326).cast(Geography)
+    distance_meters = ST_Distance(grid_center_geography, user_point_geography)
     stmt = (
         select(BikeEffectGrid)
         .outerjoin(
@@ -857,14 +890,9 @@ async def get_effect_grids_within_distance(
             BikeEffectGrid.active_date == active_date,
             BikeEffectGrid.effect_type == GridEffectType.buff,
             BikeEffectGridHistory.id.is_(None),
-            # bbox 先收敛（走 grid_x/grid_y 范围），再用平方距离做圆形过滤
-            BikeEffectGrid.grid_x >= grid_x - radius_grids,
-            BikeEffectGrid.grid_x <= grid_x + radius_grids,
-            BikeEffectGrid.grid_y >= grid_y - radius_grids,
-            BikeEffectGrid.grid_y <= grid_y + radius_grids,
-            dist <= radius_grids * radius_grids,
+            distance_meters <= distance,
         )
-        .order_by(dist.asc())
+        .order_by(distance_meters.asc())
         .limit(max_count)
     )
     result = await db.execute(stmt)

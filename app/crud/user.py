@@ -1,4 +1,5 @@
 from sqlalchemy.future import select
+from sqlalchemy import func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.user import User, UserBanHistory, UserRealNameIdentity, UserSetting, UserSignIn, SignInReward, TestAccount
 from typing import Optional, List
@@ -87,6 +88,44 @@ async def get_exist_user_by_apple_id(db: AsyncSession,  apple_id: str) -> User |
         )
     )
     return result.scalar_one_or_none()
+
+async def get_exist_user_by_google_sub(db: AsyncSession, google_sub: str) -> User | None:
+    result = await db.execute(
+        select(User)
+        .where(
+            User.google_sub == google_sub,
+            User.status != UserStatus.deleted
+        )
+        .options(
+            selectinload(User.settings),
+            selectinload(User.subscription_info)
+        )
+    )
+    return result.scalar_one_or_none()
+
+async def get_exist_user_by_identity_email(db: AsyncSession, identity_email: str) -> User | None:
+    """查找已使用该邮箱作为任一登录身份的账号，避免外部身份按邮箱静默合并。"""
+    result = await db.execute(
+        select(User)
+        .where(
+            User.status != UserStatus.deleted,
+            or_(
+                User.email == identity_email,
+                User.apple_email == identity_email,
+                User.google_email == identity_email,
+            )
+        )
+        .options(
+            selectinload(User.settings),
+            selectinload(User.subscription_info)
+        )
+    )
+    # 历史数据可能已有跨身份邮箱重复；任一命中都应阻止自动合并。
+    return result.scalars().first()
+
+async def lock_identity_email(db: AsyncSession, identity_email: str) -> None:
+    """串行化同一邮箱的外部身份创建/绑定，避免并发请求绕过冲突检查。"""
+    await db.execute(select(func.pg_advisory_xact_lock(func.hashtext(identity_email))))
 
 async def get_user_by_email(db: AsyncSession, email_address: str) -> List[User]:
     result = await db.execute(
@@ -198,6 +237,25 @@ async def create_user_with_apple(db: AsyncSession, apple_id: str, email: str, ti
         nickname=nickname,
         apple_id=apple_id,
         apple_email=email,
+        avatar_image_url="/resources/placeholder/avatar.jpg",
+        background_image_url="/resources/placeholder/background.jpg"
+    )
+    db.add(user)
+    await db.flush()
+    await db.refresh(user)
+    user_setting = UserSetting(user_id=user.id)
+    db.add(user_setting)
+    return user
+
+async def create_user_with_google(db: AsyncSession, google_sub: str, email: str, timezone: str) -> User:
+    user_id = await generate_unique_user_id(db)
+    nickname = await generate_unique_user_nickname(db)
+    user = User(
+        user_id=user_id,
+        timezone=timezone,
+        nickname=nickname,
+        google_sub=google_sub,
+        google_email=email or None,
         avatar_image_url="/resources/placeholder/avatar.jpg",
         background_image_url="/resources/placeholder/background.jpg"
     )

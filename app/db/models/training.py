@@ -259,6 +259,8 @@ class BikeFreeTrainingRecord(Base):
     local_date = Column(Date, nullable=False)
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)      # 此次训练的结算，可能包含 xp/state_value/familiarity...
     triggered_buffs = Column(JSONB, nullable=False, server_default="[]")            # 训练触发的 buff grids 快照
+    weather_condition = Column(String, nullable=True)
+    weather_temperature_c = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
@@ -307,6 +309,8 @@ class RunningFreeTrainingRecord(Base):
     local_date = Column(Date, nullable=False)
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)
     triggered_buffs = Column(JSONB, nullable=False, server_default="[]")            # 训练触发的 buff grids 快照
+    weather_condition = Column(String, nullable=True)
+    weather_temperature_c = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
@@ -485,6 +489,8 @@ class BikeRouteTrainingRecord(Base):
     penalty_seconds = Column(Float, default=0, nullable=False)
     local_date = Column(Date, index=True, nullable=False)
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)       # 此次训练的结算，可能包含 xp/state_value/familiarity...
+    weather_condition = Column(String, nullable=True)
+    weather_temperature_c = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
@@ -579,6 +585,8 @@ class RunningRouteTrainingRecord(Base):
     penalty_seconds = Column(Float, default=0, nullable=False)
     local_date = Column(Date, index=True, nullable=False)
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)       # 此次训练的结算，可能包含 xp/state_value/familiarity...
+    weather_condition = Column(String, nullable=True)
+    weather_temperature_c = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算

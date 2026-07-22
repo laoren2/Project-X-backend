@@ -204,6 +204,8 @@ class BikeRaceRecord(Base):
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=True)               # 此次记录的结算奖励
     familiarity_time = Column(Float, nullable=True)                 # 赛道熟悉度成绩增益
     training_state_time = Column(Float, nullable=True)              # 训练状态成绩增益
+    weather_condition = Column(String, nullable=True)
+    weather_temperature_c = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
@@ -272,6 +274,8 @@ class RunningRaceRecord(Base):
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=True)
     familiarity_time = Column(Float, nullable=True)
     training_state_time = Column(Float, nullable=True)
+    weather_condition = Column(String, nullable=True)
+    weather_temperature_c = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算

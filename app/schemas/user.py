@@ -55,6 +55,7 @@ class UserBaseInfo(ORMBase):
     nickname: str
     phone_number: Optional[str] = None
     apple_email: Optional[str] = None
+    google_email: Optional[str] = None
     email: Optional[str] = None
     avatar_image_url: str
     background_image_url: str
@@ -191,6 +192,10 @@ class SubscriptionStatusResponse(BaseModel):
 
 class IAPJWSRequest(BaseModel):
     jws: str
+    timezone: str = "UTC"
+
+class GoogleIDTokenRequest(BaseModel):
+    id_token: str
     timezone: str = "UTC"
 
 class IAPTransactionRequest(BaseModel):

@@ -5,7 +5,7 @@ from app.schemas.competition.common import(
     TeamStatus, RecordStatus, CardBonusItem, CardBonusInfo,
     MemberScoreInfo, PathPoint, TeamMagicCardBonusInfo
 )
-from app.schemas.training.common import RouteType, RouteApplyStatus, TrackLifecycle
+from app.schemas.training.common import RouteType, RouteApplyStatus, TrackLifecycle, WeatherSnapshotResponse
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Any
@@ -485,6 +485,7 @@ class RunningRecordDetailInfo(BaseModel):
     original_time: float
     final_time: float
     penalty_time: float
+    end_time: datetime | None
     is_finish_computed: bool
     path: List[RunningPathPoint]
     card_bonus: List[CardBonusInfo]
@@ -492,6 +493,7 @@ class RunningRecordDetailInfo(BaseModel):
     settlements: dict[str, Any] | None
     familiarity_time: float
     training_state_time: float
+    weather: WeatherSnapshotResponse | None = None
 
 class RunningUnverifiedRecordInfo(ORMBase):
     is_vip: bool

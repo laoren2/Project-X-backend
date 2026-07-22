@@ -3,7 +3,7 @@ from app.schemas.base import ORMBase
 from app.schemas.common import CCAssetRewardResponse, PersonInfoResponse
 from app.schemas.competition.bike import BikeTrackTerrainType
 from app.schemas.competition.common import PathPoint, CardBonusItem, CardBonusInfo
-from app.schemas.training.common import RouteType, TrainingType, GridCellInfo, GridTileKey, GridEffectType, RouteApplyStatus, TrackLifecycle, TrackPoint
+from app.schemas.training.common import RouteType, TrainingType, GridCellInfo, GridTileKey, GridEffectType, RouteApplyStatus, TrackLifecycle, TrackPoint, WeatherSnapshotResponse
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Any
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 class BikeGridConditionType(str, Enum):
     distance = "distance"
     speed = "speed"
+    weather = "weather"
     none = "none"
 
 class BikeFreeTrainingPathPoint(BaseModel):
@@ -65,9 +66,11 @@ class TrainingRecordsResponse(BaseModel):
 class FreeTrainingRecordDetailResponse(BaseModel):
     owner_user_id: str          # 记录归属者业务 ID（客户端据此判断是否本人/可否分享）
     duration: float
+    end_time: datetime
     path: List[BikeFreeTrainingPathPoint]
     settlements: dict[str, Any]      # 训练的结算信息
     triggered_buffs: list[dict[str, Any]] = []      # 训练的 buff 快照
+    weather: WeatherSnapshotResponse | None = None
 
 
 class CreateRouteRequest(BaseModel):
@@ -153,9 +156,11 @@ class RouteTrainingRecordDetailResponse(BaseModel):
     original_time: float
     final_time: float
     penalty_time: float
+    end_time: datetime
     path: List[BikeRouteTrainingPathPoint]
     card_bonus: List[CardBonusInfo]
     settlements: dict[str, Any]
+    weather: WeatherSnapshotResponse | None = None
 
 class BikeRouteRankInfo(BaseModel):
     rank: int
