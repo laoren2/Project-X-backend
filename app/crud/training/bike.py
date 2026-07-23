@@ -485,7 +485,7 @@ async def get_free_training_record_by_record_id(db: AsyncSession, record_id: str
         .where(BikeFreeTrainingRecord.record_id == record_id)
         .options(
             selectinload(BikeFreeTrainingRecord.path),
-            selectinload(BikeFreeTrainingRecord.user)
+            selectinload(BikeFreeTrainingRecord.user).selectinload(User.settings)
         )
     )
     return record.scalar_one_or_none()
@@ -495,7 +495,7 @@ async def get_route_training_record_by_record_id(db: AsyncSession, record_id: st
         select(BikeRouteTrainingRecord)
         .where(BikeRouteTrainingRecord.record_id == record_id)
         .options(
-            selectinload(BikeRouteTrainingRecord.user),
+            selectinload(BikeRouteTrainingRecord.user).selectinload(User.settings),
             selectinload(BikeRouteTrainingRecord.path),
             selectinload(BikeRouteTrainingRecord.card_bonus)
                 .selectinload(CardBonusInBikeRouteTrainingRecord.card)

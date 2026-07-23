@@ -506,7 +506,7 @@ async def get_record_by_record_id(db: AsyncSession, record_id: str) -> RunningRa
             selectinload(RunningRaceRecord.card_bonus)
                 .selectinload(CardBonusInRunningRecord.card)
                 .selectinload(UserEquipmentCard.user),
-            selectinload(RunningRaceRecord.user)
+            selectinload(RunningRaceRecord.user).selectinload(User.settings)
         )
     )
     return record.scalar_one_or_none()

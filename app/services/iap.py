@@ -1,19 +1,111 @@
 from app.db.models.asset import CouponRechargeTransaction
-from app.db.models.user import User, UserSubscription
+from app.db.models.user import User, UserSubscription, SubscriptionEvent
 from app.core.errors import ErrorCode
 from app.core.config import settings
 from app.schemas.base import BizException
-from app.schemas.user import SubscriptionStatusResponse, SubscriptionQueryInfo
+from app.schemas.user import SubscriptionStatusResponse, SubscriptionQueryInfo, SubscriptionEventType
 from app.schemas.asset import AssetOperation, CouponShopResponse, CouponShopInfo
 from app.schemas.common import CCAssetType
-from app.crud.user import get_user_by_id, get_user_by_iap_token
+from app.crud.user import get_user_by_id, get_user_by_iap_token, get_subscription_event_by_notification_uuid
 from app.crud.asset_manage import get_coupon_prices_all, reward_ccasset, get_coupon_price
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone
-from app.services.app_store_api_tool import query_user_subscroption_status, verify_and_decode_transaction_service
+from app.services.app_store_api_tool import (
+    query_user_subscroption_status,
+    verify_and_decode_transaction_service,
+    verify_and_decode_notification_service,
+)
 import uuid, random, math, json, os, logging
 
 logger = logging.getLogger(__name__)
+
+
+def _subscription_event_type(raw_notification_type: str | None, auto_renew: bool) -> SubscriptionEventType:
+    if raw_notification_type == "SUBSCRIBED":
+        return SubscriptionEventType.created
+    if raw_notification_type == "DID_RENEW":
+        return SubscriptionEventType.renewed
+    if raw_notification_type in {"REFUND", "REVOKE"}:
+        return SubscriptionEventType.refunded
+    if raw_notification_type == "DID_CHANGE_RENEWAL_STATUS":
+        return SubscriptionEventType.auto_renew_on if auto_renew else SubscriptionEventType.auto_renew_off
+    if raw_notification_type == "GRACE_PERIOD_EXPIRED":
+        return SubscriptionEventType.grace_ended
+    if raw_notification_type == "DID_FAIL_TO_RENEW":
+        return SubscriptionEventType.grace_started
+    return SubscriptionEventType.renewed
+
+
+async def handle_app_store_notification_service(db: AsyncSession, signed_payload: str) -> bool:
+    """处理并持久化已验证的 App Store Server Notifications V2 通知。"""
+    notification, verifier = verify_and_decode_notification_service(signed_payload)
+    if notification is None or verifier is None:
+        logger.warning("Discarded an App Store notification with an invalid signature")
+        return False
+
+    data = notification.data
+    if not data or not data.signedTransactionInfo or not data.signedRenewalInfo:
+        # TEST 以及非订阅事件不改变订阅权益。
+        return True
+
+    try:
+        transaction = verifier.verify_and_decode_signed_transaction(data.signedTransactionInfo)
+        renewal = verifier.verify_and_decode_renewal_info(data.signedRenewalInfo)
+    except Exception:
+        logger.exception("Unable to verify nested App Store subscription notification data")
+        return False
+
+    # 消耗型商品等非订阅交易没有续期时间，不应进入订阅账本。
+    if not transaction.expiresDate or not transaction.appAccountToken:
+        return True
+
+    notification_uuid = notification.notificationUUID
+    async with db.begin():
+        if notification_uuid and await get_subscription_event_by_notification_uuid(db, notification_uuid):
+            return True
+
+        user = await get_user_by_iap_token(db, str(transaction.appAccountToken))
+        if user is None:
+            logger.warning("App Store notification has no matching app account token")
+            return True
+
+        started_at = (
+            datetime.fromtimestamp(renewal.recentSubscriptionStartDate / 1000, tz=timezone.utc)
+            if renewal.recentSubscriptionStartDate
+            else None
+        )
+        expired_at = datetime.fromtimestamp(transaction.expiresDate / 1000, tz=timezone.utc)
+        auto_renew = renewal.autoRenewStatus == 1
+        is_active = (
+            data.rawStatus in (1, 4)
+            and transaction.revocationDate is None
+            and expired_at > datetime.now(timezone.utc)
+        )
+
+        subscription = user.subscription_info
+        if subscription is None:
+            subscription = UserSubscription(user_id=user.id)
+            db.add(subscription)
+            await db.flush()
+
+        subscription.product_id = renewal.productId
+        subscription.is_active = is_active
+        subscription.auto_renew = auto_renew
+        subscription.start_at = started_at
+        subscription.end_at = expired_at
+        subscription.apple_original_transaction_id = transaction.originalTransactionId
+        subscription.apple_latest_transaction_id = transaction.transactionId
+        subscription.updated_at = datetime.now(timezone.utc)
+
+        db.add(SubscriptionEvent(
+            user_id=user.id,
+            subscription_id=subscription.id,
+            event_type=_subscription_event_type(notification.rawNotificationType, auto_renew),
+            payload={"signed_payload": signed_payload},
+            note=notification.rawNotificationType,
+            notification_uuid=notification_uuid,
+        ))
+    return True
 
 async def query_subscription_status_service(
     db: AsyncSession,

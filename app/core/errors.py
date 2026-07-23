@@ -567,6 +567,14 @@ ERROR_MESSAGES = {
         "ja": "操作に失敗しました",
         "fr": "Échec de l'opération"
     },
+    "record.access_denied": {
+        "zh-Hans": "该比赛结果仅对允许的用户可见",
+        "zh-Hant": "該比賽結果僅對允許的用戶可見",
+        "en": "This competition result is only visible to authorized users.",
+        "ko": "이 경기 결과는 권한이 있는 사용자만 볼 수 있습니다.",
+        "ja": "この試合結果は許可されたユーザーのみ閲覧できます。",
+        "fr": "Ce résultat de compétition est réservé aux utilisateurs autorisés."
+    },
     "record.data_error.leaderboard_update": {
         "zh-Hans": "排行榜写入失败",
         "zh-Hant": "排行榜寫入失敗",

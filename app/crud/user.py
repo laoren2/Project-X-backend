@@ -1,7 +1,7 @@
 from sqlalchemy.future import select
 from sqlalchemy import func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.models.user import User, UserBanHistory, UserRealNameIdentity, UserSetting, UserSignIn, SignInReward, TestAccount
+from app.db.models.user import User, UserBanHistory, UserRealNameIdentity, UserSetting, UserSignIn, SignInReward, TestAccount, SubscriptionEvent
 from typing import Optional, List
 from sqlalchemy.orm import selectinload
 from app.schemas.user import RealNameMethod, UserStatus
@@ -156,6 +156,14 @@ async def get_user_by_iap_token(db: AsyncSession,  iap_token: str) -> User | Non
     result = await db.execute(
         select(User)
         .where(User.apple_iap_token == iap_token)
+        .options(selectinload(User.subscription_info))
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_subscription_event_by_notification_uuid(db: AsyncSession, notification_uuid: str) -> SubscriptionEvent | None:
+    result = await db.execute(
+        select(SubscriptionEvent).where(SubscriptionEvent.notification_uuid == notification_uuid)
     )
     return result.scalar_one_or_none()
 

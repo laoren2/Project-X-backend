@@ -5,15 +5,25 @@ from datetime import datetime
 from app.db.session import get_db
 from app.api.deps import get_current_user, get_language
 from app.schemas.base import BaseResponse
-from app.schemas.user import AuthContext, SubscriptionStatusResponse, IAPJWSRequest, IAPTransactionRequest, SubscriptionQueryInfo
+from app.schemas.user import AuthContext, SubscriptionStatusResponse, IAPJWSRequest, IAPTransactionRequest, SubscriptionQueryInfo, AppStoreNotificationRequest
 from app.schemas.asset import CouponShopResponse
 from app.services.iap import (
     verify_auto_subscription_transaction_service, verify_coupon_transaction_service,
     query_subscription_status_service, query_subscription_account_service,
-    query_coupon_shop_infos_service
+    query_coupon_shop_infos_service, handle_app_store_notification_service
 )
 
 router = APIRouter(dependencies=[Depends(get_language)])
+
+
+@router.post("/app-store-notifications", response_model=BaseResponse[None], summary="接收 App Store Server Notifications V2")
+async def app_store_notifications(
+    notification: AppStoreNotificationRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    # Apple 只要求接收端成功时返回 2xx；签名无效也不泄露细节，避免反复重试。
+    await handle_app_store_notification_service(db, notification.signedPayload)
+    return BaseResponse.success(data=None)
 
 
 # 查询用户订阅状态

@@ -500,7 +500,7 @@ async def get_record_by_record_id(db: AsyncSession, record_id: str) -> BikeRaceR
             selectinload(BikeRaceRecord.track)
                 .selectinload(BikeTrack.event)
                 .selectinload(BikeEvent.region),
-            selectinload(BikeRaceRecord.user),
+            selectinload(BikeRaceRecord.user).selectinload(User.settings),
             selectinload(BikeRaceRecord.team)
                 .selectinload(BikeTeam.members),
             selectinload(BikeRaceRecord.path),

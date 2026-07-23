@@ -1,7 +1,7 @@
 from sqlalchemy import Column, String, Boolean, DateTime, Date, func, UniqueConstraint, Integer, Enum, Index, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.schemas.common import SportType, CCAssetType
-from app.schemas.user import UserRole, Gender, UserStatus, SubscriptionEventType, SubscriptionPeriod, RealNameMethod
+from app.schemas.user import UserRole, Gender, UserStatus, SubscriptionEventType, SubscriptionPeriod, RealNameMethod, RecordVisibility
 from app.db.base import Base
 from sqlalchemy.orm import relationship
 import uuid
@@ -89,6 +89,12 @@ class UserSetting(Base):
     default_sport = Column(Enum(SportType), default=SportType.bike, nullable=False)     # 外部主页默认展示运动（他人查看时）
     global_default_sport = Column(Enum(SportType), default=SportType.bike, nullable=False)  # 全局默认运动：每次启动 app 时商店/运动中心/仓库/local profile 的初始展示运动（各场景仍可单独切换）
     auto_pause = Column(Boolean, default=True, nullable=False)     # free training 自动暂停开关（running+bike 共用）
+    record_visibility = Column(
+        Enum(RecordVisibility, name="recordvisibility"),
+        default=RecordVisibility.public,
+        server_default=RecordVisibility.public.value,
+        nullable=False,
+    )
 
     user = relationship("User", primaryjoin="foreign(UserSetting.user_id) == User.id", uselist=False, back_populates="settings")
 
@@ -219,6 +225,7 @@ class SubscriptionEvent(Base):
     event_type = Column(Enum(SubscriptionEventType), nullable=False)
     payload = Column(JSONB, nullable=True)      # Apple回执
     note = Column(String, nullable=True)        # 备注
+    notification_uuid = Column(String, unique=True, nullable=True)  # App Store Server Notification V2 幂等键
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     subscription = relationship("UserSubscription", uselist=False, primaryjoin="foreign(SubscriptionEvent.subscription_id)==UserSubscription.id", back_populates="events")

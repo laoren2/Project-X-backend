@@ -6,7 +6,7 @@ from app.services.sms import send_sms_code_service, verify_sms_code
 from app.services.user import (
     login_or_register, get_me_info, get_user_info, update_user_info, delete_user_info, 
     get_user_role, update_user_default_sport_service, unbind_phone_service,
-    update_global_default_sport_service, update_auto_pause_service,
+    update_global_default_sport_service, update_auto_pause_service, update_record_visibility_service,
     update_user_location_service, verify_apple_identity_token, verify_google_identity_token,
     login_or_register_apple, login_or_register_google, realname_service, bind_phone_service,
     bind_apple_id_service, unbind_apple_id_service, sign_in_status_service,
@@ -190,6 +190,16 @@ async def update_auto_pause(
     db: AsyncSession = Depends(get_db)
 ):
     result = await update_auto_pause_service(enable, auth.payload["user_id"], db)
+    return BaseResponse.success(token=auth.new_token, message="更新成功", data=result)
+
+
+@router.post("/update_record_visibility", response_model=BaseResponse[schemas_user.RecordVisibility], summary="更新比赛结果可见范围")
+async def update_record_visibility(
+    visibility: schemas_user.RecordVisibility = Query(...),
+    auth: schemas_user.AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await update_record_visibility_service(visibility, auth.payload["user_id"], db)
     return BaseResponse.success(token=auth.new_token, message="更新成功", data=result)
 
 @router.post("/update_location", response_model=BaseResponse[None], summary="更新用户位置")

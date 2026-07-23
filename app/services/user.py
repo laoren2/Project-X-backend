@@ -12,7 +12,7 @@ import app.crud.competition.bike as bike_crud
 import app.crud.competition.running as running_crud
 from app.core.security import create_access_token
 from app.schemas.common import SportType, CCAssetBaseInfo, CCAssetType
-from app.schemas.user import UserUpdateForm, UserBaseInfo, UserStatus, Gender, RealNameMethod
+from app.schemas.user import UserUpdateForm, UserBaseInfo, UserStatus, Gender, RealNameMethod, RecordVisibility
 from app.schemas.base import BizException
 from app.schemas.asset import SignInStatusResponse, AssetOperation, SignInItemInfo, SignInRewardResponse
 from app.schemas.mailbox import MailType
@@ -127,6 +127,7 @@ async def login_or_register(db: AsyncSession, phone_number: str, timezone: str):
                 user_info.default_sport = user.settings.default_sport
                 user_info.global_default_sport = user.settings.global_default_sport
                 user_info.auto_pause = user.settings.auto_pause
+                user_info.record_visibility = user.settings.record_visibility
             user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
         token = create_access_token({"user_id": user.user_id})
         return token, user_info, isRegister, user.role
@@ -175,6 +176,7 @@ async def login_or_register_apple(db: AsyncSession, apple_id: str, email: str, t
                 user_info.default_sport = user.settings.default_sport
                 user_info.global_default_sport = user.settings.global_default_sport
                 user_info.auto_pause = user.settings.auto_pause
+                user_info.record_visibility = user.settings.record_visibility
             user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
         token = create_access_token({"user_id": user.user_id})
         return token, user_info, is_register, user.role
@@ -222,6 +224,7 @@ async def login_or_register_email(db: AsyncSession, email_address: str, timezone
                 user_info.default_sport = user.settings.default_sport
                 user_info.global_default_sport = user.settings.global_default_sport
                 user_info.auto_pause = user.settings.auto_pause
+                user_info.record_visibility = user.settings.record_visibility
             user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
         token = create_access_token({"user_id": user.user_id})
         return token, user_info, isRegister, user.role
@@ -264,6 +267,7 @@ async def login_or_register_google(db: AsyncSession, google_sub: str, email: str
                 user_info.default_sport = user.settings.default_sport
                 user_info.global_default_sport = user.settings.global_default_sport
                 user_info.auto_pause = user.settings.auto_pause
+                user_info.record_visibility = user.settings.record_visibility
             user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
         token = create_access_token({"user_id": user.user_id})
         return token, user_info, is_register, user.role
@@ -290,6 +294,7 @@ async def get_user_info(user_id: str, db: AsyncSession):
     user_info.default_sport = user.settings.default_sport
     user_info.global_default_sport = user.settings.global_default_sport
     user_info.auto_pause = user.settings.auto_pause
+    user_info.record_visibility = user.settings.record_visibility
     user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
     return user_info
 
@@ -311,6 +316,7 @@ async def get_me_info(db: AsyncSession, user_id: str, timeZone: str | None) -> t
         user_info.default_sport = user.settings.default_sport
         user_info.global_default_sport = user.settings.global_default_sport
         user_info.auto_pause = user.settings.auto_pause
+        user_info.record_visibility = user.settings.record_visibility
 
         subscription_status = user.subscription_info.is_active if user.subscription_info else False
         if not user.subscription_info or not user.subscription_info.is_active or not user.subscription_info.apple_original_transaction_id:
@@ -383,6 +389,7 @@ async def update_user_info(user_id: str, form: UserUpdateForm, avatar_url: str |
         user_info.default_sport = user.settings.default_sport
         user_info.global_default_sport = user.settings.global_default_sport
         user_info.auto_pause = user.settings.auto_pause
+        user_info.record_visibility = user.settings.record_visibility
         return user_info
 
 async def delete_user_info(user_id: str, db: AsyncSession):
@@ -424,6 +431,21 @@ async def update_auto_pause_service(enable: bool, user_id: str, db: AsyncSession
     user.settings.auto_pause = enable
     await db.commit()
     return user.settings.auto_pause
+
+
+async def update_record_visibility_service(
+    visibility: RecordVisibility,
+    user_id: str,
+    db: AsyncSession,
+) -> RecordVisibility:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    if not user.settings:
+        raise BizException(code=ErrorCode.USER_INFO_ERROR, message="user.info_error")
+    user.settings.record_visibility = visibility
+    await db.commit()
+    return user.settings.record_visibility
 
 async def update_user_location_service(region: str, user_id: str, db: AsyncSession):
     user = await get_user_by_id(db, user_id)

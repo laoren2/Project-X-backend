@@ -23,6 +23,13 @@ class UserStatus(str, Enum):
     deleted = "deleted"
     banned = "banned"
 
+
+class RecordVisibility(str, Enum):
+    """比赛结果详情的可见范围。"""
+    public = "public"
+    followers = "followers"
+    friends = "friends"
+
 # 订阅相关（仅 Apple：按月/季/年）
 class SubscriptionPeriod(str, Enum):
     monthly = "monthly"
@@ -72,6 +79,7 @@ class UserBaseInfo(ORMBase):
     default_sport: SportType = SportType.bike
     global_default_sport: SportType = SportType.bike
     auto_pause: bool = True
+    record_visibility: RecordVisibility = RecordVisibility.public
     status: UserStatus
     is_vip: bool = False
 
@@ -200,6 +208,10 @@ class GoogleIDTokenRequest(BaseModel):
 
 class IAPTransactionRequest(BaseModel):
     transaction_id: str
+
+
+class AppStoreNotificationRequest(BaseModel):
+    signedPayload: str
 
 class SubscriptionQueryInfo(BaseModel):
     enforce: bool

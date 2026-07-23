@@ -77,6 +77,7 @@ from app.services.competition.common import (
     _distribute_voucher_and_scores, compute_distance, update_running_leaderboard_for_record,
     send_running_match_rewards, compute_running_match_rewards, settle_running_match_xp, get_track_leaderboard_times
 )
+from app.services.competition.record_privacy import ensure_record_detail_visible
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import redis_client
 from typing import Optional, List
@@ -2342,10 +2343,10 @@ async def cancel_applied_join_team_service(db: AsyncSession, user_id: str, team_
 
 
 async def get_record_detail_service(db: AsyncSession, lang: Language, record_id: str, viewer_id: str | None) -> RunningRecordDetailInfo:
-    # viewer_id 为查询者（来自 token，可空）；预留用于未来按归属做隐私裁剪
     record = await get_record_by_record_id(db, record_id)
     if record is None:
         raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
+    await ensure_record_detail_visible(db, record.user, viewer_id)
     
     # 构建MemberScoreInfo列表
     team_member_scores_list = []

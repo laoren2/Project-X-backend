@@ -29,6 +29,7 @@ from app.services.training.common import (
     evaluate_route_training_checkpoint_path, extract_path_points, build_split_profile
 )
 from app.services.mappers import equip_card_to_base_info
+from app.services.competition.record_privacy import ensure_record_detail_visible
 from app.services.weather import fetch_weather_snapshot, weather_snapshot_dict, weather_snapshot_from_record
 from app.core.config import settings
 from app.db.models.user import User
@@ -716,10 +717,10 @@ async def query_free_training_record_detail_service(
     viewer_id: str | None,
     record_id: str
 ) -> FreeTrainingRecordDetailResponse:
-    # viewer_id 为查询者（来自 token，可空）；预留用于未来按归属做隐私裁剪
     record = await get_free_training_record_by_record_id(db, record_id)
     if record is None:
         raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
+    await ensure_record_detail_visible(db, record.user, viewer_id)
 
     path_points = []
     if record.path and record.path.path:
@@ -1581,10 +1582,10 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
 
 
 async def query_route_training_record_detail_service(db: AsyncSession, lang: Language, record_id: str, viewer_id: str | None) -> RouteTrainingRecordDetailResponse:
-    # viewer_id 为查询者（来自 token，可空）；预留用于未来按归属做隐私裁剪
     record = await get_route_training_record_by_record_id(db, record_id)
     if record is None:
         raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
+    await ensure_record_detail_visible(db, record.user, viewer_id)
     
     path_points = []
     if record.path and record.path.path:
