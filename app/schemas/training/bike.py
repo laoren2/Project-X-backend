@@ -176,6 +176,7 @@ class BikeGridBuffPreview(BaseModel):
     grid_y: int
     effect_type: str
     condition_type: BikeGridConditionType
+    condition_params: dict
     reward_type: str
 
 class BikeGridTileInfo(BaseModel):

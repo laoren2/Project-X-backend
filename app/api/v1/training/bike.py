@@ -15,7 +15,8 @@ from app.schemas.training.bike import (
 )
 from app.schemas.training.common import (
     RegionExploreResponse, GridTileRequest, GridFamiliarityMeResponse,
-    GridFamiliarityRankListResponse, RouteSortType, GridOccupancyResponse, WeeklyTrainingSummaryResponse
+    GridFamiliarityRankListResponse, RouteSortType, GridOccupancyResponse, RegionGridOccupancyRankListResponse,
+    WeeklyTrainingSummaryResponse
 )
 from app.services.training.bike import (
     finish_free_training_service, query_training_states_history_service, query_training_records_service,
@@ -25,7 +26,8 @@ from app.services.training.bike import (
     finish_route_training_service, query_route_training_record_detail_service, get_route_card_info_service,
     query_route_ranklist_service, query_route_ranklist_me_service, query_grid_info_service,
     apply_route_to_track_service, get_route_pace_baseline_service, query_nearby_grids_service,
-    query_grids_within_distance_service, query_occupied_grids_count, query_weekly_training_summary_service
+    query_grids_within_distance_service, query_occupied_grids_count, query_region_occupied_grids_ranklist,
+    query_weekly_training_summary_service
 )
 
 router = APIRouter(dependencies=[Depends(get_language)])
@@ -191,10 +193,23 @@ async def query_grids_within_distance(
 # 查询我已占领的网格数量
 @router.get("/query_occupied_grids_count",response_model=BaseResponse[GridOccupancyResponse],summary="查询我已占领的网格数量")
 async def query_occupied_grids_count_api(
+    region_id: str | None = Query(None),
     auth: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await query_occupied_grids_count(db, auth.payload["user_id"])
+    result = await query_occupied_grids_count(db, auth.payload["user_id"], region_id)
+    return BaseResponse.success(token=auth.new_token, data=result)
+
+
+@router.get("/occupied_grids_ranklist", response_model=BaseResponse[RegionGridOccupancyRankListResponse], summary="查询 region 已占领网格排行榜")
+async def occupied_grids_ranklist(
+    region_id: str = Query(...),
+    limit: int = Query(20, ge=1, le=50),
+    cursor: str | None = Query(None),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await query_region_occupied_grids_ranklist(db, auth.payload["user_id"], region_id, limit, cursor)
     return BaseResponse.success(token=auth.new_token, data=result)
 
 # 创建训练路线

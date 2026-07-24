@@ -175,6 +175,43 @@ class UserGridFamiliarityBike(Base):
     )
 
 
+# 当前赛季基础网格的占领者。训练写入时按网格加事务锁后重算，作为区域排行榜的准确投影源。
+class BikeGridOccupancyOwner(Base):
+    __tablename__ = "bike_grid_occupancy_owners"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    season_id = Column(UUID(as_uuid=True), nullable=False)
+    region_id = Column(UUID(as_uuid=True), nullable=False)
+    grid_x = Column(Integer, nullable=False)
+    grid_y = Column(Integer, nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("season_id", "grid_x", "grid_y", name="uq_bike_grid_occupancy_owner_season_grid"),
+        Index("ix_bike_grid_occupancy_owner_season_region", "season_id", "region_id"),
+    )
+
+
+# 当前赛季用户在一个 region 内占领的基础网格数，供个人数值和排行榜直接读取。
+class BikeRegionGridOccupancy(Base):
+    __tablename__ = "bike_region_grid_occupancies"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    season_id = Column(UUID(as_uuid=True), nullable=False)
+    region_id = Column(UUID(as_uuid=True), nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    occupied_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("season_id", "region_id", "user_id", name="uq_bike_region_grid_occupancy_season_region_user"),
+        Index("ix_bike_region_grid_occupancy_rank", "season_id", "region_id", occupied_count.desc(), "updated_at", "user_id"),
+    )
+
+
 # 聚合用户网格熟悉度表
 class UserGridFamiliarityBikeAgg(Base):
     __tablename__ = "user_grid_familiarity_bike_agg"
@@ -217,6 +254,41 @@ class UserGridFamiliarityRunning(Base):
         UniqueConstraint("season_id", "user_id", "grid_x", "grid_y", name="uq_user_grid_familiarity_running_season_user_grid"),
         # 已占领网格数查询：NOT EXISTS 按 (season_id, grid_x, grid_y) 定位后用 count/updated_at 判定是否被超越
         Index("ix_user_grid_familiarity_running_grid_rank", "season_id", "grid_x", "grid_y", "familiarity_count", "updated_at"),
+    )
+
+
+class RunningGridOccupancyOwner(Base):
+    __tablename__ = "running_grid_occupancy_owners"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    season_id = Column(UUID(as_uuid=True), nullable=False)
+    region_id = Column(UUID(as_uuid=True), nullable=False)
+    grid_x = Column(Integer, nullable=False)
+    grid_y = Column(Integer, nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("season_id", "grid_x", "grid_y", name="uq_running_grid_occupancy_owner_season_grid"),
+        Index("ix_running_grid_occupancy_owner_season_region", "season_id", "region_id"),
+    )
+
+
+class RunningRegionGridOccupancy(Base):
+    __tablename__ = "running_region_grid_occupancies"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    season_id = Column(UUID(as_uuid=True), nullable=False)
+    region_id = Column(UUID(as_uuid=True), nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    occupied_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("season_id", "region_id", "user_id", name="uq_running_region_grid_occupancy_season_region_user"),
+        Index("ix_running_region_grid_occupancy_rank", "season_id", "region_id", occupied_count.desc(), "updated_at", "user_id"),
     )
 
 

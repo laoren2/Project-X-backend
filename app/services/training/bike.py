@@ -6,7 +6,8 @@ from app.schemas.asset import AssetOperation, CPAssetResponse
 from app.schemas.training.common import (
     RegionExploreResponse, GridTileKey, GridFamiliarityRankListResponse,
     GridFamiliarityMeResponse, GridFamiliarityRankInfo, RouteSortType, TrainingType,
-    GridOccupancyResponse, TrackPoint, WeeklyTrainingSummaryResponse, WeeklyTrainingDayInfo
+    GridOccupancyResponse, RegionGridOccupancyRankInfo, RegionGridOccupancyRankListResponse,
+    RegionGridOccupancyRankMe, TrackPoint, WeeklyTrainingSummaryResponse, WeeklyTrainingDayInfo
 )
 from app.schemas.competition.common import CardBonusInfo, PathPoint
 from app.schemas.base import BizException, Language, pick_i18n_text
@@ -923,7 +924,8 @@ async def query_grids_within_distance_service(
 # 查询用户当前赛季「已占领」的网格数（基础格中 familiarity_count 排名第一的网格数）
 async def query_occupied_grids_count(
     db: AsyncSession,
-    user_id: str
+    user_id: str,
+    region_id: str | None = None
 ) -> GridOccupancyResponse:
     user = await get_user_by_id(db, user_id)
     if user is None:
@@ -931,6 +933,31 @@ async def query_occupied_grids_count(
     season = await get_season_now(db)
     if season is None:
         raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
+
+    # `region_id` was added after this endpoint shipped. Keep the old all-season result for
+    # installed clients that do not send it; current clients always use the projection below.
+    if region_id is not None:
+        region = await get_region_by_region_id(db, region_id)
+        if region is None:
+            raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
+        result = await db.execute(text("""
+            SELECT me.occupied_count, COUNT(a.id) + 1 AS rank
+            FROM bike_region_grid_occupancies me
+            LEFT JOIN bike_region_grid_occupancies a
+              ON a.season_id = me.season_id AND a.region_id = me.region_id
+             AND (
+                 a.occupied_count > me.occupied_count
+                 OR (a.occupied_count = me.occupied_count AND a.updated_at < me.updated_at)
+                 OR (a.occupied_count = me.occupied_count AND a.updated_at = me.updated_at AND a.user_id < me.user_id)
+             )
+            WHERE me.season_id = :season_id AND me.region_id = :region_id AND me.user_id = :user_id
+            GROUP BY me.occupied_count, me.updated_at, me.user_id
+        """), {"season_id": season.id, "region_id": region.id, "user_id": user.id})
+        row = result.first()
+        return GridOccupancyResponse(
+            occupied_count=int(row.occupied_count) if row else 0,
+            rank=int(row.rank) if row else None,
+        )
 
     # 单条 SQL：统计当前用户在本赛季基础熟悉度表中、没有任何其他用户超越的网格数。
     # 超越判定与 query_me_familiarity_by_grid 排名口径一致：次数更高，或次数相同但更新更早。
@@ -961,6 +988,96 @@ async def query_occupied_grids_count(
     })
     occupied_count = result.scalar_one()
     return GridOccupancyResponse(occupied_count=occupied_count)
+
+
+async def query_region_occupied_grids_ranklist(
+    db: AsyncSession,
+    user_id: str,
+    region_id: str,
+    limit: int,
+    cursor: str | None,
+) -> RegionGridOccupancyRankListResponse:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    season = await get_season_now(db)
+    if season is None:
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
+    region = await get_region_by_region_id(db, region_id)
+    if region is None:
+        raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
+
+    try:
+        cursor_data = decode_cursor(cursor) if cursor else None
+        if cursor_data:
+            cursor_data["updated_at"] = datetime.fromisoformat(cursor_data["updated_at"])
+    except Exception:
+        raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message="cursor解析错误")
+
+    me_result = await db.execute(text("""
+        SELECT me.occupied_count, COUNT(a.id) + 1 AS rank
+        FROM bike_region_grid_occupancies me
+        LEFT JOIN bike_region_grid_occupancies a
+          ON a.season_id = me.season_id AND a.region_id = me.region_id
+         AND (
+             a.occupied_count > me.occupied_count
+             OR (a.occupied_count = me.occupied_count AND a.updated_at < me.updated_at)
+             OR (a.occupied_count = me.occupied_count AND a.updated_at = me.updated_at AND a.user_id < me.user_id)
+         )
+        WHERE me.season_id = :season_id AND me.region_id = :region_id AND me.user_id = :user_id
+        GROUP BY me.occupied_count, me.updated_at, me.user_id
+    """), {"season_id": season.id, "region_id": region.id, "user_id": user.id})
+    me_row = me_result.first()
+    me = RegionGridOccupancyRankMe(
+        occupied_count=int(me_row.occupied_count) if me_row else 0,
+        rank=int(me_row.rank) if me_row else None,
+    )
+
+    params = {"season_id": season.id, "region_id": region.id, "limit": limit + 1}
+    cursor_clause = ""
+    if cursor_data:
+        params.update({
+            "cursor_count": cursor_data["occupied_count"],
+            "cursor_updated_at": cursor_data["updated_at"],
+            "cursor_user_id": cursor_data["user_id"],
+        })
+        cursor_clause = """
+            AND (r.occupied_count < :cursor_count
+                 OR (r.occupied_count = :cursor_count AND r.updated_at > :cursor_updated_at)
+                 OR (r.occupied_count = :cursor_count AND r.updated_at = :cursor_updated_at
+                     AND r.user_id > CAST(:cursor_user_id AS uuid)))
+        """
+    result = await db.execute(text(f"""
+        -- `r.user_id` is the internal UUID used by the projection/cursor; only expose
+        -- `u.user_id`, the public business identifier, to the client.
+        SELECT r.user_id AS internal_user_id, u.user_id AS public_user_id,
+               r.occupied_count, r.updated_at, u.avatar_image_url, u.nickname
+        FROM bike_region_grid_occupancies r
+        JOIN users u ON u.id = r.user_id
+        WHERE r.season_id = :season_id AND r.region_id = :region_id {cursor_clause}
+        ORDER BY r.occupied_count DESC, r.updated_at ASC, r.user_id ASC
+        LIMIT :limit
+    """), params)
+    rows = result.fetchall()
+    page_rows = rows[:limit]
+    start_rank = int(cursor_data["rank"]) + 1 if cursor_data else 1
+    entries = [
+        RegionGridOccupancyRankInfo(
+            user=PersonInfoResponse(
+                user_id=row.public_user_id, avatar_image_url=build_resource_url(row.avatar_image_url), nickname=row.nickname
+            ),
+            occupied_count=int(row.occupied_count), rank=start_rank + index,
+        )
+        for index, row in enumerate(page_rows)
+    ]
+    next_cursor = None
+    if len(rows) > limit and page_rows:
+        last = page_rows[-1]
+        next_cursor = encode_cursor({
+            "occupied_count": int(last.occupied_count), "updated_at": last.updated_at.isoformat(),
+            "user_id": str(last.internal_user_id), "rank": entries[-1].rank,
+        })
+    return RegionGridOccupancyRankListResponse(entries=entries, next_cursor=next_cursor, me=me)
 
 # 查询某网格我的访问次数和名次
 async def query_me_familiarity_by_grid(

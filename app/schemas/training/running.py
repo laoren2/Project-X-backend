@@ -180,6 +180,7 @@ class RunningGridBuffPreview(BaseModel):
     grid_y: int
     effect_type: str
     condition_type: RunningGridConditionType
+    condition_params: dict
     reward_type: str
 
 class RunningGridTileInfo(BaseModel):
