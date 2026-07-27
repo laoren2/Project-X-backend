@@ -35,7 +35,7 @@ from app.core.errors import ErrorCode
 from app.core.tools import get_user_local_date, encode_cursor, decode_cursor
 from app.core.storage import build_resource_url
 from app.schemas.base import BizException, Language, pick_i18n_text
-from app.schemas.common import PersonInfoResponse, EquipCardBaseInfo, SportType, CCAssetType, CCAssetRewardResponse, PaceBaselineResponse, SplitProfileInfo
+from app.schemas.common import PersonInfoResponse, EquipCardBaseInfo, SportType, CCAssetType, CCAssetRewardResponse, PaceBaselineResponse, PaceSnapshotResponse, SplitProfileInfo
 from app.schemas.mailbox import MailType
 from app.schemas.user import Gender
 from app.schemas.asset import CPAssetResponse, DailyTaskRewardResponse, AssetOperation
@@ -62,7 +62,7 @@ from app.schemas.training.common import RouteApplyStatus, TrackLifecycle
 from app.db.models.competition import (
     RunningEvent, RunningTrack, RunningSeason, RunningRaceRecord, RunningTeam, 
     RunningTeamMember, RunningTeamAppliedMember, RunningRacePath, CardBonusInRunningRecord,
-    RunningLeaderboard, RunningBonusByTeamMember
+    RunningLeaderboard, RunningBonusByTeamMember, VideoWatermarkPaceSnapshot
 )
 from app.db.models.mailbox import Mailbox
 from app.db.models.user import User
@@ -996,6 +996,24 @@ async def _fetch_finish_weather(path):
     return await fetch_weather_snapshot(point.lat, point.lon)
 
 
+async def _capture_record_pace_snapshot(db: AsyncSession, record: RunningRaceRecord, user: User) -> dict:
+    """冻结本次成绩写入排行榜之前的实时配速基线。"""
+    gender = (user.gender or Gender.male).value
+    return {
+        "version": 1,
+        "finish_times": await get_track_leaderboard_times("running", record.track.track_id, gender),
+        "pb_profile": await get_user_best_race_profile(db, record.track_id, user.id),
+        "route_data": record.route_data,
+    }
+
+
+async def _save_record_pace_snapshot(db: AsyncSession, record: RunningRaceRecord, user: User) -> None:
+    snapshot = VideoWatermarkPaceSnapshot(snapshot=await _capture_record_pace_snapshot(db, record, user))
+    db.add(snapshot)
+    await db.flush()
+    record.pace_snapshot_id = snapshot.id
+
+
 async def finish_single_competition_service(db: AsyncSession, info: RunningFinishInfo, user_id: str) -> MatchFinishResponse:
     finish_weather = await _fetch_finish_weather(info.path)
     try:
@@ -1015,6 +1033,8 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
                 raise BizException(code=ErrorCode.RECORD_ERROR, message="record.invalid_time")
             if record.status != RecordStatus.recording and record.status != RecordStatus.expired:
                 raise BizException(code=ErrorCode.RECORD_ERROR, message="record.status_error.finish_match")
+            if record.pace_snapshot_id is None:
+                await _save_record_pace_snapshot(db, record, user)
             original_time = (info.end_time - record.start_time).total_seconds()
             final_time = original_time
             bonus_time = 0
@@ -1175,6 +1195,9 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
                 raise BizException(code=ErrorCode.RECORD_ERROR, message="record.invalid_time")
             if record.status != RecordStatus.recording and record.status != RecordStatus.expired:
                 raise BizException(code=ErrorCode.RECORD_ERROR, message="record.status_error.finish_match")
+
+            if record.pace_snapshot_id is None:
+                await _save_record_pace_snapshot(db, record, user)
             
             original_time = (info.end_time - record.start_time).total_seconds()
             final_time = original_time
@@ -2411,6 +2434,19 @@ async def get_record_detail_service(db: AsyncSession, lang: Language, record_id:
         training_state_time=record.training_state_time if record.training_state_time else 0,
         weather=weather_snapshot_from_record(record)
     )
+
+
+async def get_record_pace_snapshot_service(db: AsyncSession, record_id: str, user_id: str) -> PaceSnapshotResponse | None:
+    """仅记录所有者可读取冻结后的水印配速快照。"""
+    record = await get_record_by_record_id(db, record_id)
+    if record is None:
+        raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
+    if record.user is None or record.user.user_id != user_id:
+        raise BizException(code=ErrorCode.NO_PERMISSION, message="record.access_denied")
+    if record.pace_snapshot_id is None:
+        return None
+    snapshot = await db.get(VideoWatermarkPaceSnapshot, record.pace_snapshot_id)
+    return PaceSnapshotResponse.model_validate(snapshot.snapshot) if snapshot else None
 
 async def get_current_best_records_service(db: AsyncSession, lang: Language, user_id: str) -> RunningSummaryRecordResponse:
     season = await get_season_now(db)

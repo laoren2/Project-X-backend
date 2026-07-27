@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from app.api.deps import get_current_user, get_current_user_optional, get_language, Language
 from app.schemas.base import BaseResponse
-from app.schemas.common import CPAssetCoverInfo, PaceBaselineResponse
+from app.schemas.common import CPAssetCoverInfo, PaceBaselineResponse, PaceSnapshotResponse
 from app.schemas.asset import CPAssetResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
@@ -25,7 +25,7 @@ from app.services.training.bike import (
     create_training_route_service, update_training_route_service, query_routes_service, query_my_routes_service, delete_route_service,
     finish_route_training_service, query_route_training_record_detail_service, get_route_card_info_service,
     query_route_ranklist_service, query_route_ranklist_me_service, query_grid_info_service,
-    apply_route_to_track_service, get_route_pace_baseline_service, query_nearby_grids_service,
+    apply_route_to_track_service, get_route_pace_baseline_service, get_route_training_pace_snapshot_service, query_nearby_grids_service,
     query_grids_within_distance_service, query_occupied_grids_count, query_region_occupied_grids_ranklist,
     query_weekly_training_summary_service
 )
@@ -330,6 +330,16 @@ async def query_route_training_record_detail(
     viewer_id = auth.payload["user_id"] if auth else None
     result = await query_route_training_record_detail_service(db, lang, record_id, viewer_id)
     return BaseResponse.success(token=auth.new_token if auth else None, data=result)
+
+
+@router.get("/video_watermark_pace_snapshot", response_model=BaseResponse[PaceSnapshotResponse | None], summary="查询路线训练视频水印配速快照")
+async def video_watermark_pace_snapshot(
+    record_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    snapshot = await get_route_training_pace_snapshot_service(db, record_id, auth.payload["user_id"])
+    return BaseResponse.success(token=auth.new_token, data=snapshot)
 
 @router.get("/route_pace_baseline", response_model=BaseResponse[PaceBaselineResponse], summary="查询路线配速基线（实时预测名次 + 自我对比）")
 async def route_pace_baseline(

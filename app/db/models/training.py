@@ -566,6 +566,7 @@ class BikeRouteTrainingRecord(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
+    pace_snapshot_id = Column(UUID(as_uuid=True), nullable=True)  # 视频水印配速快照（独立表）
 
     # ORM 关系
     user = relationship("User", primaryjoin="foreign(BikeRouteTrainingRecord.user_id)==User.id", uselist=False)
@@ -586,6 +587,7 @@ class BikeRouteTrainingRecord(Base):
             unique=True
         ),
     )
+
 
 class BikeRouteRanklist(Base):
     __tablename__ = "bike_route_ranklists"
@@ -662,6 +664,7 @@ class RunningRouteTrainingRecord(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
+    pace_snapshot_id = Column(UUID(as_uuid=True), nullable=True)  # 视频水印配速快照（独立表）
 
     # ORM 关系
     user = relationship("User", primaryjoin="foreign(RunningRouteTrainingRecord.user_id)==User.id", uselist=False)
@@ -682,6 +685,7 @@ class RunningRouteTrainingRecord(Base):
             unique=True
         ),
     )
+
 
 class RunningRouteRanklist(Base):
     __tablename__ = "running_route_ranklists"

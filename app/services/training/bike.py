@@ -1,7 +1,7 @@
 from app.core.tools import get_user_local_date, latlon_to_grid, grid_center_to_latlon, encode_cursor, decode_cursor, extract_simplified_track
 from app.core.storage import build_resource_url
 from app.core.errors import ErrorCode
-from app.schemas.common import CCAssetRewardResponse, CCAssetType, PersonInfoResponse, SportType, CPAssetCoverInfo, PaceBaselineResponse, SplitProfileInfo
+from app.schemas.common import CCAssetRewardResponse, CCAssetType, PersonInfoResponse, SportType, CPAssetCoverInfo, PaceBaselineResponse, PaceSnapshotResponse, SplitProfileInfo
 from app.schemas.asset import AssetOperation, CPAssetResponse
 from app.schemas.training.common import (
     RegionExploreResponse, GridTileKey, GridFamiliarityRankListResponse,
@@ -53,6 +53,7 @@ from app.crud.training.bike import (
     ensure_bike_effect_grids_generated, get_nearby_effect_grids, get_effect_grids_within_distance
 )
 from app.crud.competition.bike import get_season_now, get_score_by_season_and_user, add_or_update_career_xp
+from app.db.models.competition import VideoWatermarkPaceSnapshot
 from app.crud.user import get_user_by_id
 from app.crud.asset_manage import reward_ccasset, get_equip_card_by_card_id, get_route_card_def, consume_cpasset
 from app.crud.competition.common import get_region_by_coordinate, get_region_by_region_id
@@ -1599,6 +1600,17 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
 
         record.duration_seconds = final_time + total_penalty
 
+        # 本次成绩写入路线榜单之前冻结实时配速基线，供视频水印稳定回放。
+        snapshot = VideoWatermarkPaceSnapshot(snapshot={
+            "version": 1,
+            "finish_times": await get_route_finish_times(db, route.id),
+            "pb_profile": await get_route_pb_profile(db, route.id, user.id),
+            "route_data": route.route_data,
+        })
+        db.add(snapshot)
+        await db.flush()
+        record.pace_snapshot_id = snapshot.id
+
         # 更新路线排行榜
         final_score = final_time + total_penalty
 
@@ -1742,6 +1754,19 @@ async def query_route_training_record_detail_service(db: AsyncSession, lang: Lan
         settlements=record.settlement_rewards,
         weather=weather_snapshot_from_record(record)
     )
+
+
+async def get_route_training_pace_snapshot_service(db: AsyncSession, record_id: str, user_id: str) -> PaceSnapshotResponse | None:
+    """仅记录所有者可读取冻结后的路线训练水印配速快照。"""
+    record = await get_route_training_record_by_record_id(db, record_id)
+    if record is None:
+        raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
+    if record.user is None or record.user.user_id != user_id:
+        raise BizException(code=ErrorCode.NO_PERMISSION, message="record.access_denied")
+    if record.pace_snapshot_id is None:
+        return None
+    snapshot = await db.get(VideoWatermarkPaceSnapshot, record.pace_snapshot_id)
+    return PaceSnapshotResponse.model_validate(snapshot.snapshot) if snapshot else None
 
 async def query_route_ranklist_service(
     db: AsyncSession,
