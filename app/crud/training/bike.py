@@ -386,7 +386,7 @@ async def _refresh_bike_occupancy_projection(
             WHERE bike_grid_occupancy_owners.user_id IS DISTINCT FROM EXCLUDED.user_id
                OR bike_grid_occupancy_owners.region_id IS DISTINCT FROM EXCLUDED.region_id
         ), deltas AS (
-            SELECT :season_id::uuid AS season_id, old_region_id AS region_id, old_user_id AS user_id, -1 AS delta
+            SELECT CAST(:season_id AS uuid) AS season_id, old_region_id AS region_id, old_user_id AS user_id, -1 AS delta
             FROM changes WHERE old_user_id IS NOT NULL
             UNION ALL
             SELECT season_id, region_id, user_id, 1 FROM changes
