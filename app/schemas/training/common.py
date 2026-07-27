@@ -35,6 +35,10 @@ class GridEffectType(str, Enum):
     buff = "buff"
     debuff = "debuff"
 
+class WeatherSnapshotResponse(BaseModel):
+    condition: str
+    temperature_c: float
+
 class Checkpoint(BaseModel):
     kind: Literal["checkpoint"]
     lat: float
@@ -86,6 +90,25 @@ class GridFamiliarityRankListResponse(BaseModel):
 # 用户已占领网格数（基础格中 familiarity_count 排名第一的网格数）
 class GridOccupancyResponse(BaseModel):
     occupied_count: int
+    # 仅 region 查询返回；旧客户端不传 region_id 时维持原有全赛季计数语义。
+    rank: int | None = None
+
+
+class RegionGridOccupancyRankInfo(BaseModel):
+    user: PersonInfoResponse
+    occupied_count: int
+    rank: int
+
+
+class RegionGridOccupancyRankMe(BaseModel):
+    occupied_count: int
+    rank: int | None = None
+
+
+class RegionGridOccupancyRankListResponse(BaseModel):
+    entries: List[RegionGridOccupancyRankInfo]
+    next_cursor: str | None = None
+    me: RegionGridOccupancyRankMe
 
 # 训练模块：最近 7 天每日训练汇总
 class WeeklyTrainingDayInfo(BaseModel):

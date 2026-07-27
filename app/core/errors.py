@@ -25,6 +25,8 @@ class ErrorCode:
     APPLE_ID_ERROR = 3007
     EMAIL_VERIFY_FAILED = 3008
     EMAIL_ERROR = 3009
+    IDENTITY_LINK_REQUIRED = 3010
+    GOOGLE_ID_ERROR = 3011
 
     # 业务逻辑
     SEASON_ERROR = 4001
@@ -49,6 +51,7 @@ class ErrorCode:
     EMAIL_SERVICE_ERROR = 5002
     APPLE_SERVICE_ERROR = 5003
     OSS_SERVICE_ERROR = 5004
+    GOOGLE_SERVICE_ERROR = 5005
 
     # 后台管理业务逻辑专属
     TABLE_NOT_FOUND = 6001
@@ -153,6 +156,22 @@ ERROR_MESSAGES = {
         "ko": "Apple 로그인 인증 실패",
         "ja": "Appleログイン認証に失敗しました",
         "fr": "Échec de la vérification de connexion Apple"
+    },
+    "identity.verify_failed.google": {
+        "zh-Hans": "Google 登录校验失败",
+        "zh-Hant": "Google 登錄校驗失敗",
+        "en": "Google sign-in verification failed",
+        "ko": "Google 로그인 인증에 실패했습니다",
+        "ja": "Google ログインの検証に失敗しました",
+        "fr": "Échec de la vérification de connexion Google"
+    },
+    "identity.account_exists.link_required": {
+        "zh-Hans": "该邮箱已关联现有账号，请先使用原登录方式登录后再绑定此账号",
+        "zh-Hant": "該郵箱已關聯現有帳號，請先使用原登入方式登入後再綁定此帳號",
+        "en": "This email is already linked to an account. Sign in with the original method, then link this account.",
+        "ko": "이 이메일은 이미 기존 계정에 연결되어 있습니다. 기존 로그인 방식으로 로그인한 뒤 이 계정을 연결하세요.",
+        "ja": "このメールアドレスは既存アカウントに紐付いています。元の方法でログインしてから、このアカウントを連携してください。",
+        "fr": "Cet e-mail est déjà associé à un compte. Connectez-vous avec la méthode d’origine, puis associez ce compte."
     },
     "identity.verify_failed.token": {
         "zh-Hans": "登录校验失败",
@@ -267,6 +286,46 @@ ERROR_MESSAGES = {
         "ko": "이메일 또는 휴대폰 번호를 먼저 연결해야 계정을 복구할 수 있습니다",
         "ja": "先にメールアドレスまたは電話番号を連携してください。連携されていない場合、アカウントを復旧できません",
         "fr": "Veuillez d'abord lier une adresse e-mail ou un numéro de téléphone, sinon le compte ne pourra pas être récupéré"
+    },
+    "identity.verify_failed.google_bind": {
+        "zh-Hans": "Google 账号绑定失败，请重试",
+        "zh-Hant": "Google 帳號綁定失敗，請重試",
+        "en": "Google account linking failed. Please try again.",
+        "ko": "Google 계정 연결에 실패했습니다. 다시 시도해 주세요.",
+        "ja": "Google アカウントの連携に失敗しました。もう一度お試しください。",
+        "fr": "Échec de l’association du compte Google. Veuillez réessayer."
+    },
+    "identity.with_google.google_bind": {
+        "zh-Hans": "请先解除已绑定的 Google 账号",
+        "zh-Hant": "請先解除已綁定的 Google 帳號",
+        "en": "Please unlink the current Google account first.",
+        "ko": "먼저 연결된 Google 계정을 해제해 주세요.",
+        "ja": "先に連携済みの Google アカウントを解除してください。",
+        "fr": "Veuillez d’abord dissocier le compte Google actuel."
+    },
+    "identity.already_certified.google_bind": {
+        "zh-Hans": "该 Google 账号已被绑定",
+        "zh-Hant": "該 Google 帳號已被綁定",
+        "en": "This Google account is already linked.",
+        "ko": "이 Google 계정은 이미 연결되어 있습니다.",
+        "ja": "この Google アカウントはすでに連携されています。",
+        "fr": "Ce compte Google est déjà associé."
+    },
+    "identity.no_google.google_unbind": {
+        "zh-Hans": "请先绑定一个 Google 账号",
+        "zh-Hant": "請先綁定一個 Google 帳號",
+        "en": "Please link a Google account first.",
+        "ko": "먼저 Google 계정을 연결해 주세요.",
+        "ja": "先に Google アカウントを連携してください。",
+        "fr": "Veuillez d’abord associer un compte Google."
+    },
+    "identity.cannot_recover.google_unbind": {
+        "zh-Hans": "请先绑定一个邮箱、手机号或 Apple 账号，否则账号无法找回",
+        "zh-Hant": "請先綁定一個郵箱、手機號或 Apple 帳號，否則帳號無法找回",
+        "en": "Link an email, phone number, or Apple account first so the account can be recovered.",
+        "ko": "계정을 복구할 수 있도록 먼저 이메일, 전화번호 또는 Apple 계정을 연결해 주세요.",
+        "ja": "アカウントを復旧できるよう、先にメールアドレス、電話番号、または Apple アカウントを連携してください。",
+        "fr": "Associez d’abord un e-mail, un numéro de téléphone ou un compte Apple afin de pouvoir récupérer le compte."
     },
 
     "identity.with_email.email_bind": {
@@ -507,6 +566,14 @@ ERROR_MESSAGES = {
         "ko": "작업 실패",
         "ja": "操作に失敗しました",
         "fr": "Échec de l'opération"
+    },
+    "record.access_denied": {
+        "zh-Hans": "该比赛结果仅对允许的用户可见",
+        "zh-Hant": "該比賽結果僅對允許的用戶可見",
+        "en": "This competition result is only visible to authorized users.",
+        "ko": "이 경기 결과는 권한이 있는 사용자만 볼 수 있습니다.",
+        "ja": "この試合結果は許可されたユーザーのみ閲覧できます。",
+        "fr": "Ce résultat de compétition est réservé aux utilisateurs autorisés."
     },
     "record.data_error.leaderboard_update": {
         "zh-Hans": "排行榜写入失败",

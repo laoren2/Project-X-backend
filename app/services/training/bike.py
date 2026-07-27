@@ -1,12 +1,13 @@
 from app.core.tools import get_user_local_date, latlon_to_grid, grid_center_to_latlon, encode_cursor, decode_cursor, extract_simplified_track
 from app.core.storage import build_resource_url
 from app.core.errors import ErrorCode
-from app.schemas.common import CCAssetRewardResponse, CCAssetType, PersonInfoResponse, SportType, CPAssetCoverInfo, PaceBaselineResponse, SplitProfileInfo
+from app.schemas.common import CCAssetRewardResponse, CCAssetType, PersonInfoResponse, SportType, CPAssetCoverInfo, PaceBaselineResponse, PaceSnapshotResponse, SplitProfileInfo
 from app.schemas.asset import AssetOperation, CPAssetResponse
 from app.schemas.training.common import (
     RegionExploreResponse, GridTileKey, GridFamiliarityRankListResponse,
     GridFamiliarityMeResponse, GridFamiliarityRankInfo, RouteSortType, TrainingType,
-    GridOccupancyResponse, TrackPoint, WeeklyTrainingSummaryResponse, WeeklyTrainingDayInfo
+    GridOccupancyResponse, RegionGridOccupancyRankInfo, RegionGridOccupancyRankListResponse,
+    RegionGridOccupancyRankMe, TrackPoint, WeeklyTrainingSummaryResponse, WeeklyTrainingDayInfo
 )
 from app.schemas.competition.common import CardBonusInfo, PathPoint
 from app.schemas.base import BizException, Language, pick_i18n_text
@@ -29,6 +30,9 @@ from app.services.training.common import (
     evaluate_route_training_checkpoint_path, extract_path_points, build_split_profile
 )
 from app.services.mappers import equip_card_to_base_info
+from app.services.competition.record_privacy import ensure_record_detail_visible
+from app.services.weather import fetch_weather_snapshot, weather_snapshot_dict, weather_snapshot_from_record
+from app.core.config import settings
 from app.db.models.user import User
 from app.db.models.training import (
     CardBonusInBikeRouteTrainingRecord, UserTrainingStateDailyBike, BikeFreeTrainingPath, BikeFreeTrainingRecord, UserTrainingStateBike,
@@ -49,6 +53,7 @@ from app.crud.training.bike import (
     ensure_bike_effect_grids_generated, get_nearby_effect_grids, get_effect_grids_within_distance
 )
 from app.crud.competition.bike import get_season_now, get_score_by_season_and_user, add_or_update_career_xp
+from app.db.models.competition import VideoWatermarkPaceSnapshot
 from app.crud.user import get_user_by_id
 from app.crud.asset_manage import reward_ccasset, get_equip_card_by_card_id, get_route_card_def, consume_cpasset
 from app.crud.competition.common import get_region_by_coordinate, get_region_by_region_id
@@ -61,6 +66,13 @@ from shapely.geometry import Point
 import json, uuid, logging, random
 
 logger = logging.getLogger(__name__)
+
+
+async def _fetch_finish_weather(path):
+    if not path:
+        return None
+    point = path[-1].base
+    return await fetch_weather_snapshot(point.lat, point.lon)
 
 
 async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinishInfo, user_id: str) -> FreeTrainingFinishResponse:
@@ -109,6 +121,7 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
 
         # buff grids 结算
         triggered_count, buff_rewards, triggered_buffs_data = await apply_buff_grids(db, user, info)
+        finish_weather = await _fetch_finish_weather(info.path)
 
         # 合并相同资产类型奖励，统一结算
         reward_map: dict[CCAssetType, int] = {}
@@ -161,6 +174,8 @@ async def finish_free_training_service(db: AsyncSession, info: FreeTrainingFinis
             local_date = get_user_local_date(user, info.end_time),
             settlement_rewards = settlements,
             triggered_buffs = triggered_buffs_data,
+            weather_condition=finish_weather.condition if finish_weather else None,
+            weather_temperature_c=finish_weather.temperature_c if finish_weather else None,
             client_upload_id = info.client_upload_id
         )
         db.add(record)
@@ -232,6 +247,7 @@ async def apply_buff_grids(
         }
 
         triggered_histories = []
+        weather_calls = 0
 
         # 按 path 顺序依次处理经过的 buff grid
         for gx, gy, path_index in passed_grids:
@@ -264,6 +280,19 @@ async def apply_buff_grids(
                 min_speed = effect.condition_params.get("avg", 0)
                 trigger_value = round(current_avg_speed, 2)
                 should_trigger = current_avg_speed >= min_speed
+            elif effect.condition_type.value == "weather":
+                # At settlement, query current weather for the first point that entered this grid.
+                # Bound third-party usage so malformed paths cannot inflate API cost.
+                weather = None
+                if weather_calls < settings.OPENWEATHER_MAX_GRID_CALLS_PER_WORKOUT:
+                    weather_calls += 1
+                    entry = info.path[path_index].base
+                    weather = await fetch_weather_snapshot(entry.lat, entry.lon)
+                trigger_value = weather.condition if weather else None
+                should_trigger = (
+                    weather is not None
+                    and weather.condition == effect.condition_params.get("match")
+                )
             # 无条件触发
             elif effect.condition_type.value == "none":
                 trigger_value = 1
@@ -282,6 +311,8 @@ async def apply_buff_grids(
                 "reward_count": effect.reward_count,
                 "trigger_value": trigger_value
             })
+            if effect.condition_type.value == "weather":
+                triggered_buffs_data[-1]["weather"] = weather_snapshot_dict(weather)
 
             reward_type = effect.reward_type
             reward_count = effect.reward_count
@@ -688,10 +719,10 @@ async def query_free_training_record_detail_service(
     viewer_id: str | None,
     record_id: str
 ) -> FreeTrainingRecordDetailResponse:
-    # viewer_id 为查询者（来自 token，可空）；预留用于未来按归属做隐私裁剪
     record = await get_free_training_record_by_record_id(db, record_id)
     if record is None:
         raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
+    await ensure_record_detail_visible(db, record.user, viewer_id)
 
     path_points = []
     if record.path and record.path.path:
@@ -707,9 +738,11 @@ async def query_free_training_record_detail_service(
     return FreeTrainingRecordDetailResponse(
         owner_user_id=record.user.user_id,
         duration=duration,
+        end_time=record.end_time,
         path=path_points,
         settlements=record.settlement_rewards,
-        triggered_buffs=record.triggered_buffs or []
+        triggered_buffs=record.triggered_buffs or [],
+        weather=weather_snapshot_from_record(record)
     )
 
 # tiles 分块查询
@@ -851,9 +884,9 @@ async def query_grids_within_distance_service(
     lon: float,
     distance: float
 ) -> BikeNearbyGridsResponse:
-    # 距离限幅，避免过大半径拖垮查询；半径换算为网格数（基础格 500m，向上取整）
+    # 距离限幅，避免过大范围查询。最终由 CRUD 按地表距离（米）筛选，
+    # 不能将 Web Mercator 网格坐标直接当作地表距离使用。
     distance = max(0.0, min(distance, 20000.0))
-    radius_grids = (int(distance) + 499) // 500
     max_count = 50
     async with db.begin():
         user = await get_user_by_id(db, user_id)
@@ -868,8 +901,9 @@ async def query_grids_within_distance_service(
         # 懒生成：保证当天该 region 的 buff grids 已生成（幂等，复用 tiles 同一套）
         await ensure_bike_effect_grids_generated(db, region, local_date)
 
-        grid_x, grid_y = latlon_to_grid(lat, lon)
-        grids = await get_effect_grids_within_distance(db, user, region, local_date, grid_x, grid_y, radius_grids, max_count)
+        grids = await get_effect_grids_within_distance(
+            db, user, region, local_date, lat, lon, distance, max_count
+        )
 
         infos = []
         for grid in grids:
@@ -891,7 +925,8 @@ async def query_grids_within_distance_service(
 # 查询用户当前赛季「已占领」的网格数（基础格中 familiarity_count 排名第一的网格数）
 async def query_occupied_grids_count(
     db: AsyncSession,
-    user_id: str
+    user_id: str,
+    region_id: str | None = None
 ) -> GridOccupancyResponse:
     user = await get_user_by_id(db, user_id)
     if user is None:
@@ -899,6 +934,31 @@ async def query_occupied_grids_count(
     season = await get_season_now(db)
     if season is None:
         raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
+
+    # `region_id` was added after this endpoint shipped. Keep the old all-season result for
+    # installed clients that do not send it; current clients always use the projection below.
+    if region_id is not None:
+        region = await get_region_by_region_id(db, region_id)
+        if region is None:
+            raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
+        result = await db.execute(text("""
+            SELECT me.occupied_count, COUNT(a.id) + 1 AS rank
+            FROM bike_region_grid_occupancies me
+            LEFT JOIN bike_region_grid_occupancies a
+              ON a.season_id = me.season_id AND a.region_id = me.region_id
+             AND (
+                 a.occupied_count > me.occupied_count
+                 OR (a.occupied_count = me.occupied_count AND a.updated_at < me.updated_at)
+                 OR (a.occupied_count = me.occupied_count AND a.updated_at = me.updated_at AND a.user_id < me.user_id)
+             )
+            WHERE me.season_id = :season_id AND me.region_id = :region_id AND me.user_id = :user_id
+            GROUP BY me.occupied_count, me.updated_at, me.user_id
+        """), {"season_id": season.id, "region_id": region.id, "user_id": user.id})
+        row = result.first()
+        return GridOccupancyResponse(
+            occupied_count=int(row.occupied_count) if row else 0,
+            rank=int(row.rank) if row else None,
+        )
 
     # 单条 SQL：统计当前用户在本赛季基础熟悉度表中、没有任何其他用户超越的网格数。
     # 超越判定与 query_me_familiarity_by_grid 排名口径一致：次数更高，或次数相同但更新更早。
@@ -929,6 +989,96 @@ async def query_occupied_grids_count(
     })
     occupied_count = result.scalar_one()
     return GridOccupancyResponse(occupied_count=occupied_count)
+
+
+async def query_region_occupied_grids_ranklist(
+    db: AsyncSession,
+    user_id: str,
+    region_id: str,
+    limit: int,
+    cursor: str | None,
+) -> RegionGridOccupancyRankListResponse:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    season = await get_season_now(db)
+    if season is None:
+        raise BizException(code=ErrorCode.SEASON_ERROR, message="season.not_found")
+    region = await get_region_by_region_id(db, region_id)
+    if region is None:
+        raise BizException(code=ErrorCode.REGION_ERROR, message="region.not_found")
+
+    try:
+        cursor_data = decode_cursor(cursor) if cursor else None
+        if cursor_data:
+            cursor_data["updated_at"] = datetime.fromisoformat(cursor_data["updated_at"])
+    except Exception:
+        raise BizException(code=ErrorCode.JSON_DECODE_ERROR, message="cursor解析错误")
+
+    me_result = await db.execute(text("""
+        SELECT me.occupied_count, COUNT(a.id) + 1 AS rank
+        FROM bike_region_grid_occupancies me
+        LEFT JOIN bike_region_grid_occupancies a
+          ON a.season_id = me.season_id AND a.region_id = me.region_id
+         AND (
+             a.occupied_count > me.occupied_count
+             OR (a.occupied_count = me.occupied_count AND a.updated_at < me.updated_at)
+             OR (a.occupied_count = me.occupied_count AND a.updated_at = me.updated_at AND a.user_id < me.user_id)
+         )
+        WHERE me.season_id = :season_id AND me.region_id = :region_id AND me.user_id = :user_id
+        GROUP BY me.occupied_count, me.updated_at, me.user_id
+    """), {"season_id": season.id, "region_id": region.id, "user_id": user.id})
+    me_row = me_result.first()
+    me = RegionGridOccupancyRankMe(
+        occupied_count=int(me_row.occupied_count) if me_row else 0,
+        rank=int(me_row.rank) if me_row else None,
+    )
+
+    params = {"season_id": season.id, "region_id": region.id, "limit": limit + 1}
+    cursor_clause = ""
+    if cursor_data:
+        params.update({
+            "cursor_count": cursor_data["occupied_count"],
+            "cursor_updated_at": cursor_data["updated_at"],
+            "cursor_user_id": cursor_data["user_id"],
+        })
+        cursor_clause = """
+            AND (r.occupied_count < :cursor_count
+                 OR (r.occupied_count = :cursor_count AND r.updated_at > :cursor_updated_at)
+                 OR (r.occupied_count = :cursor_count AND r.updated_at = :cursor_updated_at
+                     AND r.user_id > CAST(:cursor_user_id AS uuid)))
+        """
+    result = await db.execute(text(f"""
+        -- `r.user_id` is the internal UUID used by the projection/cursor; only expose
+        -- `u.user_id`, the public business identifier, to the client.
+        SELECT r.user_id AS internal_user_id, u.user_id AS public_user_id,
+               r.occupied_count, r.updated_at, u.avatar_image_url, u.nickname
+        FROM bike_region_grid_occupancies r
+        JOIN users u ON u.id = r.user_id
+        WHERE r.season_id = :season_id AND r.region_id = :region_id {cursor_clause}
+        ORDER BY r.occupied_count DESC, r.updated_at ASC, r.user_id ASC
+        LIMIT :limit
+    """), params)
+    rows = result.fetchall()
+    page_rows = rows[:limit]
+    start_rank = int(cursor_data["rank"]) + 1 if cursor_data else 1
+    entries = [
+        RegionGridOccupancyRankInfo(
+            user=PersonInfoResponse(
+                user_id=row.public_user_id, avatar_image_url=build_resource_url(row.avatar_image_url), nickname=row.nickname
+            ),
+            occupied_count=int(row.occupied_count), rank=start_rank + index,
+        )
+        for index, row in enumerate(page_rows)
+    ]
+    next_cursor = None
+    if len(rows) > limit and page_rows:
+        last = page_rows[-1]
+        next_cursor = encode_cursor({
+            "occupied_count": int(last.occupied_count), "updated_at": last.updated_at.isoformat(),
+            "user_id": str(last.internal_user_id), "rank": entries[-1].rank,
+        })
+    return RegionGridOccupancyRankListResponse(entries=entries, next_cursor=next_cursor, me=me)
 
 # 查询某网格我的访问次数和名次
 async def query_me_familiarity_by_grid(
@@ -1412,6 +1562,7 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
         original_time = route_duration
         final_time = original_time
         bonus_time = 0
+        finish_weather = await _fetch_finish_weather(finish_info.path)
 
         record = BikeRouteTrainingRecord(
             record_id=f"route_training_record_{uuid.uuid4()}",
@@ -1425,6 +1576,8 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
             penalty_seconds=total_penalty,
             local_date=get_user_local_date(user, finish_info.end_time),
             settlement_rewards=settlements,
+            weather_condition=finish_weather.condition if finish_weather else None,
+            weather_temperature_c=finish_weather.temperature_c if finish_weather else None,
             client_upload_id=finish_info.client_upload_id
         )
         db.add(record)
@@ -1446,6 +1599,17 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
             final_time -= bonus_time
 
         record.duration_seconds = final_time + total_penalty
+
+        # 本次成绩写入路线榜单之前冻结实时配速基线，供视频水印稳定回放。
+        snapshot = VideoWatermarkPaceSnapshot(snapshot={
+            "version": 1,
+            "finish_times": await get_route_finish_times(db, route.id),
+            "pb_profile": await get_route_pb_profile(db, route.id, user.id),
+            "route_data": route.route_data,
+        })
+        db.add(snapshot)
+        await db.flush()
+        record.pace_snapshot_id = snapshot.id
 
         # 更新路线排行榜
         final_score = final_time + total_penalty
@@ -1547,10 +1711,10 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
 
 
 async def query_route_training_record_detail_service(db: AsyncSession, lang: Language, record_id: str, viewer_id: str | None) -> RouteTrainingRecordDetailResponse:
-    # viewer_id 为查询者（来自 token，可空）；预留用于未来按归属做隐私裁剪
     record = await get_route_training_record_by_record_id(db, record_id)
     if record is None:
         raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
+    await ensure_record_detail_visible(db, record.user, viewer_id)
     
     path_points = []
     if record.path and record.path.path:
@@ -1584,10 +1748,25 @@ async def query_route_training_record_detail_service(db: AsyncSession, lang: Lan
         original_time=duration,
         final_time=final_time,
         penalty_time=record.penalty_seconds,
+        end_time=record.end_time,
         path=path_points,
         card_bonus=card_bonus_list,
-        settlements=record.settlement_rewards
+        settlements=record.settlement_rewards,
+        weather=weather_snapshot_from_record(record)
     )
+
+
+async def get_route_training_pace_snapshot_service(db: AsyncSession, record_id: str, user_id: str) -> PaceSnapshotResponse | None:
+    """仅记录所有者可读取冻结后的路线训练水印配速快照。"""
+    record = await get_route_training_record_by_record_id(db, record_id)
+    if record is None:
+        raise BizException(code=ErrorCode.RECORD_ERROR, message="record.not_found")
+    if record.user is None or record.user.user_id != user_id:
+        raise BizException(code=ErrorCode.NO_PERMISSION, message="record.access_denied")
+    if record.pace_snapshot_id is None:
+        return None
+    snapshot = await db.get(VideoWatermarkPaceSnapshot, record.pace_snapshot_id)
+    return PaceSnapshotResponse.model_validate(snapshot.snapshot) if snapshot else None
 
 async def query_route_ranklist_service(
     db: AsyncSession,

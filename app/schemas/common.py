@@ -15,6 +15,15 @@ class PaceBaselineResponse(BaseModel):
     pb_profile: SplitProfileInfo | None = None   # 调用者个人最佳的 split profile（无则 null）
 
 
+# 视频水印使用的完赛时快照。它固定“本次成绩写入排行榜之前”的 PB 与榜单，
+# 之后重复生成视频时不再读取会变化的实时数据。
+class PaceSnapshotResponse(BaseModel):
+    version: int
+    finish_times: List[float]
+    pb_profile: SplitProfileInfo | None = None
+    route_data: dict
+
+
 class CCAssetType(str, Enum):
     COIN = "coin"        # 金币
     COUPON = "coupon"    # 点券

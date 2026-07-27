@@ -23,3 +23,4 @@ app-store-server-library==1.9.0
 httpx
 geoalchemy2
 shapely
+google-auth

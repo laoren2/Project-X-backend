@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, File, UploadFile, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.schemas.base import BaseResponse
-from app.schemas.common import PaceBaselineResponse
+from app.schemas.common import PaceBaselineResponse, PaceSnapshotResponse
 from app.schemas.competition.common import TeamRelationship, MatchFinishResponse, DailyTaskResponse
 from app.schemas.competition.running import (
     RunningEventListResponse, RunningTrackListResponse,
@@ -38,7 +38,7 @@ from app.services.competition.running import (
     get_completed_records_all, get_incompleted_records_all, query_daily_task_status_service,
     claimed_daily_task_reward_service, start_competition_with_team_bonus_card_service,
     query_event_detail_service, query_record_familiarity_service, query_track_familiarity_service,
-    query_tracks_user_info_service, get_track_pace_baseline_service
+    query_tracks_user_info_service, get_track_pace_baseline_service, get_record_pace_snapshot_service
 )
 from app.api.deps import get_current_user, get_current_user_optional, get_language, Language
 from typing import Optional
@@ -490,6 +490,16 @@ async def query_record_detail(
     viewer_id = auth.payload["user_id"] if auth else None
     detail = await get_record_detail_service(db, lang, record_id, viewer_id)
     return BaseResponse.success(token=auth.new_token if auth else None, data=detail)
+
+
+@router.get("/video_watermark_pace_snapshot", response_model=BaseResponse[PaceSnapshotResponse | None], summary="查询比赛视频水印配速快照")
+async def video_watermark_pace_snapshot(
+    record_id: str = Query(...),
+    auth: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    snapshot = await get_record_pace_snapshot_service(db, record_id, auth.payload["user_id"])
+    return BaseResponse.success(token=auth.new_token, data=snapshot)
 
 @router.get("/query_user_current_best_records",response_model=BaseResponse[RunningSummaryRecordResponse],summary="查询任意用户当前赛季最佳记录")
 async def query_user_current_best_records(

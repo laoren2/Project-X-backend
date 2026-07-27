@@ -46,7 +46,8 @@ async def create_banner_ad_service(
     url_hant: str,
     url_en: str,
     url_ko: str,
-    url_ja: str
+    url_ja: str,
+    url_fr: str
 ):
     new_ad = BannerAds(
         ad_id=f"ad_{str(uuid.uuid4())[:8]}",
@@ -55,7 +56,8 @@ async def create_banner_ad_service(
             "zh-Hans": url_hans,
             "zh-Hant": url_hant,
             "ko": url_ko,
-            "ja": url_ja
+            "ja": url_ja,
+            "fr": url_fr
         },
         web_url=form.web_url,
         is_displayed=form.is_displayed

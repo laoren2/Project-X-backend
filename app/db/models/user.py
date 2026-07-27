@@ -1,7 +1,7 @@
 from sqlalchemy import Column, String, Boolean, DateTime, Date, func, UniqueConstraint, Integer, Enum, Index, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.schemas.common import SportType, CCAssetType
-from app.schemas.user import UserRole, Gender, UserStatus, SubscriptionEventType, SubscriptionPeriod, RealNameMethod
+from app.schemas.user import UserRole, Gender, UserStatus, SubscriptionEventType, SubscriptionPeriod, RealNameMethod, RecordVisibility
 from app.db.base import Base
 from sqlalchemy.orm import relationship
 import uuid
@@ -22,6 +22,8 @@ class User(Base):
     phone_number = Column(String, nullable=True)
     apple_id = Column(String, nullable=True)
     apple_email = Column(String, nullable=True)
+    google_sub = Column(String, nullable=True)
+    google_email = Column(String, nullable=True)
     email = Column(String, nullable=True)
     apple_iap_token = Column(UUID(as_uuid=True), unique=True, default=uuid.uuid4, nullable=False)    # 用来和 app store 交易关联
     avatar_image_url = Column(String, nullable=False)
@@ -39,7 +41,7 @@ class User(Base):
     __table_args__ = (
         # 否则账号无法找回
         CheckConstraint(
-            "phone_number IS NOT NULL OR apple_id IS NOT NULL OR email IS NOT NULL",
+            "phone_number IS NOT NULL OR apple_id IS NOT NULL OR google_sub IS NOT NULL OR email IS NOT NULL",
             name="ck_user_phone_or_apple_id_or_email_not_null"
         ),
         # 部分唯一索引：仅对 status='normal' 或 'banned' 的数据生效
@@ -58,6 +60,12 @@ class User(Base):
         Index(
             "uq_users_apple_id_status",
             "apple_id",
+            unique=True,
+            postgresql_where=(status.in_([UserStatus.normal, UserStatus.banned]))
+        ),
+        Index(
+            "uq_users_google_sub_status",
+            "google_sub",
             unique=True,
             postgresql_where=(status.in_([UserStatus.normal, UserStatus.banned]))
         ),
@@ -81,6 +89,12 @@ class UserSetting(Base):
     default_sport = Column(Enum(SportType), default=SportType.bike, nullable=False)     # 外部主页默认展示运动（他人查看时）
     global_default_sport = Column(Enum(SportType), default=SportType.bike, nullable=False)  # 全局默认运动：每次启动 app 时商店/运动中心/仓库/local profile 的初始展示运动（各场景仍可单独切换）
     auto_pause = Column(Boolean, default=True, nullable=False)     # free training 自动暂停开关（running+bike 共用）
+    record_visibility = Column(
+        Enum(RecordVisibility, name="recordvisibility"),
+        default=RecordVisibility.public,
+        server_default=RecordVisibility.public.value,
+        nullable=False,
+    )
 
     user = relationship("User", primaryjoin="foreign(UserSetting.user_id) == User.id", uselist=False, back_populates="settings")
 
@@ -211,6 +225,7 @@ class SubscriptionEvent(Base):
     event_type = Column(Enum(SubscriptionEventType), nullable=False)
     payload = Column(JSONB, nullable=True)      # Apple回执
     note = Column(String, nullable=True)        # 备注
+    notification_uuid = Column(String, unique=True, nullable=True)  # App Store Server Notification V2 幂等键
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     subscription = relationship("UserSubscription", uselist=False, primaryjoin="foreign(SubscriptionEvent.subscription_id)==UserSubscription.id", back_populates="events")

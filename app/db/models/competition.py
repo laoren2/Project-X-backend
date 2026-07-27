@@ -204,10 +204,13 @@ class BikeRaceRecord(Base):
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=True)               # 此次记录的结算奖励
     familiarity_time = Column(Float, nullable=True)                 # 赛道熟悉度成绩增益
     training_state_time = Column(Float, nullable=True)              # 训练状态成绩增益
+    weather_condition = Column(String, nullable=True)
+    weather_temperature_c = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
     split_profile = Column(JSONB, nullable=True)            # 个人最佳记录的 split profile（实时自我对比 / 预测名次基线）
+    pace_snapshot_id = Column(UUID(as_uuid=True), nullable=True)  # 视频水印配速快照（独立表）
 
     __table_args__ = (
         Index(
@@ -272,10 +275,13 @@ class RunningRaceRecord(Base):
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=True)
     familiarity_time = Column(Float, nullable=True)
     training_state_time = Column(Float, nullable=True)
+    weather_condition = Column(String, nullable=True)
+    weather_temperature_c = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
     split_profile = Column(JSONB, nullable=True)            # 个人最佳记录的 split profile（实时自我对比 / 预测名次基线）
+    pace_snapshot_id = Column(UUID(as_uuid=True), nullable=True)  # 视频水印配速快照（独立表）
 
     __table_args__ = (
         Index(
@@ -292,6 +298,14 @@ class RunningRaceRecord(Base):
     team = relationship("RunningTeam", primaryjoin="foreign(RunningRaceRecord.team_id)==RunningTeam.id")
     path = relationship("RunningRacePath", primaryjoin="foreign(RunningRaceRecord.path_id)==RunningRacePath.id")
     card_bonus = relationship("CardBonusInRunningRecord", primaryjoin="RunningRaceRecord.id==foreign(CardBonusInRunningRecord.record_id)", uselist=True)
+
+
+class VideoWatermarkPaceSnapshot(Base):
+    """跨运动模式共用；record 通过 pace_snapshot_id 直接关联，无需额外类型字段。"""
+    __tablename__ = "video_watermark_pace_snapshots"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    snapshot = Column(JSONB, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 '''class RunningRaceRecordHistory(Base):

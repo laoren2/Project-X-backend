@@ -156,3 +156,14 @@ async def verify_and_decode_transaction_service(
             return payload
         except VerificationException:
             return None
+
+
+def verify_and_decode_notification_service(signed_payload: str):
+    """验证 App Store Server Notifications V2；生产和 Sandbox 均使用同一入口。"""
+    try:
+        return prod_verifier.verify_and_decode_notification(signed_payload), prod_verifier
+    except VerificationException:
+        try:
+            return sandbox_verifier.verify_and_decode_notification(signed_payload), sandbox_verifier
+        except VerificationException:
+            return None, None

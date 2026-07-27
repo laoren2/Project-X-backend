@@ -35,11 +35,19 @@ class Settings(BaseSettings):
     ALIYUN_EMAIL_ENDPOINT: str
     APPLE_KEYS_URL: str
     APPLE_IAP_ISSUER_ID: str
+    # Google ID Token 的预期 audience（Google Cloud 中创建的 Web OAuth client ID）。
+    # 留空时服务保持可启动，但 Google 登录接口会拒绝请求。
+    GOOGLE_OAUTH_SERVER_CLIENT_ID: str
+    
     NOREPLY_EMAIL_ADDRESS: str
     NOREPLY_EMAIL_PASSWORD: str
     LOG_LEVEL: str
     LOG_FILE: str
     REALNAME_SECRET_SALT: str
+    # OpenWeather Current Weather API。未配置时天气功能自动降级，不影响运动结算。
+    OPENWEATHER_API_KEY: str
+    OPENWEATHER_TIMEOUT_SECONDS: float = 4.0
+    OPENWEATHER_MAX_GRID_CALLS_PER_WORKOUT: int = 12
 
     class Config:
         env_file = ".env"  # 默认从项目根目录的 .env 文件中读取

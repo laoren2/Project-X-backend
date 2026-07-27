@@ -333,12 +333,88 @@ async def add_or_update_daily_training_states(
     await db.execute(stmt)
 
 
+async def _lock_running_occupancy_grids(
+    db: AsyncSession, season_id: uuid.UUID, grid_region_pairs: list[tuple[int, int, uuid.UUID]]
+) -> None:
+    """Serialize winner recalculation for every base grid touched by one upload."""
+    grids_json = [{"grid_x": gx, "grid_y": gy} for gx, gy, _ in grid_region_pairs]
+    await db.execute(text("""
+        SELECT pg_advisory_xact_lock(hashtext(
+            'running-grid-occupancy:' || :season_id || ':' || g.grid_x || ':' || g.grid_y
+        ))
+        FROM (
+            SELECT DISTINCT grid_x, grid_y
+            FROM jsonb_to_recordset(:grids_json) AS i(grid_x int, grid_y int)
+            ORDER BY grid_x, grid_y
+        ) AS g
+    """), {"season_id": str(season_id), "grids_json": json.dumps(grids_json)})
+
+
+async def _refresh_running_occupancy_projection(
+    db: AsyncSession, season_id: uuid.UUID, grid_region_pairs: list[tuple[int, int, uuid.UUID]]
+) -> None:
+    """Apply changed grid winners to the per-user, per-region occupancy projection."""
+    grids_json = [{"grid_x": gx, "grid_y": gy} for gx, gy, _ in grid_region_pairs]
+    await db.execute(text("""
+        WITH input_grids AS (
+            SELECT DISTINCT grid_x, grid_y
+            FROM jsonb_to_recordset(:grids_json) AS i(grid_x int, grid_y int)
+        ), old_owners AS (
+            SELECT o.season_id, o.region_id, o.grid_x, o.grid_y, o.user_id
+            FROM running_grid_occupancy_owners o JOIN input_grids i
+              ON i.grid_x = o.grid_x AND i.grid_y = o.grid_y
+            WHERE o.season_id = :season_id
+        ), new_owners AS (
+            SELECT DISTINCT ON (f.grid_x, f.grid_y)
+                   f.season_id, f.region_id, f.grid_x, f.grid_y, f.user_id
+            FROM user_grid_familiarity_running f JOIN input_grids i
+              ON i.grid_x = f.grid_x AND i.grid_y = f.grid_y
+            WHERE f.season_id = :season_id
+            ORDER BY f.grid_x, f.grid_y, f.familiarity_count DESC, f.updated_at ASC, f.user_id ASC
+        ), changes AS (
+            SELECT n.*, o.region_id AS old_region_id, o.user_id AS old_user_id
+            FROM new_owners n LEFT JOIN old_owners o ON o.season_id = n.season_id
+              AND o.grid_x = n.grid_x AND o.grid_y = n.grid_y
+            WHERE o.user_id IS DISTINCT FROM n.user_id OR o.region_id IS DISTINCT FROM n.region_id
+        ), write_owners AS (
+            INSERT INTO running_grid_occupancy_owners
+                (id, season_id, region_id, grid_x, grid_y, user_id, created_at, updated_at)
+            SELECT gen_random_uuid(), season_id, region_id, grid_x, grid_y, user_id, NOW(), NOW()
+            FROM new_owners
+            ON CONFLICT (season_id, grid_x, grid_y) DO UPDATE
+            SET region_id = EXCLUDED.region_id, user_id = EXCLUDED.user_id, updated_at = NOW()
+            WHERE running_grid_occupancy_owners.user_id IS DISTINCT FROM EXCLUDED.user_id
+               OR running_grid_occupancy_owners.region_id IS DISTINCT FROM EXCLUDED.region_id
+        ), deltas AS (
+            SELECT CAST(:season_id AS uuid) AS season_id, old_region_id AS region_id, old_user_id AS user_id, -1 AS delta
+            FROM changes WHERE old_user_id IS NOT NULL
+            UNION ALL
+            SELECT season_id, region_id, user_id, 1 FROM changes
+        ), grouped_deltas AS (
+            SELECT season_id, region_id, user_id, SUM(delta) AS delta
+            FROM deltas GROUP BY season_id, region_id, user_id
+        ), write_occupancies AS (
+            INSERT INTO running_region_grid_occupancies
+                (id, season_id, region_id, user_id, occupied_count, created_at, updated_at)
+            SELECT gen_random_uuid(), season_id, region_id, user_id, delta, NOW(), NOW()
+            FROM grouped_deltas
+            ON CONFLICT (season_id, region_id, user_id) DO UPDATE
+            SET occupied_count = running_region_grid_occupancies.occupied_count + EXCLUDED.occupied_count,
+                updated_at = NOW()
+        )
+        DELETE FROM running_region_grid_occupancies
+        WHERE season_id = :season_id AND occupied_count <= 0
+    """), {"season_id": str(season_id), "grids_json": json.dumps(grids_json)})
+
+
 async def update_user_familiarity_by_grids(
     db: AsyncSession,
     season_id: uuid.UUID,
     user_id: uuid.UUID,
     grid_region_pairs: list[tuple[int, int, uuid.UUID]]
 ) -> int:
+    # Acquire locks before changing familiarity so a competing upload cannot calculate a stale winner.
+    await _lock_running_occupancy_grids(db, season_id, grid_region_pairs)
     sql = text(
         """
         WITH input_grids AS (
@@ -459,6 +535,7 @@ async def update_user_familiarity_by_grids(
         },
     )
     row = result.first()
+    await _refresh_running_occupancy_projection(db, season_id, grid_region_pairs)
     return int(row.new_grid_count) if row and row.new_grid_count is not None else 0
 
 
@@ -485,7 +562,7 @@ async def get_free_training_record_by_record_id(db: AsyncSession, record_id: str
         .where(RunningFreeTrainingRecord.record_id == record_id)
         .options(
             selectinload(RunningFreeTrainingRecord.path),
-            selectinload(RunningFreeTrainingRecord.user)
+            selectinload(RunningFreeTrainingRecord.user).selectinload(User.settings)
         )
     )
     return record.scalar_one_or_none()
@@ -495,7 +572,7 @@ async def get_route_training_record_by_record_id(db: AsyncSession, record_id: st
         select(RunningRouteTrainingRecord)
         .where(RunningRouteTrainingRecord.record_id == record_id)
         .options(
-            selectinload(RunningRouteTrainingRecord.user),
+            selectinload(RunningRouteTrainingRecord.user).selectinload(User.settings),
             selectinload(RunningRouteTrainingRecord.path),
             selectinload(RunningRouteTrainingRecord.card_bonus)
                 .selectinload(CardBonusInRunningRouteTrainingRecord.card)
@@ -571,6 +648,13 @@ async def ensure_running_effect_grids_generated(
             {"avg": 10},
             {"avg": 12},
         ],
+        RunningGridConditionType.weather: [
+            {"match": "clear"},
+            {"match": "cloudy"},
+            {"match": "rain"},
+            {"match": "snow"},
+            {"match": "fog"},
+        ],
         RunningGridConditionType.none: [
             {}
         ]
@@ -626,6 +710,7 @@ async def ensure_running_effect_grids_generated(
         condition_type = random.choice([
             RunningGridConditionType.distance,
             RunningGridConditionType.speed,
+            RunningGridConditionType.weather,
             RunningGridConditionType.none
         ])
 
@@ -670,6 +755,23 @@ async def ensure_running_effect_grids_generated(
                 "zh-Hant": f"經過時，平均配速快於{pace_text}時可獲得{{{{reward}}}}獎勵",
                 "ko": f"통과 시 평균 페이스가 {pace_text}보다 빠르면 {{{{reward}}}} 보상을 획득할 수 있습니다",
                 "ja": f"通過時に平均ペースが{pace_text}より速いと{{{{reward}}}}報酬を獲得できます"
+            }
+        elif condition_type == RunningGridConditionType.weather:
+            condition_labels = {
+                "clear": {"en": "clear", "zh-Hans": "晴天", "zh-Hant": "晴天", "fr": "ciel dégagé", "ja": "晴れ", "ko": "맑음"},
+                "cloudy": {"en": "cloudy", "zh-Hans": "多云", "zh-Hant": "多雲", "fr": "nuageux", "ja": "曇り", "ko": "흐림"},
+                "rain": {"en": "rainy", "zh-Hans": "下雨", "zh-Hant": "下雨", "fr": "pluvieux", "ja": "雨", "ko": "비"},
+                "snow": {"en": "snowy", "zh-Hans": "下雪", "zh-Hant": "下雪", "fr": "neigeux", "ja": "雪", "ko": "눈"},
+                "fog": {"en": "foggy", "zh-Hans": "有雾", "zh-Hant": "有霧", "fr": "brumeux", "ja": "霧", "ko": "안개"},
+            }
+            labels = condition_labels[condition_params["match"]]
+            description_i18n = {
+                "en": f"Receive {{{{reward}}}} reward when passing through in {labels['en']} {{{{weather}}}} weather",
+                "zh-Hans": f"经过时天气为{labels['zh-Hans']}{{{{weather}}}}可获得{{{{reward}}}}奖励",
+                "zh-Hant": f"經過時天氣為{labels['zh-Hant']}{{{{weather}}}}可獲得{{{{reward}}}}獎勵",
+                "fr": f"Recevez {{{{reward}}}} en passant par temps {labels['fr']} {{{{weather}}}}",
+                "ja": f"通過時に天気が{labels['ja']}{{{{weather}}}}なら{{{{reward}}}}報酬を獲得できます",
+                "ko": f"통과 시 날씨가 {labels['ko']}{{{{weather}}}}이면 {{{{reward}}}} 보상을 획득할 수 있습니다",
             }
         elif condition_type == RunningGridConditionType.none:
             description_i18n = {
@@ -834,21 +936,29 @@ async def get_nearby_effect_grids(
     return result.scalars().all()
 
 
-# 查询用户附近指定半径（网格数）内、当天还能领取的 buff 网格（自由训练页附近网格列表）
+# 查询用户附近指定地表距离（米）内、当天还能领取的 buff 网格（自由训练页附近网格列表）
 async def get_effect_grids_within_distance(
     db: AsyncSession,
     user: User,
     region: Region,
     active_date: date,
-    grid_x: int,
-    grid_y: int,
-    radius_grids: int,
+    lat: float,
+    lon: float,
+    distance: float,
     max_count: int
 ) -> List[RunningEffectGrid]:
-    dist = (
-        (RunningEffectGrid.grid_x - grid_x) * (RunningEffectGrid.grid_x - grid_x)
-        + (RunningEffectGrid.grid_y - grid_y) * (RunningEffectGrid.grid_y - grid_y)
+    # 奖励格以 EPSG:3857 网格索引存储，但 3857 的单位会随纬度失真；
+    # 这里将格中心转为 geography 后计算真实地表距离，和客户端 Haversine 展示口径一致。
+    grid_center = ST_SetSRID(
+        ST_MakePoint(
+            RunningEffectGrid.grid_x * 500 + 250,
+            RunningEffectGrid.grid_y * 500 + 250,
+        ),
+        3857,
     )
+    grid_center_geography = ST_Transform(grid_center, 4326).cast(Geography)
+    user_point_geography = ST_SetSRID(ST_MakePoint(lon, lat), 4326).cast(Geography)
+    distance_meters = ST_Distance(grid_center_geography, user_point_geography)
     stmt = (
         select(RunningEffectGrid)
         .outerjoin(
@@ -865,14 +975,9 @@ async def get_effect_grids_within_distance(
             RunningEffectGrid.active_date == active_date,
             RunningEffectGrid.effect_type == GridEffectType.buff,
             RunningEffectGridHistory.id.is_(None),
-            # bbox 先收敛（走 grid_x/grid_y 范围），再用平方距离做圆形过滤
-            RunningEffectGrid.grid_x >= grid_x - radius_grids,
-            RunningEffectGrid.grid_x <= grid_x + radius_grids,
-            RunningEffectGrid.grid_y >= grid_y - radius_grids,
-            RunningEffectGrid.grid_y <= grid_y + radius_grids,
-            dist <= radius_grids * radius_grids,
+            distance_meters <= distance,
         )
-        .order_by(dist.asc())
+        .order_by(distance_meters.asc())
         .limit(max_count)
     )
     result = await db.execute(stmt)
@@ -1098,6 +1203,7 @@ async def get_grids_info_by_tiles(
                 grid_y=row.grid_y,
                 effect_type=preview["effect_type"],
                 condition_type=preview["condition_type"],
+                condition_params=preview.get("condition_params", {}),
                 reward_type=preview["reward_type"]
             )
             break

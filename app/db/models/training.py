@@ -175,6 +175,43 @@ class UserGridFamiliarityBike(Base):
     )
 
 
+# 当前赛季基础网格的占领者。训练写入时按网格加事务锁后重算，作为区域排行榜的准确投影源。
+class BikeGridOccupancyOwner(Base):
+    __tablename__ = "bike_grid_occupancy_owners"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    season_id = Column(UUID(as_uuid=True), nullable=False)
+    region_id = Column(UUID(as_uuid=True), nullable=False)
+    grid_x = Column(Integer, nullable=False)
+    grid_y = Column(Integer, nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("season_id", "grid_x", "grid_y", name="uq_bike_grid_occupancy_owner_season_grid"),
+        Index("ix_bike_grid_occupancy_owner_season_region", "season_id", "region_id"),
+    )
+
+
+# 当前赛季用户在一个 region 内占领的基础网格数，供个人数值和排行榜直接读取。
+class BikeRegionGridOccupancy(Base):
+    __tablename__ = "bike_region_grid_occupancies"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    season_id = Column(UUID(as_uuid=True), nullable=False)
+    region_id = Column(UUID(as_uuid=True), nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    occupied_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("season_id", "region_id", "user_id", name="uq_bike_region_grid_occupancy_season_region_user"),
+        Index("ix_bike_region_grid_occupancy_rank", "season_id", "region_id", occupied_count.desc(), "updated_at", "user_id"),
+    )
+
+
 # 聚合用户网格熟悉度表
 class UserGridFamiliarityBikeAgg(Base):
     __tablename__ = "user_grid_familiarity_bike_agg"
@@ -220,6 +257,41 @@ class UserGridFamiliarityRunning(Base):
     )
 
 
+class RunningGridOccupancyOwner(Base):
+    __tablename__ = "running_grid_occupancy_owners"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    season_id = Column(UUID(as_uuid=True), nullable=False)
+    region_id = Column(UUID(as_uuid=True), nullable=False)
+    grid_x = Column(Integer, nullable=False)
+    grid_y = Column(Integer, nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("season_id", "grid_x", "grid_y", name="uq_running_grid_occupancy_owner_season_grid"),
+        Index("ix_running_grid_occupancy_owner_season_region", "season_id", "region_id"),
+    )
+
+
+class RunningRegionGridOccupancy(Base):
+    __tablename__ = "running_region_grid_occupancies"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    season_id = Column(UUID(as_uuid=True), nullable=False)
+    region_id = Column(UUID(as_uuid=True), nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    occupied_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("season_id", "region_id", "user_id", name="uq_running_region_grid_occupancy_season_region_user"),
+        Index("ix_running_region_grid_occupancy_rank", "season_id", "region_id", occupied_count.desc(), "updated_at", "user_id"),
+    )
+
+
 class UserGridFamiliarityRunningAgg(Base):
     __tablename__ = "user_grid_familiarity_running_agg"
 
@@ -259,6 +331,8 @@ class BikeFreeTrainingRecord(Base):
     local_date = Column(Date, nullable=False)
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)      # 此次训练的结算，可能包含 xp/state_value/familiarity...
     triggered_buffs = Column(JSONB, nullable=False, server_default="[]")            # 训练触发的 buff grids 快照
+    weather_condition = Column(String, nullable=True)
+    weather_temperature_c = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
@@ -307,6 +381,8 @@ class RunningFreeTrainingRecord(Base):
     local_date = Column(Date, nullable=False)
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)
     triggered_buffs = Column(JSONB, nullable=False, server_default="[]")            # 训练触发的 buff grids 快照
+    weather_condition = Column(String, nullable=True)
+    weather_temperature_c = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
@@ -485,9 +561,12 @@ class BikeRouteTrainingRecord(Base):
     penalty_seconds = Column(Float, default=0, nullable=False)
     local_date = Column(Date, index=True, nullable=False)
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)       # 此次训练的结算，可能包含 xp/state_value/familiarity...
+    weather_condition = Column(String, nullable=True)
+    weather_temperature_c = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
+    pace_snapshot_id = Column(UUID(as_uuid=True), nullable=True)  # 视频水印配速快照（独立表）
 
     # ORM 关系
     user = relationship("User", primaryjoin="foreign(BikeRouteTrainingRecord.user_id)==User.id", uselist=False)
@@ -508,6 +587,7 @@ class BikeRouteTrainingRecord(Base):
             unique=True
         ),
     )
+
 
 class BikeRouteRanklist(Base):
     __tablename__ = "bike_route_ranklists"
@@ -579,9 +659,12 @@ class RunningRouteTrainingRecord(Base):
     penalty_seconds = Column(Float, default=0, nullable=False)
     local_date = Column(Date, index=True, nullable=False)
     settlement_rewards = Column(MutableDict.as_mutable(JSONB), nullable=False)       # 此次训练的结算，可能包含 xp/state_value/familiarity...
+    weather_condition = Column(String, nullable=True)
+    weather_temperature_c = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_upload_id = Column(String, nullable=True)        # 客户端幂等键，防止重传重复结算
+    pace_snapshot_id = Column(UUID(as_uuid=True), nullable=True)  # 视频水印配速快照（独立表）
 
     # ORM 关系
     user = relationship("User", primaryjoin="foreign(RunningRouteTrainingRecord.user_id)==User.id", uselist=False)
@@ -602,6 +685,7 @@ class RunningRouteTrainingRecord(Base):
             unique=True
         ),
     )
+
 
 class RunningRouteRanklist(Base):
     __tablename__ = "running_route_ranklists"
