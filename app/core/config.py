@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     
     NOREPLY_EMAIL_ADDRESS: str
     NOREPLY_EMAIL_PASSWORD: str
+    PUBLIC_APP_DOMAIN: str = "https://app.valbara.top"
     LOG_LEVEL: str
     LOG_FILE: str
     REALNAME_SECRET_SALT: str

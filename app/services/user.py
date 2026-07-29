@@ -40,6 +40,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.header import Header
 from email.utils import formataddr
+from app.services.email import send_smtp_email
 from functools import lru_cache
 import io, asyncio, jwt, json, uuid, random, smtplib, email, logging, re
 
@@ -127,6 +128,7 @@ async def login_or_register(db: AsyncSession, phone_number: str, timezone: str):
                 user_info.default_sport = user.settings.default_sport
                 user_info.global_default_sport = user.settings.global_default_sport
                 user_info.auto_pause = user.settings.auto_pause
+                user_info.is_email_subscribed = user.settings.is_email_subscribed
                 user_info.record_visibility = user.settings.record_visibility
             user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
         token = create_access_token({"user_id": user.user_id})
@@ -176,6 +178,7 @@ async def login_or_register_apple(db: AsyncSession, apple_id: str, email: str, t
                 user_info.default_sport = user.settings.default_sport
                 user_info.global_default_sport = user.settings.global_default_sport
                 user_info.auto_pause = user.settings.auto_pause
+                user_info.is_email_subscribed = user.settings.is_email_subscribed
                 user_info.record_visibility = user.settings.record_visibility
             user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
         token = create_access_token({"user_id": user.user_id})
@@ -224,6 +227,7 @@ async def login_or_register_email(db: AsyncSession, email_address: str, timezone
                 user_info.default_sport = user.settings.default_sport
                 user_info.global_default_sport = user.settings.global_default_sport
                 user_info.auto_pause = user.settings.auto_pause
+                user_info.is_email_subscribed = user.settings.is_email_subscribed
                 user_info.record_visibility = user.settings.record_visibility
             user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
         token = create_access_token({"user_id": user.user_id})
@@ -267,6 +271,7 @@ async def login_or_register_google(db: AsyncSession, google_sub: str, email: str
                 user_info.default_sport = user.settings.default_sport
                 user_info.global_default_sport = user.settings.global_default_sport
                 user_info.auto_pause = user.settings.auto_pause
+                user_info.is_email_subscribed = user.settings.is_email_subscribed
                 user_info.record_visibility = user.settings.record_visibility
             user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
         token = create_access_token({"user_id": user.user_id})
@@ -316,6 +321,7 @@ async def get_me_info(db: AsyncSession, user_id: str, timeZone: str | None) -> t
         user_info.default_sport = user.settings.default_sport
         user_info.global_default_sport = user.settings.global_default_sport
         user_info.auto_pause = user.settings.auto_pause
+        user_info.is_email_subscribed = user.settings.is_email_subscribed
         user_info.record_visibility = user.settings.record_visibility
 
         subscription_status = user.subscription_info.is_active if user.subscription_info else False
@@ -389,6 +395,7 @@ async def update_user_info(user_id: str, form: UserUpdateForm, avatar_url: str |
         user_info.default_sport = user.settings.default_sport
         user_info.global_default_sport = user.settings.global_default_sport
         user_info.auto_pause = user.settings.auto_pause
+        user_info.is_email_subscribed = user.settings.is_email_subscribed
         user_info.record_visibility = user.settings.record_visibility
         return user_info
 
@@ -431,6 +438,17 @@ async def update_auto_pause_service(enable: bool, user_id: str, db: AsyncSession
     user.settings.auto_pause = enable
     await db.commit()
     return user.settings.auto_pause
+
+
+async def update_email_subscription_service(enable: bool, user_id: str, db: AsyncSession) -> bool:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
+    if not user.settings:
+        raise BizException(code=ErrorCode.USER_INFO_ERROR, message="user.info_error")
+    user.settings.is_email_subscribed = enable
+    await db.commit()
+    return user.settings.is_email_subscribed
 
 
 async def update_record_visibility_service(
@@ -1334,14 +1352,6 @@ async def sign_in_today_vip_service(db: AsyncSession, user_id: str) -> SignInRew
         return SignInRewardResponse(ccasset_type=reward.reward_type_vip, new_ccamount=new_amount, date=today.strftime("%Y-%m-%d"))
 
 
-def _send_smtp(username, password, receivers, msg_str):
-    #client = smtplib.SMTP('smtpdm-ap-southeast-1.aliyuncs.com', 80, timeout=5)
-    client = smtplib.SMTP_SSL(settings.ALIYUN_EMAIL_ENDPOINT, 465, timeout=5)
-    client.set_debuglevel(0)
-    client.login(username, password)
-    client.sendmail(username, receivers, msg_str)
-    client.quit()
-
 # 发送验证码邮件
 async def send_email_code_service(to_email: str, lang: Language):
     """
@@ -1442,7 +1452,7 @@ async def send_email_code_service(to_email: str, lang: Language):
     # 发送邮件
     try:
         # 线程池方式执行 SMTP 发送，避免阻塞 event loop
-        await asyncio.wait_for(asyncio.to_thread(_send_smtp, username, password, receivers, msg.as_string()), timeout=5)
+        await asyncio.wait_for(asyncio.to_thread(send_smtp_email, receivers, msg.as_string()), timeout=5)
         #print("邮件发送成功:", to_email, code)
         return
     except Exception:

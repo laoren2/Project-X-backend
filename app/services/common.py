@@ -63,6 +63,10 @@ async def upload_to_oss(path: str, data: bytes):
     finally:
         # 关闭异步客户端连接（重要：避免资源泄漏）
         await client.close()
+        # client 已关闭，下一次上传必须重新创建，避免复用已关闭连接。
+        global _client
+        if _client is client:
+            _client = None
 
 def get_tile_name(lat, lon):
     lat_floor = math.floor(lat)

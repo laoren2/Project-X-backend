@@ -5,6 +5,7 @@ from app.services.competition.common import (
     generate_all_leaderboard_snapshots_service,
     clean_expired_records_service, clean_expired_teams_service
 )
+from app.services.email_campaign import process_email_campaigns_service
 from app.db.session import AsyncSessionLocal
 import logging
 
@@ -35,6 +36,14 @@ def start_scheduler():
         clean_expired_teams,
         trigger=IntervalTrigger(hours=1),
         next_run_time=datetime.now()
+    )
+    # 每分钟处理一批营销邮件，单次最多 20 封，避免占用事件循环或 SMTP 配额。
+    scheduler.add_job(
+        process_email_campaigns,
+        trigger=IntervalTrigger(minutes=1),
+        next_run_time=datetime.now(),
+        max_instances=1,
+        coalesce=True,
     )
 
 def stop_scheduler():
@@ -71,3 +80,12 @@ async def clean_expired_teams():
             await clean_expired_teams_service(db)
     except Exception:
         logger.exception("❌ 比赛队伍清理任务执行失败")
+
+
+async def process_email_campaigns():
+    """发送一批已排队的营销邮件。"""
+    try:
+        async with AsyncSessionLocal() as db:
+            await process_email_campaigns_service(db)
+    except Exception:
+        logger.exception("❌ 邮件群发任务执行失败")

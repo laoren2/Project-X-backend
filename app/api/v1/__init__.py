@@ -1,6 +1,6 @@
 # app/api/v1/__init__.py
 from fastapi import APIRouter
-from app.api.v1 import user, user_follow, asset, common, mailbox, iap, homepage
+from app.api.v1 import user, user_follow, asset, common, mailbox, iap, homepage, email_campaign
 import app.api.v1.competition.bike as bike_competition
 import app.api.v1.competition.running as running_competition
 import app.api.v1.competition.competition as common_competition
@@ -18,5 +18,6 @@ router.include_router(mailbox.router, prefix="/mailbox", tags=["邮箱"])
 router.include_router(common.router, prefix="/common", tags=["通用API"])
 router.include_router(iap.router, prefix="/iap", tags=["IAP"])
 router.include_router(homepage.router, prefix="/homepage", tags="首页")
+router.include_router(email_campaign.router, prefix="/email_campaign", tags="邮件群发")
 router.include_router(bike_training.router, prefix="/training/bike", tags=["bike训练"])
 router.include_router(running_training.router, prefix="/training/running", tags=["running训练"])
