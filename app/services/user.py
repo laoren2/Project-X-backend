@@ -303,7 +303,12 @@ async def get_user_info(user_id: str, db: AsyncSession):
     user_info.is_vip = user.subscription_info.is_active if user.subscription_info else False
     return user_info
 
-async def get_me_info(db: AsyncSession, user_id: str, timeZone: str | None) -> tuple[UserBaseInfo, str | None]:
+async def get_me_info(
+    db: AsyncSession,
+    user_id: str,
+    timeZone: str | None,
+    language: Language = Language.en,
+) -> tuple[UserBaseInfo, str | None]:
     async with db.begin():
         user = await get_user_by_id(db, user_id)
         if user is None:
@@ -311,6 +316,7 @@ async def get_me_info(db: AsyncSession, user_id: str, timeZone: str | None) -> t
         if not user.settings:
             raise BizException(code=ErrorCode.USER_INFO_ERROR, message="user.info_error")
         user.timezone = timeZone if timeZone else "UTC"
+        user.settings.preferred_language = language
         user_info = UserBaseInfo.model_validate(user)
         user_info.birthday = user.birth_date.strftime("%Y-%m-%d") if user.birth_date else None
         user_info.is_display_gender = user.settings.is_display_gender

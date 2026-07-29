@@ -1,6 +1,7 @@
 from sqlalchemy import Column, String, Boolean, DateTime, Date, func, UniqueConstraint, Integer, Enum, Index, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.schemas.common import SportType, CCAssetType
+from app.schemas.base import Language
 from app.schemas.user import UserRole, Gender, UserStatus, SubscriptionEventType, SubscriptionPeriod, RealNameMethod, RecordVisibility
 from app.db.base import Base
 from sqlalchemy.orm import relationship
@@ -90,6 +91,12 @@ class UserSetting(Base):
     global_default_sport = Column(Enum(SportType), default=SportType.bike, nullable=False)  # 全局默认运动：每次启动 app 时商店/运动中心/仓库/local profile 的初始展示运动（各场景仍可单独切换）
     auto_pause = Column(Boolean, default=True, nullable=False)     # free training 自动暂停开关（running+bike 共用）
     is_email_subscribed = Column(Boolean, default=True, nullable=False)  # 是否订阅产品宣传/通知邮件
+    # 用于异步邮件的语言快照；客户端每次拉取 /user/me 时更新。
+    preferred_language = Column(
+        Enum(Language),
+        default=Language.en,
+        nullable=False,
+    )
     record_visibility = Column(
         Enum(RecordVisibility, name="recordvisibility"),
         default=RecordVisibility.public,
