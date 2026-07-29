@@ -1,7 +1,8 @@
-from sqlalchemy import Column, DateTime, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text, UniqueConstraint, func, Enum
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
+from app.schemas.base import Language
 import uuid
 
 
@@ -30,6 +31,11 @@ class EmailCampaignRecipient(Base):
     campaign_id = Column(UUID(as_uuid=True), nullable=False)
     user_id = Column(UUID(as_uuid=True), nullable=False)
     email = Column(String, nullable=False)
+    language = Column(
+        Enum(Language),
+        nullable=False,
+        default=Language.en,
+    )
     unsubscribe_token = Column(String, unique=True, index=True, nullable=False)
     status = Column(String, nullable=False, default="pending")
     error_message = Column(Text, nullable=True)

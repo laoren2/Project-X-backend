@@ -93,10 +93,11 @@ async def login_test_account(data: schemas_user.EmailCodeVerify, db: AsyncSessio
 @router.get("/me", response_model=BaseResponse[schemas_user.UserMeResponse], summary="获取当前用户信息")
 async def get_me(
     timezone: str | None = Query(None),
+    lang: Language = Depends(get_language),
     auth: schemas_user.AuthContext=Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    user, o_id = await get_me_info(db, auth.payload["user_id"], timezone)
+    user, o_id = await get_me_info(db, auth.payload["user_id"], timezone, lang)
     relation = await get_relation_count(db, auth.payload["user_id"])
     return BaseResponse.success(token=auth.new_token, message="成功获取我的信息", data=schemas_user.UserMeResponse(user=user, relation=relation, origin_transaction_id=o_id))
 
