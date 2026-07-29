@@ -45,6 +45,8 @@ class ErrorCode:
     ROUTE_CREATE_FAILED = 4014
     ROUTE_UPDATE_FAILED = 4015
     ROUTE_APPLY_ERROR = 4016
+    EMAIL_CAMPAIGN_NOT_FOUND = 4017
+    EMAIL_CAMPAIGN_STATE_ERROR = 4018
 
     # 第三方服务
     SMS_SERVICE_ERROR = 5001
@@ -74,6 +76,22 @@ ERROR_MESSAGES = {
         "ko": "이미지 용량이 너무 큽니다. 다시 시도해주세요",
         "ja": "画像サイズが大きすぎます。再試行してください",
         "fr": "L'image est trop volumineuse, veuillez réessayer."
+    },
+    "email_campaign.not_found": {
+        "zh-Hans": "邮件群发活动不存在",
+        "zh-Hant": "郵件群發活動不存在",
+        "en": "Email campaign not found",
+        "ko": "이메일 캠페인을 찾을 수 없습니다",
+        "ja": "メールキャンペーンが見つかりません",
+        "fr": "Campagne e-mail introuvable"
+    },
+    "email_campaign.invalid_state": {
+        "zh-Hans": "邮件群发活动当前状态不能开始发送",
+        "zh-Hant": "郵件群發活動目前狀態無法開始發送",
+        "en": "The email campaign cannot be started in its current state",
+        "ko": "현재 상태에서는 이메일 캠페인을 시작할 수 없습니다",
+        "ja": "現在の状態ではメールキャンペーンを開始できません",
+        "fr": "La campagne e-mail ne peut pas démarrer dans son état actuel"
     },
 # 用户
     "user.not_found": {

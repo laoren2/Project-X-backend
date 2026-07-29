@@ -89,6 +89,7 @@ class UserSetting(Base):
     default_sport = Column(Enum(SportType), default=SportType.bike, nullable=False)     # 外部主页默认展示运动（他人查看时）
     global_default_sport = Column(Enum(SportType), default=SportType.bike, nullable=False)  # 全局默认运动：每次启动 app 时商店/运动中心/仓库/local profile 的初始展示运动（各场景仍可单独切换）
     auto_pause = Column(Boolean, default=True, nullable=False)     # free training 自动暂停开关（running+bike 共用）
+    is_email_subscribed = Column(Boolean, default=True, nullable=False)  # 是否订阅产品宣传/通知邮件
     record_visibility = Column(
         Enum(RecordVisibility, name="recordvisibility"),
         default=RecordVisibility.public,

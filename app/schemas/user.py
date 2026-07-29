@@ -79,6 +79,7 @@ class UserBaseInfo(ORMBase):
     default_sport: SportType = SportType.bike
     global_default_sport: SportType = SportType.bike
     auto_pause: bool = True
+    is_email_subscribed: bool = True
     record_visibility: RecordVisibility = RecordVisibility.public
     status: UserStatus
     is_vip: bool = False
