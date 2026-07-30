@@ -143,63 +143,82 @@ def evaluate_route_training_checkpoint_path(
 ) -> tuple[float, bool]:
     """
     校验轨迹是否经过首、尾检查点；按时间顺序统计中间检查点的罚时（秒）。
-    若先进入较后检查点再进入较前的检查点，则对跳过的中间点按 penalty 累计（与「完全未经过」在末尾补罚一致）。
+    结算与水印必须使用同一状态机，避免同一条轨迹在两处得到不同罚时。
+    """
+    _, total_penalty, passes = build_route_checkpoint_events(path, checkpoints)
+    return total_penalty, passes
+
+
+def build_route_checkpoint_events(
+    path: list[PathPoint],
+    checkpoints: list[dict],
+) -> tuple[list[dict], float, bool]:
+    """重放检查点状态机，产出可供实时回放使用的罚时事件。
+
+    事件发生在首次进入某个后续检查点的轨迹点：此前尚未经过的中间点会
+    同时标记为 miss，并在这一刻累加其罚时。这个顺序与结算校验保持一致，
+    使视频水印的有效用时不会在终点才突然补上全部罚时。
     """
     n = len(checkpoints)
     if n < 2 or not path:
-        return 0.0, False
+        return [], 0.0, False
 
-    total_penalty = 0.0
+    events: list[dict] = []
     visited = [False] * n
     penalized = [False] * n
     next_expected = 0
+    cumulative_penalty = 0.0
 
-    def add_middle_penalty(j: int) -> None:
-        nonlocal total_penalty
-        if not (1 <= j <= n - 2):
-            return
-        if penalized[j]:
-            return
-        p = checkpoints[j].get("penalty")
-        if p is None:
-            return
-        penalized[j] = True
-        total_penalty += p
-
-    def on_first_enter(k: int) -> None:
-        nonlocal next_expected
+    def enter(k: int, timestamp: float) -> None:
+        nonlocal next_expected, cumulative_penalty
         if visited[k]:
             return
-        visited[k] = True
+        advances_stage = k >= next_expected
+        missed_indices: list[int] = []
+        penalty_delta = 0.0
         if k > next_expected:
             for j in range(next_expected, k):
-                add_middle_penalty(j)
-            next_expected = k + 1
-        elif k == next_expected:
-            next_expected = k + 1
+                if not (1 <= j <= n - 2) or penalized[j]:
+                    continue
+                penalized[j] = True
+                missed_indices.append(j)
+                penalty_delta += checkpoints[j].get("penalty") or 0.0
+        visited[k] = True
+        next_expected = max(next_expected, k + 1)
+        cumulative_penalty += penalty_delta
+        # 起点仅初始化阶段；后续经过点（即使罚时为 0）也要记录，以便回放时切段。
+        if k > 0 and advances_stage:
+            events.append({
+                "timestamp": float(timestamp),
+                "checkpoint_index": k,
+                "missed_checkpoint_indices": missed_indices,
+                "penalty_delta": penalty_delta,
+                "cumulative_penalty": cumulative_penalty,
+            })
 
     was_inside = [_inside_checkpoint(path[0].lat, path[0].lon, checkpoints[k]) for k in range(n)]
-    for k in range(n):
-        if was_inside[k]:
-            on_first_enter(k)
+    for k, inside in enumerate(was_inside):
+        if inside:
+            enter(k, path[0].timestamp)
 
     for i in range(1, len(path)):
-        lat, lon = path[i].lat, path[i].lon
         entered_here: list[int] = []
         for k in range(n):
-            now = _inside_checkpoint(lat, lon, checkpoints[k])
+            now = _inside_checkpoint(path[i].lat, path[i].lon, checkpoints[k])
             if now and not was_inside[k]:
                 entered_here.append(k)
             was_inside[k] = now
         for k in sorted(entered_here):
-            on_first_enter(k)
+            enter(k, path[i].timestamp)
 
+    # 对未经过的中间点保持与结算完全一致的兜底。有效路线必定经过终点，
+    # 因此正常情况下这些罚时都会在进入终点的事件中产生。
     for j in range(1, n - 1):
         if not visited[j] and not penalized[j]:
-            add_middle_penalty(j)
+            penalized[j] = True
+            cumulative_penalty += checkpoints[j].get("penalty") or 0.0
 
-    passes = visited[0] and visited[n - 1]
-    return total_penalty, passes
+    return events, cumulative_penalty, visited[0] and visited[n - 1]
 
 
 # ============================================================================
@@ -238,6 +257,18 @@ def _cumulative_arc_lengths(vertices: list[tuple[float, float]]) -> list[float]:
     for i in range(1, len(vertices)):
         s.append(s[-1] + haversine(vertices[i - 1][0], vertices[i - 1][1], vertices[i][0], vertices[i][1]))
     return s
+
+
+def _project_segment_progress(lat: float, lon: float,
+                              start: tuple[float, float], end: tuple[float, float]) -> float:
+    """将点投影到单个检查点段，返回该段内 [0, 1] 的规范进度。"""
+    ax, ay = _to_local_xy(start[0], start[1], lat, lon)
+    bx, by = _to_local_xy(end[0], end[1], lat, lon)
+    dx, dy = bx - ax, by - ay
+    seg2 = dx * dx + dy * dy
+    if seg2 <= 1e-9:
+        return 0.0
+    return max(0.0, min(1.0, (-ax * dx - ay * dy) / seg2))
 
 
 def _to_local_xy(lat: float, lon: float, lat0: float, lon0: float) -> tuple[float, float]:
@@ -306,11 +337,18 @@ def _resample(samples: list[tuple[float, float]], length: float, n: int) -> list
         else:
             r = max(0.0, min(1.0, (di - d0) / (d1 - d0)))
             splits.append(t0 + r * (t1 - t0))
+    # 终点可能有多个相同规范进度的采样（进入终点后仍会记录一帧）。
+    # 保持 PB 曲线的终点严格等于结算有效成绩，不能落在第一帧进入终点的时刻。
+    if splits:
+        splits[-1] = samples[-1][1]
     return splits
 
 
 def build_split_profile(base_points: list[PathPoint], route_data: dict | None,
-                        effective_total: float, sport: str) -> dict | None:
+                        effective_total: float, sport: str,
+                        checkpoint_events: list[dict] | None = None,
+                        card_bonus_samples: list[tuple[float, float]] | None = None,
+                        original_duration_seconds: float | None = None) -> dict | None:
     """
     把最佳成绩的完整轨迹处理成 {L, N, splits} 的 split profile。
     - base_points: 轨迹基础点（含 lat/lon/timestamp），取自 [p.base for p in info.path]
@@ -320,24 +358,80 @@ def build_split_profile(base_points: list[PathPoint], route_data: dict | None,
     """
     if not base_points or len(base_points) < 2:
         return None
-    vertices = _route_vertices(route_data)
-    if len(vertices) < 2:
+    checkpoints = extract_checkpoints_from_route_data(route_data)
+    if len(checkpoints) < 2:
         return None
+    # 比赛等旧调用方未显式传事件时，在服务端用同一条轨迹即时重放，避免退回
+    # 到跨未来段的全局投影算法。
+    if checkpoint_events is None:
+        checkpoint_events, _, _ = build_route_checkpoint_events(base_points, checkpoints)
+    vertices = [(cp["lat"], cp["lng"]) for cp in checkpoints]
     cum_s = _cumulative_arc_lengths(vertices)
     length = cum_s[-1]
     if length <= 0:
         return None
     start_ts = base_points[0].timestamp
-    raw_total = base_points[-1].timestamp - start_ts
-    if raw_total <= 0:
+    path_duration = base_points[-1].timestamp - start_ts
+    raw_total = original_duration_seconds if original_duration_seconds is not None else path_duration
+    if raw_total <= 0 or path_duration <= 0:
         return None
-    k = effective_total / raw_total
+    path_time_scale = raw_total / path_duration
+    event_penalty_total = (checkpoint_events or [])[-1]["cumulative_penalty"] if checkpoint_events else 0.0
+    raw_card_total = card_bonus_samples[-1][1] if card_bonus_samples else 0.0
+    # 卡牌在结算时可能被 20% 上限截断。按最终实际生效比例回放每个时刻的累计减时。
+    applied_card_total = max(0.0, raw_total + event_penalty_total - effective_total)
+    card_scale = min(1.0, applied_card_total / raw_card_total) if raw_card_total > 0 else 0.0
 
+    def penalty_at(timestamp: float) -> float:
+        penalty = 0.0
+        for event in checkpoint_events or []:
+            if event["timestamp"] > timestamp:
+                break
+            penalty = event["cumulative_penalty"]
+        return penalty
+
+    def card_bonus_at(index: int) -> float:
+        if not card_bonus_samples:
+            return 0.0
+        # 路径点和累计卡牌快照同序；缺失数据时采用最后一个已知值。
+        return card_bonus_samples[min(index, len(card_bonus_samples) - 1)][1] * card_scale
+
+    # 规范进度只能在当前检查点段内前进。绝不能从全局折线寻找最近段：
+    # 环线/折返时那会把位置错误吸附到未来段，造成 PB 和 rank 的突跳。
+    events = sorted(checkpoint_events or [], key=lambda event: event["timestamp"])
+    event_index = 0
+    active_checkpoint = 0
+    local_progress = 0.0
     samples: list[tuple[float, float]] = []
-    d_prev = 0.0
-    for p in base_points:
-        d_prev = _project_arc(p.lat, p.lon, vertices, cum_s, d_prev)
-        samples.append((d_prev, (p.timestamp - start_ts) * k))
+    for point_index, p in enumerate(base_points):
+        advanced_checkpoint = False
+        while event_index < len(events) and events[event_index]["timestamp"] <= p.timestamp:
+            advanced_checkpoint = advanced_checkpoint or int(events[event_index]["checkpoint_index"]) > active_checkpoint
+            active_checkpoint = max(active_checkpoint, int(events[event_index]["checkpoint_index"]))
+            local_progress = 0.0
+            event_index += 1
+        if active_checkpoint >= len(vertices) - 1:
+            d = length
+        else:
+            segment_length = cum_s[active_checkpoint + 1] - cum_s[active_checkpoint]
+            projected = _project_segment_progress(
+                p.lat, p.lon, vertices[active_checkpoint], vertices[active_checkpoint + 1]
+            )
+            if point_index > 0 and not advanced_checkpoint:
+                delta_seconds = max(0.0, p.timestamp - base_points[point_index - 1].timestamp)
+                max_speed = 10.0 if sport == "running" else 25.0
+                max_advance = max(30.0, max_speed * delta_seconds) / max(segment_length, 1.0)
+                projected = min(projected, local_progress + max_advance)
+            # 仅在本段内保持单调，避免定位噪声使显示来回抖动。
+            local_progress = max(local_progress, projected)
+            d = cum_s[active_checkpoint] + local_progress * segment_length
+        effective_time = max(0.0, (p.timestamp - start_ts) * path_time_scale - card_bonus_at(point_index) + penalty_at(p.timestamp))
+        samples.append((d, effective_time))
+
+    # 防御性收口：历史数据可能缺少逐点卡牌快照，仍保证 profile 终点与排行榜成绩一致。
+    if samples and samples[-1][1] != effective_total:
+        correction = effective_total - samples[-1][1]
+        samples = [(d, max(0.0, t + correction * (t / samples[-1][1] if samples[-1][1] > 0 else 1.0))) for d, t in samples]
 
     n = dynamic_profile_n(length, sport)
     splits = _resample(samples, length, n)

@@ -27,7 +27,7 @@ from app.services.common import get_elevation
 from app.services.competition.common import compute_distance, compute_active_distance, compute_active_duration
 from app.services.training.common import (
     validate_route_data, build_geometry, extract_checkpoints_from_route_data,
-    evaluate_route_training_checkpoint_path, extract_path_points, build_split_profile
+    extract_path_points, build_split_profile, build_route_checkpoint_events
 )
 from app.services.mappers import equip_card_to_base_info
 from app.services.competition.record_privacy import ensure_record_detail_visible
@@ -1499,7 +1499,9 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
                 )
 
         checkpoints = extract_checkpoints_from_route_data(route.route_data)
-        total_penalty, path_passes_checkpoints = evaluate_route_training_checkpoint_path([p.base for p in finish_info.path], checkpoints)
+        checkpoint_events, total_penalty, path_passes_checkpoints = build_route_checkpoint_events(
+            [p.base for p in finish_info.path], checkpoints
+        )
         #print(path_passes_checkpoints)
         if not path_passes_checkpoints:
             raise BizException(code=ErrorCode.RECORD_ERROR, message="record.invalid.route_path")
@@ -1600,12 +1602,16 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
 
         record.duration_seconds = final_time + total_penalty
 
-        # 本次成绩写入路线榜单之前冻结实时配速基线，供视频水印稳定回放。
+        # 本次成绩写入路线榜单之前冻结实时配速基线；同时保存检查点罚时事件，
+        # 让水印按运动发生顺序回放有效成绩而非在终点一次性补罚。
         snapshot = VideoWatermarkPaceSnapshot(snapshot={
-            "version": 1,
+            "version": 2,
             "finish_times": await get_route_finish_times(db, route.id),
             "pb_profile": await get_route_pb_profile(db, route.id, user.id),
             "route_data": route.route_data,
+            "final_duration_seconds": record.duration_seconds,
+            "original_duration_seconds": original_time,
+            "checkpoint_events": checkpoint_events,
         })
         db.add(snapshot)
         await db.flush()
@@ -1639,7 +1645,15 @@ async def finish_route_training_service(db: AsyncSession, finish_info: RouteTrai
 
         if should_update_rank:
             # 刷新个人最佳：存档 split profile（供实时预测名次 / 自我对比）
-            split_profile = build_split_profile([p.base for p in finish_info.path], route.route_data, final_score, "bike")
+            split_profile = build_split_profile(
+                [p.base for p in finish_info.path], route.route_data, final_score, "bike",
+                checkpoint_events=checkpoint_events,
+                card_bonus_samples=[
+                    (p.base.timestamp, sum(item.bonus_time for item in p.card_bonus))
+                    for p in finish_info.path
+                ],
+                original_duration_seconds=original_time,
+            )
             if existing_rank is None:
                 db.add(BikeRouteRanklist(
                     route_id=route.id,

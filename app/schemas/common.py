@@ -1,7 +1,7 @@
 from typing import List, Any
 from app.schemas.base import ORMBase
 from enum import Enum
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # 运动中实时预测名次 + 自我对比的开赛基线
@@ -15,6 +15,15 @@ class PaceBaselineResponse(BaseModel):
     pb_profile: SplitProfileInfo | None = None   # 调用者个人最佳的 split profile（无则 null）
 
 
+class CheckpointPaceEventInfo(BaseModel):
+    """检查点推进事件；skip 的罚时在进入后续检查点的这一刻生效。"""
+    timestamp: float
+    checkpoint_index: int
+    missed_checkpoint_indices: List[int]
+    penalty_delta: float
+    cumulative_penalty: float
+
+
 # 视频水印使用的完赛时快照。它固定“本次成绩写入排行榜之前”的 PB 与榜单，
 # 之后重复生成视频时不再读取会变化的实时数据。
 class PaceSnapshotResponse(BaseModel):
@@ -22,6 +31,10 @@ class PaceSnapshotResponse(BaseModel):
     finish_times: List[float]
     pb_profile: SplitProfileInfo | None = None
     route_data: dict
+    # v2：旧快照可能没有这两项，调用方可安全退化为不展示新增的有效成绩回放。
+    final_duration_seconds: float | None = None
+    original_duration_seconds: float | None = None
+    checkpoint_events: List[CheckpointPaceEventInfo] = Field(default_factory=list)
 
 
 class CCAssetType(str, Enum):
