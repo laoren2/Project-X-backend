@@ -68,7 +68,7 @@ from app.db.models.mailbox import Mailbox
 from app.db.models.user import User
 from app.services.mappers import equip_card_to_base_info
 from app.services.weather import fetch_weather_snapshot, weather_snapshot_from_record
-from app.services.training.common import validate_route_data, build_geometry, extract_path_points, extract_checkpoints_from_route_data, evaluate_route_training_checkpoint_path, build_split_profile
+from app.services.training.common import validate_route_data, build_geometry, extract_path_points, extract_checkpoints_from_route_data, build_route_checkpoint_events, build_split_profile
 from app.services.common import get_elevation
 from app.schemas.training.common import RouteSortType
 from geoalchemy2.shape import from_shape
@@ -1066,7 +1066,7 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
 
             # 多检查点路径校验（对齐 route training：首尾必经，中间点可 miss 计罚时）
             checkpoints = extract_checkpoints_from_route_data(record.route_data)
-            checkpoint_penalty, path_passes = evaluate_route_training_checkpoint_path([p.base for p in info.path], checkpoints)
+            checkpoint_events, checkpoint_penalty, path_passes = build_route_checkpoint_events([p.base for p in info.path], checkpoints)
             final_time += checkpoint_penalty
 
             path_data = [p.model_dump() for p in info.path]
@@ -1151,7 +1151,13 @@ async def finish_single_competition_service(db: AsyncSession, info: RunningFinis
                     # 刷新个人最佳时存档 split profile（供实时预测名次 / 自我对比）
                     if reward_result[0]:
                         record.split_profile = build_split_profile(
-                            [p.base for p in info.path], record.route_data, final_time, "running"
+                            [p.base for p in info.path], record.route_data, final_time, "running",
+                            checkpoint_events=checkpoint_events,
+                            card_bonus_samples=[
+                                (p.base.timestamp, sum(item.bonus_time for item in p.card_bonus))
+                                for p in info.path
+                            ],
+                            original_duration_seconds=original_time,
                         )
                 # 更新排行榜
                 if record.duration_seconds is not None:
@@ -1236,7 +1242,7 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
 
             # 多检查点路径校验（对齐 route training：首尾必经，中间点可 miss 计罚时）
             checkpoints = extract_checkpoints_from_route_data(record.route_data)
-            checkpoint_penalty, path_passes = evaluate_route_training_checkpoint_path([p.base for p in info.path], checkpoints)
+            checkpoint_events, checkpoint_penalty, path_passes = build_route_checkpoint_events([p.base for p in info.path], checkpoints)
             final_time += checkpoint_penalty
 
             path_data = [p.model_dump() for p in info.path]
@@ -1334,7 +1340,13 @@ async def finish_team_competition_service(db: AsyncSession, info: RunningFinishI
                         # 刷新个人最佳时存档 split profile（供实时预测名次 / 自我对比）
                         if reward_result[0]:
                             record.split_profile = build_split_profile(
-                                [p.base for p in info.path], record.route_data, final_time, "running"
+                                [p.base for p in info.path], record.route_data, final_time, "running",
+                                checkpoint_events=checkpoint_events,
+                                card_bonus_samples=[
+                                    (p.base.timestamp, sum(item.bonus_time for item in p.card_bonus))
+                                    for p in info.path
+                                ],
+                                original_duration_seconds=original_time,
                             )
                     await update_running_leaderboard_for_record(record)
                     distance = compute_distance([p.base for p in info.path])
