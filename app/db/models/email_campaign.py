@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Index, Integer, String, Text, UniqueConstraint, func, Enum
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text, UniqueConstraint, func, Enum
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -38,6 +38,8 @@ class EmailCampaignRecipient(Base):
     )
     unsubscribe_token = Column(String, unique=True, index=True, nullable=False)
     status = Column(String, nullable=False, default="pending")
+    # SMTP 已被阿里云接收（accepted）与投递成功（sent）是不同阶段。
+    message_id = Column(String, unique=True, index=True, nullable=True)
     error_message = Column(Text, nullable=True)
     sent_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -46,3 +48,18 @@ class EmailCampaignRecipient(Base):
         UniqueConstraint("campaign_id", "email", name="uq_email_campaign_recipients_campaign_email"),
         Index("ix_email_campaign_recipients_campaign_status", "campaign_id", "status"),
     )
+
+
+class EmailCampaignSuppression(Base):
+    """仅用于产品宣传邮件的地址排除记录，不影响事务邮件。"""
+
+    __tablename__ = "email_campaign_suppressions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email = Column(String, unique=True, nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=True)
+    reason = Column(String, nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    last_event_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -1,7 +1,10 @@
+from datetime import datetime
+
 from sqlalchemy import func, or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.email_campaign import EmailCampaign, EmailCampaignRecipient
+from app.db.models.email_campaign import EmailCampaign, EmailCampaignRecipient, EmailCampaignSuppression
 from app.db.models.user import User, UserSetting
 from app.schemas.base import Language
 from app.schemas.user import UserStatus
@@ -9,6 +12,11 @@ from app.schemas.user import UserStatus
 
 async def get_email_campaign_by_campaign_id(db: AsyncSession, campaign_id: str) -> EmailCampaign | None:
     result = await db.execute(select(EmailCampaign).where(EmailCampaign.campaign_id == campaign_id))
+    return result.scalar_one_or_none()
+
+
+async def get_email_campaign_by_id(db: AsyncSession, campaign_id: object) -> EmailCampaign | None:
+    result = await db.execute(select(EmailCampaign).where(EmailCampaign.id == campaign_id))
     return result.scalar_one_or_none()
 
 
@@ -23,6 +31,15 @@ async def get_next_active_email_campaign(db: AsyncSession) -> EmailCampaign | No
 
 
 async def get_subscribed_email_campaign_candidates(db: AsyncSession) -> list[tuple[object, str, Language]]:
+    campaign_email = func.lower(func.trim(func.coalesce(User.email, User.apple_email, User.google_email)))
+    suppression_exists = (
+        select(EmailCampaignSuppression.id)
+        .where(
+            EmailCampaignSuppression.email == campaign_email,
+            EmailCampaignSuppression.is_active.is_(True),
+        )
+        .exists()
+    )
     result = await db.execute(
         select(
             User.id,
@@ -38,6 +55,7 @@ async def get_subscribed_email_campaign_candidates(db: AsyncSession) -> list[tup
                 User.google_email.is_not(None),
             ),
             UserSetting.is_email_subscribed.is_(True),
+            ~suppression_exists,
         )
         .order_by(User.created_at.asc())
     )
@@ -68,6 +86,69 @@ async def get_pending_email_campaign_recipients(
         .limit(batch_size)
     )
     return list(result.scalars().all())
+
+
+async def has_accepted_email_campaign_recipients(db: AsyncSession, campaign_id: object) -> bool:
+    result = await db.execute(
+        select(EmailCampaignRecipient.id)
+        .where(
+            EmailCampaignRecipient.campaign_id == campaign_id,
+            EmailCampaignRecipient.status == "accepted",
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def get_email_campaign_recipient_by_message_id(
+    db: AsyncSession,
+    message_id: str,
+) -> EmailCampaignRecipient | None:
+    normalized_message_id = message_id.strip()
+    bare_message_id = normalized_message_id.strip("<>")
+    accepted_values = {normalized_message_id, f"<{bare_message_id}>"}
+    result = await db.execute(
+        select(EmailCampaignRecipient).where(EmailCampaignRecipient.message_id.in_(accepted_values))
+    )
+    return result.scalar_one_or_none()
+
+
+async def upsert_email_campaign_suppression(
+    db: AsyncSession,
+    *,
+    email: str,
+    reason: str,
+    is_active: bool,
+    user_id: object | None = None,
+    event_at: datetime | None = None,
+) -> None:
+    normalized_email = email.strip().lower()
+    stmt = insert(EmailCampaignSuppression).values(
+        email=normalized_email,
+        user_id=user_id,
+        reason=reason,
+        is_active=is_active,
+        last_event_at=event_at,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[EmailCampaignSuppression.email],
+        set_={
+            "user_id": user_id,
+            "reason": reason,
+            "is_active": is_active,
+            "last_event_at": event_at,
+            "updated_at": func.now(),
+        },
+        where=(
+            None
+            if event_at is None
+            else (
+                EmailCampaignSuppression.last_event_at.is_(None)
+                | (EmailCampaignSuppression.last_event_at <= event_at)
+            )
+        ),
+    )
+    await db.execute(stmt)
 
 
 async def is_email_campaign_recipient_subscribed(

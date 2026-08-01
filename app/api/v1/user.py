@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, File, UploadFile, Query
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.schemas.common import SportType
@@ -15,6 +16,7 @@ from app.services.user import (
     bind_google_service, unbind_google_service,
     verify_test_account
 )
+from app.services.apple_sign_in_notification import handle_apple_sign_in_notification_service
 from app.crud.user import get_users_by_name
 from app.services.user_follow import get_relation_count, get_relationship_service
 from app.services.common import upload_to_oss
@@ -31,6 +33,16 @@ from datetime import datetime, UTC
 import json
 
 router = APIRouter(dependencies=[Depends(get_language)])
+
+
+@router.post("/apple-account-notifications", status_code=204, summary="接收 Sign in with Apple 账号变更通知")
+async def apple_account_notifications(
+    notification: schemas_user.AppleSignInNotificationRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    # Apple 只要求收到 2xx；无效签名会被服务层安全丢弃，避免泄露验证细节。
+    await handle_apple_sign_in_notification_service(db, notification.payload)
+    return Response(status_code=204)
 
 
 @router.get("/user_card/nick_name", response_model=BaseResponse[PersonInfoResponseList], summary="根据用户名查询用户")

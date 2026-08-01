@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import email.utils
 from html import escape
 from pathlib import Path
 import asyncio
@@ -12,11 +13,15 @@ from app.core.errors import ErrorCode
 from app.core.storage import build_resource_url
 from app.crud.email_campaign import (
     get_email_campaign_by_campaign_id,
+    get_email_campaign_by_id,
     get_email_campaign_recipient_by_unsubscribe_token,
     get_next_active_email_campaign,
+    get_email_campaign_recipient_by_message_id,
     get_pending_email_campaign_recipients,
     get_subscribed_email_campaign_candidates,
+    has_accepted_email_campaign_recipients,
     is_email_campaign_recipient_subscribed,
+    upsert_email_campaign_suppression,
 )
 from app.crud.user import get_settings_by_user_id
 from app.db.models.email_campaign import EmailCampaign, EmailCampaignRecipient
@@ -55,6 +60,11 @@ EMAIL_BATCH_SIZE = 20
 
 def _to_campaign_info(campaign: EmailCampaign) -> EmailCampaignInfo:
     return EmailCampaignInfo.model_validate(campaign, from_attributes=True)
+
+
+def _make_campaign_message_id() -> str:
+    sender_domain = settings.NOREPLY_EMAIL_ADDRESS.rsplit("@", 1)[-1]
+    return email.utils.make_msgid(idstring="movmov-campaign", domain=sender_domain)
 
 
 async def _ensure_video_watermark_assets_uploaded() -> None:
@@ -174,6 +184,9 @@ async def process_email_campaigns_service(db: AsyncSession) -> None:
 
     recipients = await get_pending_email_campaign_recipients(db, campaign.id, EMAIL_BATCH_SIZE)
     if not recipients:
+        if await has_accepted_email_campaign_recipients(db, campaign.id):
+            # 已提交给阿里云但尚未收到最终投递事件，继续等待回调。
+            return
         campaign.status = "completed"
         campaign.completed_at = datetime.now(timezone.utc)
         await db.commit()
@@ -186,14 +199,27 @@ async def process_email_campaigns_service(db: AsyncSession) -> None:
             await db.commit()
             continue
         try:
+            # Message-ID 是阿里云 SMTP 投递事件与本地 recipient 的关联键；
+            # 必须在提交 SMTP 前持久化，避免异步回调先到而无法匹配。
+            recipient.message_id = _make_campaign_message_id()
+            recipient.error_message = None
+            await db.commit()
             subject, plain_text, html, unsubscribe_url = _render_video_watermark_email(
                 recipient.unsubscribe_token,
                 recipient.language,
             )
-            await send_marketing_email(recipient.email, subject, plain_text, html, unsubscribe_url)
-            recipient.status = "sent"
-            recipient.sent_at = datetime.now(timezone.utc)
-            campaign.sent_count += 1
+            await send_marketing_email(
+                recipient.email,
+                subject,
+                plain_text,
+                html,
+                unsubscribe_url,
+                recipient.message_id,
+            )
+            await db.refresh(recipient)
+            if recipient.status == "pending":
+                # SMTP 已接受，不代表收件方已投递成功；最终状态由阿里云事件更新。
+                recipient.status = "accepted"
         except Exception as exc:
             logger.exception("Email campaign delivery failed: campaign=%s recipient=%s", campaign.campaign_id, recipient.id)
             recipient.status = "failed"
@@ -201,6 +227,66 @@ async def process_email_campaigns_service(db: AsyncSession) -> None:
             campaign.failed_count += 1
         # SMTP 是慢速外部 I/O，不能放在长事务中；逐封成功后落库可避免 worker 重启时整批重发。
         await db.commit()
+
+
+async def handle_aliyun_delivery_event_service(db: AsyncSession, event: dict) -> bool:
+    """处理阿里云 EventBridge 的单封邮件投递结果。"""
+    event_type = event.get("type")
+    if event_type not in {"dm:Deliver:Succeed", "dm:Deliver:Fail"}:
+        logger.warning("Ignored unsupported Direct Mail event type: %s", event_type)
+        return False
+
+    data = event.get("data")
+    if not isinstance(data, dict):
+        logger.warning("Ignored Direct Mail event without data object")
+        return False
+
+    message_id = data.get("msg_id")
+    if not isinstance(message_id, str) or not message_id:
+        logger.warning("Ignored Direct Mail event without msg_id")
+        return False
+
+    recipient = await get_email_campaign_recipient_by_message_id(db, message_id)
+    if recipient is None:
+        # 上线前的历史邮件没有持久化 Message-ID，无法可靠关联，直接确认事件即可。
+        logger.info("No campaign recipient for Direct Mail message_id=%s", message_id)
+        return True
+
+    campaign = await get_email_campaign_by_id(db, recipient.campaign_id)
+    if campaign is None:
+        logger.warning("No campaign for Direct Mail recipient=%s", recipient.id)
+        return False
+
+    if event_type == "dm:Deliver:Succeed":
+        if recipient.status != "sent":
+            if recipient.status == "failed":
+                campaign.failed_count = max(0, campaign.failed_count - 1)
+            recipient.status = "sent"
+            recipient.sent_at = datetime.now(timezone.utc)
+            campaign.sent_count += 1
+        await db.commit()
+        return True
+
+    error_code = str(data.get("err_code") or "")
+    error_message = str(data.get("err_msg") or "")
+    failed_type = str(data.get("failed_type") or "")
+    if recipient.status != "failed":
+        if recipient.status == "sent":
+            campaign.sent_count = max(0, campaign.sent_count - 1)
+        recipient.status = "failed"
+        campaign.failed_count += 1
+    recipient.error_message = f"{failed_type}: {error_code} {error_message}".strip()[:1000]
+
+    if failed_type == "SmtpNxBox" or str(data.get("status")) == "2":
+        await upsert_email_campaign_suppression(
+            db,
+            email=recipient.email,
+            user_id=recipient.user_id,
+            reason="hard_bounce",
+            is_active=True,
+        )
+    await db.commit()
+    return True
 
 
 async def unsubscribe_email_campaign_recipient_service(db: AsyncSession, unsubscribe_token: str) -> None:
