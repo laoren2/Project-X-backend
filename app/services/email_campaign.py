@@ -30,9 +30,26 @@ from app.services.email import send_marketing_email
 logger = logging.getLogger(__name__)
 
 VIDEO_WATERMARK_TEMPLATE_KEY = "video_watermark_feature"
-VIDEO_WATERMARK_HERO_PATH = "resources/email/video_watermark_feature_hero.jpg"
 VIDEO_WATERMARK_TEMPLATE_PATH = Path(__file__).resolve().parents[1] / "templates/email/video_watermark_feature.html"
-VIDEO_WATERMARK_HERO_SOURCE_PATH = VIDEO_WATERMARK_TEMPLATE_PATH.parent / "assets/video_watermark_feature_hero.jpg"
+VIDEO_WATERMARK_ASSETS_DIR = VIDEO_WATERMARK_TEMPLATE_PATH.parent / "assets"
+VIDEO_WATERMARK_HERO_SUFFIXES: dict[Language, str] = {
+    Language.zh_hans: "hans",
+    Language.zh_hant: "hant",
+    Language.en: "en",
+    Language.ko: "ko",
+    Language.ja: "ja",
+    Language.fr: "fr",
+}
+VIDEO_WATERMARK_HERO_PATHS: dict[Language, str] = {
+    language: f"resources/email/email_watermark_feature_hero_{suffix}.jpeg"
+    for language, suffix in VIDEO_WATERMARK_HERO_SUFFIXES.items()
+}
+VIDEO_WATERMARK_HERO_SOURCE_PATHS: dict[Language, Path] = {
+    language: VIDEO_WATERMARK_ASSETS_DIR / f"email_watermark_feature_hero_{suffix}.jpeg"
+    for language, suffix in VIDEO_WATERMARK_HERO_SUFFIXES.items()
+}
+VIDEO_WATERMARK_APP_ICON_PATH = "resources/email/appIcon.jpeg"
+VIDEO_WATERMARK_APP_ICON_SOURCE_PATH = VIDEO_WATERMARK_ASSETS_DIR / "appIcon.jpeg"
 EMAIL_BATCH_SIZE = 20
 
 
@@ -40,18 +57,26 @@ def _to_campaign_info(campaign: EmailCampaign) -> EmailCampaignInfo:
     return EmailCampaignInfo.model_validate(campaign, from_attributes=True)
 
 
-async def _ensure_video_watermark_hero_uploaded() -> None:
-    asset_path = VIDEO_WATERMARK_HERO_SOURCE_PATH
-    if not asset_path.is_file():
-        raise RuntimeError(f"Missing email hero asset: {asset_path}")
-    asset_data = await asyncio.to_thread(asset_path.read_bytes)
-    await upload_to_oss(VIDEO_WATERMARK_HERO_PATH, asset_data)
+async def _ensure_video_watermark_assets_uploaded() -> None:
+    assets = [
+        (VIDEO_WATERMARK_APP_ICON_PATH, VIDEO_WATERMARK_APP_ICON_SOURCE_PATH),
+        *[
+            (VIDEO_WATERMARK_HERO_PATHS[language], VIDEO_WATERMARK_HERO_SOURCE_PATHS[language])
+            for language in Language
+        ],
+    ]
+    for destination_path, source_path in assets:
+        if not source_path.is_file():
+            raise RuntimeError(f"Missing email asset: {source_path}")
+        asset_data = await asyncio.to_thread(source_path.read_bytes)
+        await upload_to_oss(destination_path, asset_data)
 
 
 def _render_video_watermark_email(unsubscribe_token: str, language: Language) -> tuple[str, str, str, str]:
     copy = get_video_watermark_email_copy(language)
     template = VIDEO_WATERMARK_TEMPLATE_PATH.read_text(encoding="utf-8")
-    hero_image_url = build_resource_url(f"/{VIDEO_WATERMARK_HERO_PATH}")
+    hero_image_url = build_resource_url(f"/{VIDEO_WATERMARK_HERO_PATHS[language]}")
+    app_icon_url = build_resource_url(f"/{VIDEO_WATERMARK_APP_ICON_PATH}")
     unsubscribe_url = (
         f"{settings.PUBLIC_APP_DOMAIN.rstrip('/')}/api/v1/email_campaign/unsubscribe"
         f"?token={unsubscribe_token}&lang={language.value}"
@@ -59,6 +84,7 @@ def _render_video_watermark_email(unsubscribe_token: str, language: Language) ->
     replacements = {
         "language": language.value,
         "hero_image_url": hero_image_url,
+        "app_icon_url": app_icon_url,
         "unsubscribe_url": unsubscribe_url,
         "hero_alt": copy.hero_alt,
         "title": copy.title,
@@ -90,7 +116,7 @@ def render_email_unsubscribe_page(language: Language) -> str:
 
 
 async def create_video_watermark_email_campaign_service(db: AsyncSession, created_by: str) -> EmailCampaignInfo:
-    await _ensure_video_watermark_hero_uploaded()
+    await _ensure_video_watermark_assets_uploaded()
     candidates = await get_subscribed_email_campaign_candidates(db)
     campaign = EmailCampaign(
         campaign_id=f"campaign_{uuid.uuid4().hex}",
