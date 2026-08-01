@@ -35,7 +35,11 @@ class Settings(BaseSettings):
     ALIYUN_OCR_ENDPOINT: str
     ALIYUN_SMS_ENDPOINT: str
     ALIYUN_EMAIL_ENDPOINT: str
+    # 阿里云 EventBridge 投递事件 HTTP 目标使用的签名 Token。
+    # 未配置时，投递回调接口会拒绝请求，避免暴露为公开写入入口。
+    ALIYUN_EVENTBRIDGE_TOKEN: str = ""
     APPLE_KEYS_URL: str
+    APPLE_SIGN_IN_CLIENT_ID: str = "com.valbara.sporreer"
     APPLE_IAP_ISSUER_ID: str
     # Google ID Token 的预期 audience（Google Cloud 中创建的 Web OAuth client ID）。
     # 留空时服务保持可启动，但 Google 登录接口会拒绝请求。

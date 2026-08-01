@@ -214,6 +214,10 @@ class IAPTransactionRequest(BaseModel):
 class AppStoreNotificationRequest(BaseModel):
     signedPayload: str
 
+
+class AppleSignInNotificationRequest(BaseModel):
+    payload: str
+
 class SubscriptionQueryInfo(BaseModel):
     enforce: bool
     transaction_id: str | None = None

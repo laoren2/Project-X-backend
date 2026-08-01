@@ -1111,7 +1111,7 @@ async def verify_apple_identity_token(identity_token: str):
             identity_token,
             signing_key.key,
             algorithms=["RS256"],
-            audience="com.valbara.sporreer",
+            audience=settings.APPLE_SIGN_IN_CLIENT_ID,
             issuer="https://appleid.apple.com"
         )
         return payload
