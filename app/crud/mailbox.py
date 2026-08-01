@@ -33,11 +33,16 @@ async def get_mails_curd(db: AsyncSession, user_id: uuid.UUID, page: int, size: 
     result = await db.execute(stmt)
     return result.scalars().all()
 
-async def get_mail_by_mail_id(db: AsyncSession, mail_id: str) -> Mailbox | None:
-    mail = await db.execute(
-        select(Mailbox)
-        .where(Mailbox.mail_id == mail_id)
-    )
+async def get_mail_by_mail_id(
+    db: AsyncSession,
+    mail_id: str,
+    *,
+    for_update: bool = False,
+) -> Mailbox | None:
+    stmt = select(Mailbox).where(Mailbox.mail_id == mail_id)
+    if for_update:
+        stmt = stmt.with_for_update()
+    mail = await db.execute(stmt)
     return mail.scalar_one_or_none()
 
 async def get_feedback_mails_curd(db: AsyncSession, page: int, size: int) -> List[FeedbackMailbox]:
