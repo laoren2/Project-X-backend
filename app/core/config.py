@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     DB_MAX_OVERFLOW: int = 5
     REDIS_URL: str
     REDIS_MAX_CONNECTIONS: int = 50
+    # 定时任务只能由独立的 scheduler 容器开启，Web worker 默认不启动。
+    ENABLE_SCHEDULER: bool = False
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200    # 默认 30 天
     MIN_APP_VERSION: str = "1.0.0"              # 默认最低版本

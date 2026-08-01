@@ -169,6 +169,7 @@ async def clean_expired_records_service(db: AsyncSession):
                     .selectinload(BikeEvent.season),
                 selectinload(BikeRaceRecord.path)
             )
+            .with_for_update(skip_locked=True)
         )
         running_wait_for_computed_stmt = (
             select(RunningRaceRecord)
@@ -184,6 +185,7 @@ async def clean_expired_records_service(db: AsyncSession):
                     .selectinload(RunningEvent.season),
                 selectinload(RunningRaceRecord.path)
             )
+            .with_for_update(skip_locked=True)
         )
         bike_recording_records = (await db.execute(bike_wait_for_computed_stmt)).scalars().all()
         running_recording_records = (await db.execute(running_wait_for_computed_stmt)).scalars().all()

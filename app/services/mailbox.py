@@ -114,7 +114,7 @@ async def receive_mail_rewards_service(
         user = await get_user_by_id(db, user_id)
         if not user:
             raise BizException(code=ErrorCode.USER_NOT_FOUND, message="user.not_found")
-        mail = await get_mail_by_mail_id(db, mail_id)
+        mail = await get_mail_by_mail_id(db, mail_id, for_update=True)
         if mail is None:
             raise BizException(code=ErrorCode.MAIL_NOT_FOUND, message="mail.not_found")
         if mail.is_received:

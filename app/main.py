@@ -51,18 +51,22 @@ async def lifespan(app: FastAPI):
     # 启动事件循环保活任务
     #asyncio.create_task(keep_event_loop_alive())
 
-    # 启动定时任务
-    start_scheduler()
-    logger.info("✅ 定时任务启动完成")
+    scheduler_started = False
+    if settings.ENABLE_SCHEDULER:
+        start_scheduler()
+        scheduler_started = True
+        logger.info("✅ 定时任务启动完成")
+    else:
+        logger.info("⏭️ 当前实例未启用定时任务")
     
     yield
     
     # 关闭时的清理操作
     logger.info("🔄 正在关闭应用...")
 
-    # 停止定时任务
-    stop_scheduler()
-    logger.info("✅ 定时任务停止完成")
+    if scheduler_started:
+        stop_scheduler()
+        logger.info("✅ 定时任务停止完成")
     
     # 关闭Redis连接
     await close_redis_connection()
